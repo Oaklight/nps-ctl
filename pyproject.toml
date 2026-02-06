@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nps-ctl"
+version = "0.1.0"
+authors = [{ name = "Oaklight", email = "oaklight@gmx.com" }]
+description = "A Python library and CLI tool for managing NPS (ehang-io/nps) servers"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+classifiers = [
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: System :: Networking",
+    "Topic :: System :: Systems Administration",
+]
+# No external dependencies - stdlib only
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "pyright>=1.1.402",
+    "build>=1.2.2.post1",
+    "twine>=6.1.0",
+]
+test = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "pytest-asyncio>=0.21.0",
+]
+
+[project.scripts]
+nps-ctl = "nps_ctl.cli:main"
+
+[project.urls]
+Repository = "https://github.com/Oaklight/nps-ctl"
+Issues = "https://github.com/Oaklight/nps-ctl/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"nps_ctl" = ["py.typed"]
