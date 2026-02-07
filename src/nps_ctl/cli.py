@@ -9,7 +9,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from nps_ctl.api import NPSCluster, NPSError
+from nps_ctl import client_mgmt, host, tunnel
+from nps_ctl.cluster import NPSCluster
 from nps_ctl.deploy import (
     DEFAULT_NPS_VERSION,
     install_nps,
@@ -17,6 +18,7 @@ from nps_ctl.deploy import (
     render_template,
     uninstall_nps,
 )
+from nps_ctl.exceptions import NPSError
 
 
 def get_default_config_path() -> Path:
@@ -96,7 +98,7 @@ def cmd_status(args: argparse.Namespace) -> int:
 
         try:
             # Try to get clients to verify connection
-            client.list_clients(limit=1)
+            client_mgmt.list_clients(client, limit=1)
             status = "✓ Online"
         except NPSError:
             status = "✗ Offline"
@@ -139,7 +141,7 @@ def cmd_clients(args: argparse.Namespace) -> int:
             return 1
 
         try:
-            clients = client.list_clients()
+            clients = client_mgmt.list_clients(client)
             _print_clients(clients)
         except NPSError as e:
             print(f"Error: {e}", file=sys.stderr)
@@ -199,7 +201,7 @@ def cmd_tunnels(args: argparse.Namespace) -> int:
             return 1
 
         try:
-            tunnels = client.list_tunnels(tunnel_type=tunnel_type)
+            tunnels = tunnel.list_tunnels(client, tunnel_type=tunnel_type)
             _print_tunnels(tunnels)
         except NPSError as e:
             print(f"Error: {e}", file=sys.stderr)
@@ -261,7 +263,7 @@ def cmd_hosts(args: argparse.Namespace) -> int:
             return 1
 
         try:
-            hosts = client.list_hosts()
+            hosts = host.list_hosts(client)
             _print_hosts(hosts)
         except NPSError as e:
             print(f"Error: {e}", file=sys.stderr)
@@ -364,9 +366,9 @@ def cmd_export(args: argparse.Namespace) -> int:
     try:
         data = {
             "edge": edge_name,
-            "clients": client.list_clients(),
-            "tunnels": client.list_tunnels(),
-            "hosts": client.list_hosts(),
+            "clients": client_mgmt.list_clients(client),
+            "tunnels": tunnel.list_tunnels(client),
+            "hosts": host.list_hosts(client),
         }
 
         output = args.output
@@ -416,7 +418,7 @@ def cmd_add_host(args: argparse.Namespace) -> int:
 
         try:
             # Find client
-            clients = client.list_clients(search=args.client)
+            clients = client_mgmt.list_clients(client, search=args.client)
             matching = [c for c in clients if c.get("Remark") == args.client]
             if not matching:
                 print(
@@ -426,7 +428,8 @@ def cmd_add_host(args: argparse.Namespace) -> int:
                 return 1
 
             client_id = matching[0]["Id"]
-            success = client.add_host(
+            success = host.add_host(
+                client,
                 client_id=client_id,
                 host=args.domain,
                 target=args.target,
@@ -444,7 +447,7 @@ def cmd_add_host(args: argparse.Namespace) -> int:
         # All edges
         results = cluster.broadcast_host(
             client_remark=args.client,
-            host=args.domain,
+            host_domain=args.domain,
             target=args.target,
             remark=args.remark or "",
         )
@@ -797,14 +800,15 @@ def cmd_add_tunnel(args: argparse.Namespace) -> int:
 
     try:
         # Find client
-        clients = client.list_clients(search=args.client)
+        clients = client_mgmt.list_clients(client, search=args.client)
         matching = [c for c in clients if c.get("Remark") == args.client]
         if not matching:
             print(f"Error: Client '{args.client}' not found", file=sys.stderr)
             return 1
 
         client_id = matching[0]["Id"]
-        success = client.add_tunnel(
+        success = tunnel.add_tunnel(
+            client,
             client_id=client_id,
             tunnel_type=args.type,
             port=args.port,
