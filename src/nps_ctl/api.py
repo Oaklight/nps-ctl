@@ -844,8 +844,11 @@ class NPSCluster:
 
         # Get source data
         source_clients = source.list_clients() if sync_clients else []
-        source_tunnels = source.list_tunnels() if sync_tunnels else []
-        source_hosts = source.list_hosts() if sync_hosts else []
+        # Note: Tunnel and host sync requires client ID mapping
+        # which is more complex and should be implemented based on specific needs
+        # source_tunnels = source.list_tunnels() if sync_tunnels else []
+        # source_hosts = source.list_hosts() if sync_hosts else []
+        _ = sync_tunnels, sync_hosts  # Mark as intentionally unused for now
 
         for target_name, target_client in self._clients.items():
             if target_name == source_name:
@@ -866,8 +869,5 @@ class NPSCluster:
                             f"Failed to sync client {remark} to {target_name}: {e}"
                         )
                         results[target_name][f"client:{remark}"] = False
-
-            # Note: Tunnel and host sync requires client ID mapping
-            # which is more complex and should be implemented based on specific needs
 
         return results

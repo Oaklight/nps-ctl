@@ -8,7 +8,18 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-# Default NPS release URL (djylb/nps fork)
+# Default NPS version
+DEFAULT_NPS_VERSION = "v0.34.1"
+
+# Mirror sources for NPS releases (in priority order)
+# Uses jsdelivr CDN mirrors which are faster in China and other regions
+NPS_MIRROR_SOURCES = [
+    "https://fastly.jsdelivr.net/gh/djylb/nps-mirror@{version}/linux_amd64_server.tar.gz",
+    "https://cdn.jsdelivr.net/gh/djylb/nps-mirror@{version}/linux_amd64_server.tar.gz",
+    "https://github.com/djylb/nps/releases/download/{version}/linux_amd64_server.tar.gz",
+]
+
+# Default NPS release URL (djylb/nps fork) - kept for backward compatibility
 DEFAULT_NPS_RELEASE_URL = (
     "https://github.com/djylb/nps/releases/download/v0.34.1/linux_amd64_server.tar.gz"
 )
@@ -111,10 +122,23 @@ def ssh_execute(
         )
 
 
+def get_download_urls(version: str = DEFAULT_NPS_VERSION) -> list[str]:
+    """Get list of download URLs for NPS release.
+
+    Args:
+        version: NPS version tag (e.g., "v0.34.1").
+
+    Returns:
+        List of URLs to try in order.
+    """
+    return [url.format(version=version) for url in NPS_MIRROR_SOURCES]
+
+
 def install_nps(
     ssh_host: str,
     nps_conf: str,
-    release_url: str = DEFAULT_NPS_RELEASE_URL,
+    version: str = DEFAULT_NPS_VERSION,
+    release_url: str | None = None,
     timeout: int = 120,
 ) -> DeployResult:
     """Install NPS on a remote server.
@@ -122,24 +146,56 @@ def install_nps(
     Uses NPS's built-in install command which properly sets up
     /etc/nps/conf and /etc/nps/web directories.
 
+    Downloads from multiple mirror sources (jsdelivr CDN, GitHub) with fallback.
+
     Args:
         ssh_host: SSH host to install on.
         nps_conf: NPS configuration file content.
-        release_url: URL to download NPS release tarball.
+        version: NPS version to install (e.g., "v0.34.1").
+        release_url: Custom URL to download NPS release tarball (overrides mirrors).
         timeout: Command timeout in seconds.
 
     Returns:
         DeployResult with installation status.
     """
-    # Escape single quotes in config for heredoc
-    escaped_conf = nps_conf.replace("'", "'\"'\"'")
+    # Build download URLs
+    if release_url:
+        # Use custom URL only
+        urls = [release_url]
+    else:
+        # Use mirror sources
+        urls = get_download_urls(version)
+
+    # Build URL list for shell script
+    urls_shell = " ".join(f'"{url}"' for url in urls)
 
     install_script = f"""
 set -e
 
-echo "Downloading NPS..."
 cd /tmp
-curl -sL "{release_url}" -o nps.tar.gz
+
+# Download with fallback mirrors
+URLS=({urls_shell})
+DOWNLOADED=0
+
+for url in "${{URLS[@]}}"; do
+    echo "Trying $url ..."
+    if curl -sfSL --connect-timeout 10 -o nps.tar.gz "$url"; then
+        if [ -s nps.tar.gz ]; then
+            echo "Downloaded successfully from $url"
+            DOWNLOADED=1
+            break
+        fi
+    fi
+    echo "Failed, trying next mirror..."
+done
+
+if [ "$DOWNLOADED" -ne 1 ]; then
+    echo "Error: Failed to download NPS from all mirrors"
+    exit 1
+fi
+
+echo "Extracting..."
 tar -xzf nps.tar.gz
 
 echo "Running NPS install..."

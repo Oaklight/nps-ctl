@@ -11,7 +11,7 @@ from typing import Any
 
 from nps_ctl.api import NPSCluster, NPSError
 from nps_ctl.deploy import (
-    DEFAULT_NPS_RELEASE_URL,
+    DEFAULT_NPS_VERSION,
     install_nps,
     load_template,
     render_template,
@@ -517,11 +517,14 @@ def cmd_install(args: argparse.Namespace) -> int:
     else:
         target_edges = cluster.edge_names
 
+    # Get version
+    version = args.version or DEFAULT_NPS_VERSION
+
     # Confirm
     if not args.yes:
-        print(f"Will install NPS on: {', '.join(target_edges)}")
+        print(f"Will install NPS {version} on: {', '.join(target_edges)}")
         print("This will:")
-        print("  - Download NPS from GitHub releases (djylb/nps)")
+        print("  - Download NPS from mirrors (jsdelivr CDN, GitHub)")
         print("  - Install to /etc/nps/ using nps install")
         print("  - Configure and start NPS")
         response = input("Continue? [y/N] ")
@@ -562,7 +565,8 @@ def cmd_install(args: argparse.Namespace) -> int:
         result = install_nps(
             ssh_host=edge.ssh_host,
             nps_conf=nps_conf,
-            release_url=args.release_url or DEFAULT_NPS_RELEASE_URL,
+            version=args.version or DEFAULT_NPS_VERSION,
+            release_url=args.release_url,
         )
 
         if result.success:
@@ -872,7 +876,12 @@ def create_parser() -> argparse.ArgumentParser:
     install_parser.add_argument(
         "--template", "-t", help="Path to nps.conf template file"
     )
-    install_parser.add_argument("--release-url", help="Custom NPS release URL")
+    install_parser.add_argument(
+        "--version", help=f"NPS version to install (default: {DEFAULT_NPS_VERSION})"
+    )
+    install_parser.add_argument(
+        "--release-url", help="Custom NPS release URL (overrides mirrors)"
+    )
     install_parser.add_argument(
         "--yes", "-y", action="store_true", help="Skip confirmation"
     )
