@@ -198,19 +198,25 @@ class NPSClient:
         timestamp = self._get_server_time()
         auth_key = self._generate_auth_key(timestamp)
 
-        # Build URL with auth params
-        params = {"auth_key": auth_key, "timestamp": str(timestamp)}
-        if data and method == "GET":
-            params.update({k: str(v) for k, v in data.items()})
-
-        url = f"{self.base_url}{endpoint}?{urllib.parse.urlencode(params)}"
+        # Auth params must be included in POST body, not URL query string
+        auth_params = {"auth_key": auth_key, "timestamp": str(timestamp)}
 
         try:
-            if method == "POST" and data:
-                post_data = urllib.parse.urlencode(data).encode("utf-8")
+            if method == "POST":
+                # For POST requests, include auth params in the body
+                post_params = {**auth_params}
+                if data:
+                    post_params.update({k: str(v) for k, v in data.items()})
+                post_data = urllib.parse.urlencode(post_params).encode("utf-8")
+                url = f"{self.base_url}{endpoint}"
                 req = urllib.request.Request(url, data=post_data, method="POST")
                 req.add_header("Content-Type", "application/x-www-form-urlencoded")
             else:
+                # For GET requests, include auth params in URL
+                params = {**auth_params}
+                if data:
+                    params.update({k: str(v) for k, v in data.items()})
+                url = f"{self.base_url}{endpoint}?{urllib.parse.urlencode(params)}"
                 req = urllib.request.Request(url, method=method)
 
             with urllib.request.urlopen(
@@ -373,6 +379,10 @@ class NPSClient:
 
     # ==================== Tunnel Management ====================
 
+    # NPS API requires the 'type' parameter to return tunnel results.
+    # When no type is specified, we query all known types and merge.
+    TUNNEL_TYPES = ("tcp", "udp", "socks5", "httpProxy", "secret", "p2p", "file")
+
     def list_tunnels(
         self,
         client_id: int | None = None,
@@ -381,11 +391,58 @@ class NPSClient:
         offset: int = 0,
         limit: int = 100,
     ) -> list[TunnelInfo]:
-        """List all tunnels.
+        """List tunnels.
+
+        The NPS API requires a 'type' parameter to return results. When
+        ``tunnel_type`` is empty, this method queries all known tunnel types
+        and merges the results.
 
         Args:
             client_id: Filter by client ID (None for all).
-            tunnel_type: Filter by type ("tcp", "udp", "socks5", "httpProxy").
+            tunnel_type: Filter by type ("tcp", "udp", "socks5", "httpProxy",
+                "secret", "p2p", "file"). Empty string queries all types.
+            search: Search keyword.
+            offset: Pagination offset.
+            limit: Maximum number of results per type.
+
+        Returns:
+            List of tunnel information dictionaries.
+        """
+        if tunnel_type:
+            return self._list_tunnels_by_type(
+                tunnel_type,
+                client_id=client_id,
+                search=search,
+                offset=offset,
+                limit=limit,
+            )
+
+        # Query all tunnel types and merge results
+        all_tunnels: list[TunnelInfo] = []
+        for t in self.TUNNEL_TYPES:
+            tunnels = self._list_tunnels_by_type(
+                t,
+                client_id=client_id,
+                search=search,
+                offset=offset,
+                limit=limit,
+            )
+            all_tunnels.extend(tunnels)
+        return all_tunnels
+
+    def _list_tunnels_by_type(
+        self,
+        tunnel_type: str,
+        client_id: int | None = None,
+        search: str = "",
+        offset: int = 0,
+        limit: int = 100,
+    ) -> list[TunnelInfo]:
+        """List tunnels of a specific type.
+
+        Args:
+            tunnel_type: Tunnel type (required by NPS API).
+            client_id: Filter by client ID (None for all).
             search: Search keyword.
             offset: Pagination offset.
             limit: Maximum number of results.
@@ -394,14 +451,13 @@ class NPSClient:
             List of tunnel information dictionaries.
         """
         data: dict[str, Any] = {
+            "type": tunnel_type,
             "search": search,
             "offset": offset,
             "limit": limit,
         }
         if client_id is not None:
             data["client_id"] = client_id
-        if tunnel_type:
-            data["type"] = tunnel_type
 
         result = self._request("/index/gettunnel", method="POST", data=data)
         return result.get("rows", [])

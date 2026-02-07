@@ -176,6 +176,8 @@ def cmd_tunnels(args: argparse.Namespace) -> int:
         print(f"Error: {e}", file=sys.stderr)
         return 1
 
+    tunnel_type = getattr(args, "type", "") or ""
+
     if args.all:
         all_tunnels = cluster.get_all_tunnels()
         for edge_name, tunnels in all_tunnels.items():
@@ -197,7 +199,7 @@ def cmd_tunnels(args: argparse.Namespace) -> int:
             return 1
 
         try:
-            tunnels = client.list_tunnels()
+            tunnels = client.list_tunnels(tunnel_type=tunnel_type)
             _print_tunnels(tunnels)
         except NPSError as e:
             print(f"Error: {e}", file=sys.stderr)
@@ -853,6 +855,13 @@ def create_parser() -> argparse.ArgumentParser:
     # tunnels command
     tunnels_parser = subparsers.add_parser("tunnels", help="List tunnels")
     tunnels_parser.add_argument("--edge", "-e", help="Edge name")
+    tunnels_parser.add_argument(
+        "--type",
+        "-t",
+        choices=["tcp", "udp", "socks5", "httpProxy", "secret", "p2p", "file"],
+        default="",
+        help="Filter by tunnel type (default: show all types)",
+    )
     tunnels_parser.add_argument(
         "--all", "-a", action="store_true", help="Show all edges"
     )
