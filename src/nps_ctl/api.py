@@ -462,6 +462,22 @@ class NPSClient:
         result = self._request("/index/gettunnel", method="POST", data=data)
         return result.get("rows", [])
 
+    def get_tunnel(self, tunnel_id: int) -> TunnelInfo | None:
+        """Get a single tunnel by ID.
+
+        Args:
+            tunnel_id: The tunnel ID.
+
+        Returns:
+            Tunnel information or None if not found.
+        """
+        result = self._request(
+            "/index/getonetunnel", method="POST", data={"id": tunnel_id}
+        )
+        if result.get("status") == 1:
+            return result.get("data")
+        return None
+
     def add_tunnel(
         self,
         client_id: int,
@@ -470,21 +486,35 @@ class NPSClient:
         target: str = "",
         remark: str = "",
         password: str = "",
+        server_ip: str = "",
+        flow_limit: str = "",
+        time_limit: str = "",
+        local_proxy: int = 0,
+        local_path: str = "",
+        strip_pre: str = "",
     ) -> bool:
         """Add a new tunnel.
 
         Args:
             client_id: The client ID.
-            tunnel_type: Tunnel type ("tcp", "udp", "socks5", "httpProxy").
-            port: Server port (0 for auto-assign).
-            target: Target address (e.g., "127.0.0.1:8080").
+            tunnel_type: Tunnel type ("tcp", "udp", "socks5", "httpProxy",
+                "secret", "p2p", "file").
+            port: Server port (0 or negative for auto-assign).
+            target: Target address (e.g., "127.0.0.1:8080"). Supports
+                multiple targets separated by newlines.
             remark: Tunnel remark.
             password: Tunnel password (for socks5/httpProxy).
+            server_ip: Server IP address.
+            flow_limit: Flow limit in MB (empty for unlimited).
+            time_limit: Time limit (empty for unlimited).
+            local_proxy: Enable local proxy (0=no, 1=yes).
+            local_path: Local path (for file service).
+            strip_pre: URL prefix stripping.
 
         Returns:
             True if successful.
         """
-        data = {
+        data: dict[str, Any] = {
             "client_id": client_id,
             "type": tunnel_type,
             "port": port,
@@ -492,6 +522,19 @@ class NPSClient:
             "remark": remark,
             "password": password,
         }
+        if server_ip:
+            data["server_ip"] = server_ip
+        if flow_limit:
+            data["flow_limit"] = flow_limit
+        if time_limit:
+            data["time_limit"] = time_limit
+        if local_proxy:
+            data["local_proxy"] = local_proxy
+        if local_path:
+            data["local_path"] = local_path
+        if strip_pre:
+            data["strip_pre"] = strip_pre
+
         result = self._request("/index/add", method="POST", data=data)
         return result.get("status") == 1
 
@@ -504,6 +547,12 @@ class NPSClient:
         target: str = "",
         remark: str = "",
         password: str = "",
+        server_ip: str = "",
+        flow_limit: str = "",
+        time_limit: str = "",
+        local_proxy: int = 0,
+        local_path: str = "",
+        strip_pre: str = "",
     ) -> bool:
         """Edit an existing tunnel.
 
@@ -515,11 +564,17 @@ class NPSClient:
             target: Target address.
             remark: Tunnel remark.
             password: Tunnel password.
+            server_ip: Server IP address.
+            flow_limit: Flow limit in MB (empty for unlimited).
+            time_limit: Time limit (empty for unlimited).
+            local_proxy: Enable local proxy (0=no, 1=yes).
+            local_path: Local path (for file service).
+            strip_pre: URL prefix stripping.
 
         Returns:
             True if successful.
         """
-        data = {
+        data: dict[str, Any] = {
             "id": tunnel_id,
             "client_id": client_id,
             "type": tunnel_type,
@@ -528,6 +583,19 @@ class NPSClient:
             "remark": remark,
             "password": password,
         }
+        if server_ip:
+            data["server_ip"] = server_ip
+        if flow_limit:
+            data["flow_limit"] = flow_limit
+        if time_limit:
+            data["time_limit"] = time_limit
+        if local_proxy:
+            data["local_proxy"] = local_proxy
+        if local_path:
+            data["local_path"] = local_path
+        if strip_pre:
+            data["strip_pre"] = strip_pre
+
         result = self._request("/index/edit", method="POST", data=data)
         return result.get("status") == 1
 
