@@ -5,6 +5,7 @@ including broadcasting operations and syncing configurations.
 """
 
 import logging
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -250,9 +251,9 @@ class NPSCluster:
                         )
                         results[target_name][f"client:{remark}"] = success
                     except NPSError as e:
-                        logger.error(
-                            f"Failed to sync client {remark} to {target_name}: {e}"
-                        )
+                        msg = f"Failed to sync client {remark} to {target_name}: {e}"
+                        logger.error(msg)
+                        print(msg, file=sys.stderr)
                         results[target_name][f"client:{remark}"] = False
 
         return results

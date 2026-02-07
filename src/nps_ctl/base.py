@@ -8,6 +8,7 @@ import hashlib
 import json
 import logging
 import ssl
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -47,6 +48,8 @@ class NPSClient:
     auth_key: str
     timeout: int = 30
     verify_ssl: bool = True
+    max_retries: int = 3
+    retry_backoff: float = 1.0
     _ssl_context: ssl.SSLContext | None = field(default=None, init=False, repr=False)
 
     def __post_init__(self) -> None:
@@ -56,6 +59,49 @@ class NPSClient:
             self._ssl_context = ssl.create_default_context()
             self._ssl_context.check_hostname = False
             self._ssl_context.verify_mode = ssl.CERT_NONE
+
+    def _request_with_retry(
+        self,
+        req: urllib.request.Request,
+        *,
+        error_prefix: str = "Request failed",
+        error_cls: type[Exception] = NPSAPIError,
+    ) -> bytes:
+        """Execute an HTTP request with retry and exponential backoff.
+
+        Args:
+            req: The prepared urllib Request object.
+            error_prefix: Prefix for error messages.
+            error_cls: Exception class to raise on final failure.
+
+        Returns:
+            Raw response bytes.
+
+        Raises:
+            error_cls: If all retries are exhausted.
+        """
+        last_error: Exception | None = None
+        for attempt in range(self.max_retries):
+            try:
+                with urllib.request.urlopen(
+                    req, timeout=self.timeout, context=self._ssl_context
+                ) as response:
+                    return response.read()
+            except urllib.error.URLError as e:
+                last_error = e
+                if attempt < self.max_retries - 1:
+                    wait = self.retry_backoff * (2**attempt)
+                    logger.warning(
+                        f"{error_prefix} (attempt {attempt + 1}/{self.max_retries},"
+                        f" retrying in {wait:.1f}s): {e}"
+                    )
+                    time.sleep(wait)
+                else:
+                    logger.error(
+                        f"{error_prefix} (attempt {attempt + 1}/{self.max_retries},"
+                        f" giving up): {e}"
+                    )
+        raise error_cls(f"{error_prefix}: {last_error}") from last_error
 
     def _get_server_time(self) -> int:
         """Get the server timestamp for authentication.
@@ -67,15 +113,17 @@ class NPSClient:
             NPSAuthError: If failed to get server time.
         """
         url = f"{self.base_url}/auth/gettime"
+        req = urllib.request.Request(url)
         try:
-            req = urllib.request.Request(url)
-            with urllib.request.urlopen(
-                req, timeout=self.timeout, context=self._ssl_context
-            ) as response:
-                data = json.loads(response.read().decode("utf-8"))
-                return int(data.get("time", 0))
-        except urllib.error.URLError as e:
-            raise NPSAuthError(f"Failed to get server time: {e}") from e
+            raw = self._request_with_retry(
+                req,
+                error_prefix="Failed to get server time",
+                error_cls=NPSAuthError,
+            )
+            data = json.loads(raw.decode("utf-8"))
+            return int(data.get("time", 0))
+        except NPSAuthError:
+            raise
         except (json.JSONDecodeError, ValueError) as e:
             raise NPSAuthError(f"Invalid server time response: {e}") from e
 
@@ -116,36 +164,32 @@ class NPSClient:
         # Auth params must be included in POST body, not URL query string
         auth_params = {"auth_key": auth_key, "timestamp": str(timestamp)}
 
+        if method == "POST":
+            # For POST requests, include auth params in the body
+            post_params = {**auth_params}
+            if data:
+                post_params.update({k: str(v) for k, v in data.items()})
+            post_data = urllib.parse.urlencode(post_params).encode("utf-8")
+            url = f"{self.base_url}{endpoint}"
+            req = urllib.request.Request(url, data=post_data, method="POST")
+            req.add_header("Content-Type", "application/x-www-form-urlencoded")
+        else:
+            # For GET requests, include auth params in URL
+            params = {**auth_params}
+            if data:
+                params.update({k: str(v) for k, v in data.items()})
+            url = f"{self.base_url}{endpoint}?{urllib.parse.urlencode(params)}"
+            req = urllib.request.Request(url, method=method)
+
         try:
-            if method == "POST":
-                # For POST requests, include auth params in the body
-                post_params = {**auth_params}
-                if data:
-                    post_params.update({k: str(v) for k, v in data.items()})
-                post_data = urllib.parse.urlencode(post_params).encode("utf-8")
-                url = f"{self.base_url}{endpoint}"
-                req = urllib.request.Request(url, data=post_data, method="POST")
-                req.add_header("Content-Type", "application/x-www-form-urlencoded")
-            else:
-                # For GET requests, include auth params in URL
-                params = {**auth_params}
-                if data:
-                    params.update({k: str(v) for k, v in data.items()})
-                url = f"{self.base_url}{endpoint}?{urllib.parse.urlencode(params)}"
-                req = urllib.request.Request(url, method=method)
+            raw = self._request_with_retry(
+                req,
+                error_prefix=f"API request {endpoint} failed",
+            )
+            response_data = raw.decode("utf-8")
+            return json.loads(response_data)
 
-            with urllib.request.urlopen(
-                req, timeout=self.timeout, context=self._ssl_context
-            ) as response:
-                response_data = response.read().decode("utf-8")
-                result = json.loads(response_data)
-                return result
-
-        except urllib.error.HTTPError as e:
-            raise NPSAPIError(
-                f"HTTP error: {e.code} {e.reason}", status_code=e.code
-            ) from e
-        except urllib.error.URLError as e:
-            raise NPSAPIError(f"URL error: {e.reason}") from e
+        except NPSAPIError:
+            raise
         except json.JSONDecodeError as e:
             raise NPSAPIError(f"Invalid JSON response: {e}") from e
