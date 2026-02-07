@@ -255,7 +255,7 @@ class NPSClient:
             "offset": offset,
             "limit": limit,
         }
-        result = self._request("/client/list", data=data)
+        result = self._request("/client/list", method="POST", data=data)
         return result.get("rows", [])
 
     def get_client(self, client_id: int) -> ClientInfo | None:
@@ -403,7 +403,7 @@ class NPSClient:
         if tunnel_type:
             data["type"] = tunnel_type
 
-        result = self._request("/index/gettunnel", data=data)
+        result = self._request("/index/gettunnel", method="POST", data=data)
         return result.get("rows", [])
 
     def add_tunnel(
@@ -539,7 +539,7 @@ class NPSClient:
         if client_id is not None:
             data["client_id"] = client_id
 
-        result = self._request("/index/hostlist", data=data)
+        result = self._request("/index/hostlist", method="POST", data=data)
         return result.get("rows", [])
 
     def add_host(

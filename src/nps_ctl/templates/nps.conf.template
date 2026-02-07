@@ -1,0 +1,70 @@
+#############################################
+# NPS Edge Node Configuration
+# Template file - variables are replaced during deployment
+#############################################
+
+appname=nps
+runmode=pro
+dns_server=1.1.1.1
+
+#############################################
+# HTTP Proxy Settings
+#############################################
+http_proxy_ip=0.0.0.0
+http_proxy_port={http_proxy_port}
+
+http_add_origin_header=true
+allow_x_real_ip=true
+trusted_proxy_ips=127.0.0.1
+
+#############################################
+# Client Connection Settings
+#############################################
+bridge_ip=0.0.0.0
+bridge_port={bridge_port}
+
+public_vkey={public_vkey}
+disconnect_timeout=60
+
+#############################################
+# Web Management Settings
+#############################################
+web_username={web_username}
+web_password={web_password}
+open_captcha=true
+
+web_ip=127.0.0.1
+web_port={web_port}
+web_open_ssl=false
+
+allow_user_login=false
+allow_user_register=false
+allow_user_change_username=false
+
+#############################################
+# API Security Settings
+#############################################
+auth_key={auth_key}
+auth_crypt_key={auth_crypt_key}
+
+#############################################
+# Extended Features
+#############################################
+flow_store_interval=1
+allow_flow_limit=true
+allow_rate_limit=true
+allow_time_limit=true
+allow_tunnel_num_limit=true
+allow_local_proxy=false
+allow_connection_num_limit=true
+allow_multi_ip=true
+system_info_display=true
+
+#############################################
+# Logging
+#############################################
+log_level=4
+log_path=/var/log/nps.log
+log_max_files=10
+log_max_days=7
+log_max_size=2

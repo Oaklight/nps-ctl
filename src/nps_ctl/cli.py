@@ -9,9 +9,14 @@ import sys
 from pathlib import Path
 from typing import Any
 
-import tomllib
-
-from nps_ctl.api import NPSClient, NPSCluster, NPSError
+from nps_ctl.api import NPSCluster, NPSError
+from nps_ctl.deploy import (
+    DEFAULT_NPS_RELEASE_URL,
+    install_nps,
+    load_template,
+    render_template,
+    uninstall_nps,
+)
 
 
 def get_default_config_path() -> Path:
@@ -448,6 +453,272 @@ def cmd_add_host(args: argparse.Namespace) -> int:
     return 0
 
 
+def get_template_path() -> Path:
+    """Get the path to the templates directory.
+
+    Returns:
+        Path to templates directory.
+    """
+    # Try package templates first (inside src/nps_ctl/templates)
+    pkg_templates = Path(__file__).parent / "templates"
+    if pkg_templates.exists():
+        return pkg_templates
+
+    # Try relative to config
+    return Path("templates")
+
+
+def cmd_install(args: argparse.Namespace) -> int:
+    """Install NPS on edge nodes via SSH."""
+    import tomllib
+
+    try:
+        cluster = NPSCluster(args.config)
+    except FileNotFoundError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+    # Load full config to get web credentials and auth_crypt_key
+    config_path = Path(args.config)
+    with open(config_path, "rb") as f:
+        full_config = tomllib.load(f)
+
+    web_config = full_config.get("web", {})
+    web_username = web_config.get("username", "admin")
+    web_password = web_config.get("password", "")
+    auth_crypt_key = full_config.get("auth_crypt_key", "")
+    public_vkey = full_config.get("public_vkey", "2*u@unrNdzyv6E!iB@fT")
+
+    # Port configuration with defaults
+    ports_config = full_config.get("ports", {})
+    http_proxy_port = ports_config.get("http_proxy", 30080)
+    bridge_port = ports_config.get("bridge", 51234)
+    web_port = ports_config.get("web", 25412)
+
+    # Load template
+    template_path = args.template
+    if template_path:
+        template_path = Path(template_path)
+    else:
+        template_path = get_template_path() / "nps.conf.template"
+
+    try:
+        template = load_template(template_path)
+    except FileNotFoundError:
+        print(f"Warning: Template not found at {template_path}, using default")
+        template = None
+
+    # Determine target edges
+    if args.edge:
+        if args.edge not in cluster.edge_names:
+            print(f"Error: Edge '{args.edge}' not found", file=sys.stderr)
+            return 1
+        target_edges = [args.edge]
+    else:
+        target_edges = cluster.edge_names
+
+    # Confirm
+    if not args.yes:
+        print(f"Will install NPS on: {', '.join(target_edges)}")
+        print("This will:")
+        print("  - Download NPS from GitHub releases (djylb/nps)")
+        print("  - Install to /etc/nps/ using nps install")
+        print("  - Configure and start NPS")
+        response = input("Continue? [y/N] ")
+        if response.lower() != "y":
+            print("Aborted.")
+            return 0
+
+    success_count = 0
+    fail_count = 0
+
+    for edge_name in target_edges:
+        edge = cluster.get_edge(edge_name)
+        if not edge or not edge.ssh_host:
+            print(f"✗ {edge_name}: No SSH host configured")
+            fail_count += 1
+            continue
+
+        print(f"\nInstalling NPS on {edge_name} ({edge.ssh_host})...")
+
+        # Generate config for this edge
+        variables = {
+            "web_username": web_username,
+            "web_password": web_password,
+            "auth_key": edge.auth_key,
+            "auth_crypt_key": auth_crypt_key,
+            "public_vkey": public_vkey,
+            "http_proxy_port": http_proxy_port,
+            "bridge_port": bridge_port,
+            "web_port": web_port,
+        }
+
+        if template:
+            nps_conf = render_template(template, variables)
+        else:
+            # Fallback to inline template
+            nps_conf = _get_default_template().format(**variables)
+
+        result = install_nps(
+            ssh_host=edge.ssh_host,
+            nps_conf=nps_conf,
+            release_url=args.release_url or DEFAULT_NPS_RELEASE_URL,
+        )
+
+        if result.success:
+            print(f"✓ {edge_name}: Installed successfully")
+            if args.verbose and result.stdout:
+                for line in result.stdout.strip().split("\n"):
+                    print(f"  {line}")
+            success_count += 1
+        else:
+            print(f"✗ {edge_name}: {result.message}")
+            if result.stderr:
+                for line in result.stderr.strip().split("\n"):
+                    print(f"  {line}")
+            if result.stdout:
+                for line in result.stdout.strip().split("\n"):
+                    print(f"  {line}")
+            fail_count += 1
+
+    print(f"\nSummary: {success_count} succeeded, {fail_count} failed")
+    return 0 if fail_count == 0 else 1
+
+
+def _get_default_template() -> str:
+    """Get the default NPS configuration template."""
+    return """#############################################
+# NPS Edge Node Configuration
+#############################################
+
+appname=nps
+runmode=pro
+dns_server=1.1.1.1
+
+#############################################
+# HTTP Proxy Settings
+#############################################
+http_proxy_ip=0.0.0.0
+http_proxy_port={http_proxy_port}
+
+http_add_origin_header=true
+allow_x_real_ip=true
+trusted_proxy_ips=127.0.0.1
+
+#############################################
+# Client Connection Settings
+#############################################
+bridge_ip=0.0.0.0
+bridge_port={bridge_port}
+
+public_vkey={public_vkey}
+disconnect_timeout=60
+
+#############################################
+# Web Management Settings
+#############################################
+web_username={web_username}
+web_password={web_password}
+open_captcha=true
+
+web_ip=127.0.0.1
+web_port={web_port}
+web_open_ssl=false
+
+allow_user_login=false
+allow_user_register=false
+allow_user_change_username=false
+
+#############################################
+# API Security Settings
+#############################################
+auth_key={auth_key}
+auth_crypt_key={auth_crypt_key}
+
+#############################################
+# Extended Features
+#############################################
+flow_store_interval=1
+allow_flow_limit=true
+allow_rate_limit=true
+allow_time_limit=true
+allow_tunnel_num_limit=true
+allow_local_proxy=false
+allow_connection_num_limit=true
+allow_multi_ip=true
+system_info_display=true
+
+#############################################
+# Logging
+#############################################
+log_level=4
+log_path=/var/log/nps.log
+log_max_files=10
+log_max_days=7
+log_max_size=2
+"""
+
+
+def cmd_uninstall(args: argparse.Namespace) -> int:
+    """Uninstall NPS from edge nodes via SSH."""
+    try:
+        cluster = NPSCluster(args.config)
+    except FileNotFoundError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+    # Determine target edges
+    if args.edge:
+        if args.edge not in cluster.edge_names:
+            print(f"Error: Edge '{args.edge}' not found", file=sys.stderr)
+            return 1
+        target_edges = [args.edge]
+    else:
+        target_edges = cluster.edge_names
+
+    # Confirm
+    if not args.yes:
+        print(f"Will uninstall NPS from: {', '.join(target_edges)}")
+        print("This will:")
+        print("  - Stop and disable Nps.service")
+        print("  - Remove /usr/bin/nps")
+        print("  - Remove /etc/nps/")
+        response = input("Continue? [y/N] ")
+        if response.lower() != "y":
+            print("Aborted.")
+            return 0
+
+    success_count = 0
+    fail_count = 0
+
+    for edge_name in target_edges:
+        edge = cluster.get_edge(edge_name)
+        if not edge or not edge.ssh_host:
+            print(f"✗ {edge_name}: No SSH host configured")
+            fail_count += 1
+            continue
+
+        print(f"\nUninstalling NPS from {edge_name} ({edge.ssh_host})...")
+
+        result = uninstall_nps(ssh_host=edge.ssh_host)
+
+        if result.success:
+            print(f"✓ {edge_name}: Uninstalled successfully")
+            if args.verbose and result.stdout:
+                for line in result.stdout.strip().split("\n"):
+                    print(f"  {line}")
+            success_count += 1
+        else:
+            print(f"✗ {edge_name}: {result.message}")
+            if result.stderr:
+                for line in result.stderr.strip().split("\n"):
+                    print(f"  {line}")
+            fail_count += 1
+
+    print(f"\nSummary: {success_count} succeeded, {fail_count} failed")
+    return 0 if fail_count == 0 else 1
+
+
 def cmd_add_tunnel(args: argparse.Namespace) -> int:
     """Add a tunnel to an edge."""
     try:
@@ -498,7 +769,7 @@ def cmd_add_tunnel(args: argparse.Namespace) -> int:
         if success:
             print(f"✓ Added tunnel to {edge_name}")
         else:
-            print(f"✗ Failed to add tunnel")
+            print("✗ Failed to add tunnel")
             return 1
     except NPSError as e:
         print(f"Error: {e}", file=sys.stderr)
@@ -590,6 +861,40 @@ def create_parser() -> argparse.ArgumentParser:
         "--yes", "-y", action="store_true", help="Skip confirmation"
     )
     add_host_parser.set_defaults(func=cmd_add_host)
+
+    # install command
+    install_parser = subparsers.add_parser(
+        "install", help="Install NPS on edge nodes via SSH"
+    )
+    install_parser.add_argument(
+        "--edge", "-e", help="Edge name (all edges if not specified)"
+    )
+    install_parser.add_argument(
+        "--template", "-t", help="Path to nps.conf template file"
+    )
+    install_parser.add_argument("--release-url", help="Custom NPS release URL")
+    install_parser.add_argument(
+        "--yes", "-y", action="store_true", help="Skip confirmation"
+    )
+    install_parser.add_argument(
+        "--verbose", "-v", action="store_true", help="Show detailed output"
+    )
+    install_parser.set_defaults(func=cmd_install)
+
+    # uninstall command
+    uninstall_parser = subparsers.add_parser(
+        "uninstall", help="Uninstall NPS from edge nodes via SSH"
+    )
+    uninstall_parser.add_argument(
+        "--edge", "-e", help="Edge name (all edges if not specified)"
+    )
+    uninstall_parser.add_argument(
+        "--yes", "-y", action="store_true", help="Skip confirmation"
+    )
+    uninstall_parser.add_argument(
+        "--verbose", "-v", action="store_true", help="Show detailed output"
+    )
+    uninstall_parser.set_defaults(func=cmd_uninstall)
 
     # add-tunnel command
     add_tunnel_parser = subparsers.add_parser("add-tunnel", help="Add a tunnel")
