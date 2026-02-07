@@ -520,10 +520,17 @@ def cmd_install(args: argparse.Namespace) -> int:
     # Get version
     version = args.version or DEFAULT_NPS_VERSION
 
+    # Check for force reinstall
+    force_reinstall = getattr(args, "force_reinstall", False)
+
     # Confirm
     if not args.yes:
         print(f"Will install NPS {version} on: {', '.join(target_edges)}")
-        print("This will:")
+        if force_reinstall:
+            print("This will (force reinstall):")
+            print("  - Uninstall existing NPS first")
+        else:
+            print("This will:")
         print("  - Download NPS from mirrors (jsdelivr CDN, GitHub)")
         print("  - Install to /etc/nps/ using nps install")
         print("  - Configure and start NPS")
@@ -541,6 +548,22 @@ def cmd_install(args: argparse.Namespace) -> int:
             print(f"✗ {edge_name}: No SSH host configured")
             fail_count += 1
             continue
+
+        # Force reinstall: uninstall first
+        if force_reinstall:
+            print(f"\nUninstalling NPS from {edge_name} ({edge.ssh_host})...")
+            uninstall_result = uninstall_nps(ssh_host=edge.ssh_host)
+            if uninstall_result.success:
+                print("  ✓ Uninstalled successfully")
+                if args.verbose and uninstall_result.stdout:
+                    for line in uninstall_result.stdout.strip().split("\n"):
+                        print(f"    {line}")
+            else:
+                # Uninstall failure is not fatal - NPS might not be installed
+                print(f"  ⚠ Uninstall: {uninstall_result.message}")
+                if args.verbose and uninstall_result.stderr:
+                    for line in uninstall_result.stderr.strip().split("\n"):
+                        print(f"    {line}")
 
         print(f"\nInstalling NPS on {edge_name} ({edge.ssh_host})...")
 
@@ -897,6 +920,11 @@ def create_parser() -> argparse.ArgumentParser:
     )
     install_parser.add_argument(
         "--release-url", help="Custom NPS release URL (overrides mirrors)"
+    )
+    install_parser.add_argument(
+        "--force-reinstall",
+        action="store_true",
+        help="Uninstall existing NPS before installing (clean reinstall)",
     )
     install_parser.add_argument(
         "--yes", "-y", action="store_true", help="Skip confirmation"
