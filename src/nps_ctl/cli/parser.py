@@ -5,14 +5,14 @@ This module defines all subcommands and their arguments.
 
 import argparse
 
-from nps_ctl.cli.cmd_clients import cmd_clients
-from nps_ctl.cli.cmd_deploy import cmd_install, cmd_uninstall
-from nps_ctl.cli.cmd_hosts import cmd_add_host, cmd_hosts
-from nps_ctl.cli.cmd_status import cmd_status
-from nps_ctl.cli.cmd_sync import cmd_export, cmd_sync
-from nps_ctl.cli.cmd_tunnels import cmd_add_tunnel, cmd_tunnels
-from nps_ctl.cli.cmd_utils import cmd_generate_auth_key
-from nps_ctl.deploy import DEFAULT_NPS_VERSION
+from ..deploy import DEFAULT_NPS_VERSION
+from .cmd_clients import cmd_clients
+from .cmd_deploy import cmd_install, cmd_uninstall
+from .cmd_hosts import cmd_add_host, cmd_hosts
+from .cmd_status import cmd_status
+from .cmd_sync import cmd_export, cmd_sync
+from .cmd_tunnels import cmd_add_tunnel, cmd_tunnels
+from .cmd_utils import cmd_generate_auth_key
 
 
 def create_parser() -> argparse.ArgumentParser:

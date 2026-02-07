@@ -2,7 +2,7 @@
 
 import argparse
 
-from nps_ctl.utils import generate_auth_key
+from ..utils import generate_auth_key
 
 
 def cmd_generate_auth_key(args: argparse.Namespace) -> int:

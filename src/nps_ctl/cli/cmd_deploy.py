@@ -4,15 +4,15 @@ import argparse
 import sys
 from pathlib import Path
 
-from nps_ctl.cli.helpers import get_template_path
-from nps_ctl.cluster import NPSCluster
-from nps_ctl.deploy import (
+from ..cluster import NPSCluster
+from ..deploy import (
     DEFAULT_NPS_VERSION,
     install_nps,
     load_template,
     render_template,
     uninstall_nps,
 )
+from .helpers import get_template_path
 
 
 def cmd_install(args: argparse.Namespace) -> int:

@@ -16,8 +16,8 @@ Submodules:
 
 import sys
 
-from nps_ctl.cli.helpers import get_default_config_path
-from nps_ctl.cli.parser import create_parser
+from .helpers import get_default_config_path
+from .parser import create_parser
 
 
 def main() -> int:

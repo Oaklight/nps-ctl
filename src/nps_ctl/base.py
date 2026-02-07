@@ -14,7 +14,7 @@ import urllib.request
 from dataclasses import dataclass, field
 from typing import Any
 
-from nps_ctl.exceptions import NPSAPIError, NPSAuthError
+from .exceptions import NPSAPIError, NPSAuthError
 
 logger = logging.getLogger(__name__)
 

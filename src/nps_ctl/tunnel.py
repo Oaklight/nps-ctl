@@ -8,10 +8,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from nps_ctl.types import TunnelInfo
+from .types import TunnelInfo
 
 if TYPE_CHECKING:
-    from nps_ctl.base import NPSClient
+    from .base import NPSClient
 
 # NPS API requires the 'type' parameter to return tunnel results.
 # When no type is specified, we query all known types and merge.

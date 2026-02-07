@@ -11,10 +11,10 @@ from typing import Any
 
 import tomllib
 
-from nps_ctl import client_mgmt, host, tunnel
-from nps_ctl.base import NPSClient
-from nps_ctl.exceptions import NPSError
-from nps_ctl.types import ClientInfo, EdgeConfig, HostInfo, TunnelInfo
+from . import client_mgmt, host, tunnel
+from .base import NPSClient
+from .exceptions import NPSError
+from .types import ClientInfo, EdgeConfig, HostInfo, TunnelInfo
 
 logger = logging.getLogger(__name__)
 

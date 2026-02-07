@@ -4,10 +4,10 @@ import argparse
 import sys
 from typing import Any
 
-from nps_ctl import client_mgmt
-from nps_ctl.cli.helpers import format_table
-from nps_ctl.cluster import NPSCluster
-from nps_ctl.exceptions import NPSError
+from .. import client_mgmt
+from ..cluster import NPSCluster
+from ..exceptions import NPSError
+from .helpers import format_table
 
 
 def cmd_clients(args: argparse.Namespace) -> int:

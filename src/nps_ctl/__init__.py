@@ -20,7 +20,7 @@ Modules:
 
 __version__ = "0.1.0"
 
-from nps_ctl.base import NPSClient
-from nps_ctl.cluster import NPSCluster
+from .base import NPSClient
+from .cluster import NPSCluster
 
 __all__ = ["NPSClient", "NPSCluster", "__version__"]

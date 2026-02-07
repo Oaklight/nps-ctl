@@ -13,10 +13,10 @@ New code should import directly from the specific modules:
 """
 
 # Re-export everything for backward compatibility
-from nps_ctl.base import NPSClient
-from nps_ctl.cluster import NPSCluster
-from nps_ctl.exceptions import NPSAPIError, NPSAuthError, NPSError
-from nps_ctl.types import ClientInfo, EdgeConfig, HostInfo, TunnelInfo
+from .base import NPSClient
+from .cluster import NPSCluster
+from .exceptions import NPSAPIError, NPSAuthError, NPSError
+from .types import ClientInfo, EdgeConfig, HostInfo, TunnelInfo
 
 __all__ = [
     "ClientInfo",

@@ -4,9 +4,9 @@ import argparse
 import json
 import sys
 
-from nps_ctl import client_mgmt, host, tunnel
-from nps_ctl.cluster import NPSCluster
-from nps_ctl.exceptions import NPSError
+from .. import client_mgmt, host, tunnel
+from ..cluster import NPSCluster
+from ..exceptions import NPSError
 
 
 def cmd_sync(args: argparse.Namespace) -> int:

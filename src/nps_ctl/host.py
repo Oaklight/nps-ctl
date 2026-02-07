@@ -8,10 +8,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from nps_ctl.types import HostInfo
+from .types import HostInfo
 
 if TYPE_CHECKING:
-    from nps_ctl.base import NPSClient
+    from .base import NPSClient
 
 
 def list_hosts(
