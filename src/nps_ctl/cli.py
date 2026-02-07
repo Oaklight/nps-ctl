@@ -723,6 +723,22 @@ def cmd_uninstall(args: argparse.Namespace) -> int:
     return 0 if fail_count == 0 else 1
 
 
+def cmd_generate_auth_key(args: argparse.Namespace) -> int:
+    """Generate a random auth key for NPS API authentication.
+
+    Args:
+        args: Command arguments containing length parameter.
+
+    Returns:
+        Exit code (0 for success).
+    """
+    from .utils import generate_auth_key
+
+    auth_key = generate_auth_key(args.length)
+    print(auth_key)
+    return 0
+
+
 def cmd_add_tunnel(args: argparse.Namespace) -> int:
     """Add a tunnel to an edge."""
     try:
@@ -905,6 +921,19 @@ def create_parser() -> argparse.ArgumentParser:
     )
     uninstall_parser.set_defaults(func=cmd_uninstall)
 
+    # generate-auth-key command (standalone, no config required)
+    gen_key_parser = subparsers.add_parser(
+        "generate-auth-key", help="Generate a random auth key"
+    )
+    gen_key_parser.add_argument(
+        "length",
+        type=int,
+        nargs="?",
+        default=43,
+        help="Length of the auth key (default: 43, matching NPS default)",
+    )
+    gen_key_parser.set_defaults(func=cmd_generate_auth_key, requires_config=False)
+
     # add-tunnel command
     add_tunnel_parser = subparsers.add_parser("add-tunnel", help="Add a tunnel")
     add_tunnel_parser.add_argument(
@@ -931,22 +960,29 @@ def create_parser() -> argparse.ArgumentParser:
     return parser
 
 
+# Commands that don't require a configuration file
+STANDALONE_COMMANDS = {"generate-auth-key"}
+
+
 def main() -> int:
     """Main entry point."""
     parser = create_parser()
     args = parser.parse_args()
 
-    # Find config file if not specified
-    if args.config is None:
+    if args.command is None:
+        parser.print_help()
+        return 0
+
+    # Check if this command requires config
+    requires_config = getattr(args, "requires_config", True)
+
+    # Find config file if not specified and required
+    if requires_config and args.config is None:
         try:
             args.config = get_default_config_path()
         except FileNotFoundError as e:
             print(f"Error: {e}", file=sys.stderr)
             return 1
-
-    if args.command is None:
-        parser.print_help()
-        return 0
 
     return args.func(args)
 
