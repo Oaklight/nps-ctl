@@ -11,7 +11,8 @@ from rich.console import Console
 from rich.table import Table
 
 # Shared console instance for all CLI commands
-console = Console()
+# Use force_terminal=True to ensure immediate output through proxies
+console = Console(force_terminal=True)
 
 
 def get_default_config_path() -> Path:

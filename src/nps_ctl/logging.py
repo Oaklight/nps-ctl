@@ -387,6 +387,19 @@ def get_operation_logger(name: str) -> OperationLogger:
     return OperationLogger(logging.getLogger(name))
 
 
+class FlushingStreamHandler(logging.StreamHandler):
+    """StreamHandler that flushes after every emit.
+
+    This ensures log messages are immediately visible, even when output
+    is piped or goes through proxies (like SSH SOCKS tunnels).
+    """
+
+    def emit(self, record: logging.LogRecord) -> None:
+        """Emit a record and flush the stream."""
+        super().emit(record)
+        self.flush()
+
+
 def configure_logging(
     level: str | int = "NOTICE",
     use_colors: bool = True,
@@ -401,7 +414,7 @@ def configure_logging(
         level: Log level (DEBUG, INFO, NOTICE, WARNING, ERROR, CRITICAL) or int.
             Default is NOTICE (25), which shows key phase information.
         use_colors: Whether to use colored output.
-        handler: Custom handler to use. If None, uses StreamHandler to stderr.
+        handler: Custom handler to use. If None, uses FlushingStreamHandler to stderr.
 
     Example:
         >>> configure_logging(level="DEBUG")
@@ -424,8 +437,9 @@ def configure_logging(
     root_logger.handlers.clear()
 
     # Create handler if not provided
+    # Use FlushingStreamHandler to ensure immediate output
     if handler is None:
-        handler = logging.StreamHandler(sys.stderr)
+        handler = FlushingStreamHandler(sys.stderr)
 
     # Set formatter
     handler.setFormatter(NPSLogFormatter(use_colors=use_colors))

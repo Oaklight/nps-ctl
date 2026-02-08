@@ -10,7 +10,8 @@ from .. import client_mgmt, host, tunnel
 from ..cluster import NPSCluster
 from ..exceptions import NPSError
 
-console = Console()
+# Use force_terminal=True to ensure immediate output through proxies
+console = Console(force_terminal=True)
 
 
 def cmd_sync(args: argparse.Namespace) -> int:

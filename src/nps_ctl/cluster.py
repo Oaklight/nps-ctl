@@ -43,8 +43,9 @@ op_logger = get_operation_logger(__name__)
 
 T = TypeVar("T")
 
-# Rich console for output
-console = Console()
+# Rich console for output with forced flush for streaming
+# force_terminal=True ensures output is not buffered when piped or through proxies
+console = Console(force_terminal=True)
 
 
 class RateLimiter:
