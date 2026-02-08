@@ -15,12 +15,28 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 
+# Custom log level NOTICE (25) - between INFO (20) and WARNING (30)
+# Used for key phase information that should be visible by default
+NOTICE = 25
+logging.addLevelName(NOTICE, "NOTICE")
+
+
+def _notice(self: logging.Logger, message: str, *args: Any, **kwargs: Any) -> None:
+    """Log a message at NOTICE level."""
+    if self.isEnabledFor(NOTICE):
+        self._log(NOTICE, message, args, **kwargs)
+
+
+# Add notice method to Logger class
+logging.Logger.notice = _notice  # type: ignore[attr-defined]
+
 
 class LogLevel(Enum):
     """Log level enumeration."""
 
     DEBUG = logging.DEBUG
     INFO = logging.INFO
+    NOTICE = NOTICE
     WARNING = logging.WARNING
     ERROR = logging.ERROR
     CRITICAL = logging.CRITICAL
@@ -60,6 +76,7 @@ class NPSLogFormatter(logging.Formatter):
     COLORS = {
         "DEBUG": "\033[36m",  # Cyan
         "INFO": "\033[32m",  # Green
+        "NOTICE": "\033[34m",  # Blue - for key phase info
         "WARNING": "\033[33m",  # Yellow
         "ERROR": "\033[31m",  # Red
         "CRITICAL": "\033[35m",  # Magenta
@@ -214,12 +231,12 @@ class OperationLogger:
     def operation_start(self, ctx: OperationContext) -> None:
         """Log the start of an operation.
 
-        This logs at WARNING level so it's visible by default.
+        This logs at NOTICE level so it's visible by default.
 
         Args:
             ctx: Operation context.
         """
-        self._logger.warning(f"Starting {ctx}")
+        self._logger.log(NOTICE, f"Starting {ctx}")
 
     def operation_success(
         self,
@@ -229,7 +246,7 @@ class OperationLogger:
     ) -> None:
         """Log a successful operation.
 
-        This logs at WARNING level so it's visible by default.
+        This logs at NOTICE level so it's visible by default.
 
         Args:
             ctx: Operation context.
@@ -241,7 +258,7 @@ class OperationLogger:
             msg += f" | result={result}"
         if duration_ms is not None:
             msg += f" | {duration_ms:.1f}ms"
-        self._logger.warning(msg)
+        self._logger.log(NOTICE, msg)
 
     def operation_failed(
         self,
@@ -310,14 +327,14 @@ class OperationLogger:
             self._logger.error(msg)
 
     def phase_info(self, message: str) -> None:
-        """Log a phase/milestone message at WARNING level.
+        """Log a phase/milestone message at NOTICE level.
 
         Use this for key phase transitions that should be visible by default.
 
         Args:
             message: The phase message.
         """
-        self._logger.warning(message)
+        self._logger.log(NOTICE, message)
 
 
 def _mask_sensitive_data(data: dict[str, Any]) -> dict[str, Any]:
@@ -371,7 +388,7 @@ def get_operation_logger(name: str) -> OperationLogger:
 
 
 def configure_logging(
-    level: str | int = "INFO",
+    level: str | int = "NOTICE",
     use_colors: bool = True,
     handler: logging.Handler | None = None,
 ) -> None:
@@ -381,17 +398,23 @@ def configure_logging(
     the specified log level and formatter.
 
     Args:
-        level: Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL) or int.
+        level: Log level (DEBUG, INFO, NOTICE, WARNING, ERROR, CRITICAL) or int.
+            Default is NOTICE (25), which shows key phase information.
         use_colors: Whether to use colored output.
         handler: Custom handler to use. If None, uses StreamHandler to stderr.
 
     Example:
         >>> configure_logging(level="DEBUG")
-        >>> configure_logging(level=logging.INFO, use_colors=False)
+        >>> configure_logging(level="INFO")  # Show all request details
+        >>> configure_logging(level="NOTICE")  # Default, show key phases only
     """
     # Convert string level to int if needed
     if isinstance(level, str):
-        level = getattr(logging, level.upper(), logging.INFO)
+        level_upper = level.upper()
+        if level_upper == "NOTICE":
+            level = NOTICE
+        else:
+            level = getattr(logging, level_upper, NOTICE)
 
     # Get the root logger for nps_ctl
     root_logger = logging.getLogger("nps_ctl")
@@ -419,10 +442,14 @@ def set_log_level(level: str | int) -> None:
     """Set the log level for the nps_ctl package.
 
     Args:
-        level: Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL) or int.
+        level: Log level (DEBUG, INFO, NOTICE, WARNING, ERROR, CRITICAL) or int.
     """
     if isinstance(level, str):
-        level = getattr(logging, level.upper(), logging.INFO)
+        level_upper = level.upper()
+        if level_upper == "NOTICE":
+            level = NOTICE
+        else:
+            level = getattr(logging, level_upper, NOTICE)
 
     logger = logging.getLogger("nps_ctl")
     logger.setLevel(level)

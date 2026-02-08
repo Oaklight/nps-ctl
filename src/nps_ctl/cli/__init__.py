@@ -24,6 +24,11 @@ from .parser import create_parser
 def setup_logging(verbose: bool = False, debug: bool = False) -> None:
     """Configure logging based on verbosity level.
 
+    Log levels:
+        - Default (no flags): NOTICE - shows key phase information
+        - -v/--verbose: INFO - shows all request/response details
+        - --debug: DEBUG - shows everything including internal details
+
     Args:
         verbose: Enable INFO level logging.
         debug: Enable DEBUG level logging (overrides verbose).
@@ -33,7 +38,7 @@ def setup_logging(verbose: bool = False, debug: bool = False) -> None:
     elif verbose:
         level = "INFO"
     else:
-        level = "WARNING"
+        level = "NOTICE"  # Custom level (25) - shows key phases only
 
     configure_logging(level=level, use_colors=True)
 
