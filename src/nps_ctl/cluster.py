@@ -5,10 +5,12 @@ including broadcasting operations and syncing configurations.
 """
 
 import logging
+import random
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
+from threading import Lock
 from typing import Any, Callable, TypeVar
 
 import tomllib
@@ -43,6 +45,39 @@ T = TypeVar("T")
 
 # Rich console for output
 console = Console()
+
+
+class RateLimiter:
+    """Simple rate limiter to control request frequency.
+
+    This helps prevent overwhelming servers with too many concurrent requests.
+    """
+
+    def __init__(self, min_interval: float = 0.2, jitter: float = 0.1):
+        """Initialize rate limiter.
+
+        Args:
+            min_interval: Minimum interval between requests in seconds.
+            jitter: Random jitter to add (0 to jitter seconds).
+        """
+        self._min_interval = min_interval
+        self._jitter = jitter
+        self._lock = Lock()
+        self._last_request_time = 0.0
+
+    def wait(self) -> None:
+        """Wait until it's safe to make the next request."""
+        with self._lock:
+            now = time.perf_counter()
+            elapsed = now - self._last_request_time
+            wait_time = self._min_interval - elapsed
+
+            if wait_time > 0:
+                # Add random jitter to prevent thundering herd
+                jitter = random.uniform(0, self._jitter)
+                time.sleep(wait_time + jitter)
+
+            self._last_request_time = time.perf_counter()
 
 
 @dataclass
@@ -800,12 +835,17 @@ class NPSCluster:
         existing_vkeys: set[str],
         existing_tunnels: set[tuple[int, str, int]],
         existing_hosts: set[str],
+        rate_limiter: "RateLimiter | None" = None,
     ) -> tuple[str, str, str, bool]:
         """Sync a single item to a target edge.
 
         Returns:
             Tuple of (target_name, item_type, item_name, success).
         """
+        # Apply rate limiting to reduce server pressure
+        if rate_limiter:
+            rate_limiter.wait()
+
         target_nps = self._clients[target_name]
 
         if item_type == "client":
@@ -959,6 +999,10 @@ class NPSCluster:
             tunnel_success = tunnel_total = 0
             host_success = host_total = 0
 
+            # Create rate limiter to prevent overwhelming the server
+            # Use longer intervals for better reliability on unstable networks
+            rate_limiter = RateLimiter(min_interval=0.5, jitter=0.2)
+
             # Sync items with progress bar
             if show_progress:
                 with Progress(
@@ -985,6 +1029,7 @@ class NPSCluster:
                                 existing_vkeys,
                                 existing_tunnels,
                                 existing_hosts,
+                                rate_limiter,
                             ): (item_type, item_info)
                             for item_type, item_info in tasks
                         }
@@ -1027,6 +1072,7 @@ class NPSCluster:
                             existing_vkeys,
                             existing_tunnels,
                             existing_hosts,
+                            rate_limiter,
                         ): (item_type, item_info)
                         for item_type, item_info in tasks
                     }
@@ -1162,6 +1208,10 @@ class NPSCluster:
                 f"{len(active_targets)} target edges...[/bold blue]"
             )
 
+        # Create rate limiter to prevent overwhelming the server
+        # Use longer intervals for better reliability on unstable networks
+        rate_limiter = RateLimiter(min_interval=0.5, jitter=0.2)
+
         # Execute all tasks in parallel
         if show_progress:
             with Progress(
@@ -1188,6 +1238,7 @@ class NPSCluster:
                             target_data[target_name][1],
                             target_data[target_name][2],
                             target_data[target_name][3],
+                            rate_limiter,
                         ): (target_name, item_type, item_info)
                         for target_name, item_type, item_info in tasks
                     }
@@ -1225,6 +1276,7 @@ class NPSCluster:
                         target_data[target_name][1],
                         target_data[target_name][2],
                         target_data[target_name][3],
+                        rate_limiter,
                     ): (target_name, item_type, item_info)
                     for target_name, item_type, item_info in tasks
                 }

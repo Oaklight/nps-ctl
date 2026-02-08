@@ -122,8 +122,8 @@ def create_parser() -> argparse.ArgumentParser:
         "--workers",
         "-w",
         type=int,
-        default=4,
-        help="Number of parallel workers for items within each edge (default: 4)",
+        default=1,
+        help="Number of parallel workers for items within each edge (default: 1)",
     )
     sync_parser.set_defaults(func=cmd_sync)
 
