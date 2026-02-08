@@ -5,6 +5,7 @@ This package provides:
 - NPSCluster: Manager for multiple NPS servers
 - Modular API functions: client_mgmt, tunnel, host
 - CLI tool for command-line management
+- Enhanced logging with configure_logging
 
 Modules:
     base: NPSClient class (authentication and HTTP requests)
@@ -16,11 +17,19 @@ Modules:
     exceptions: Exception classes (NPSError, NPSAuthError, NPSAPIError)
     deploy: Deployment functions (install, uninstall via SSH)
     utils: Utility functions (auth key generation)
+    logging: Logging configuration and utilities
 """
 
 __version__ = "0.1.0"
 
 from .base import NPSClient
 from .cluster import NPSCluster
+from .logging import configure_logging, set_log_level
 
-__all__ = ["NPSClient", "NPSCluster", "__version__"]
+__all__ = [
+    "NPSClient",
+    "NPSCluster",
+    "__version__",
+    "configure_logging",
+    "set_log_level",
+]

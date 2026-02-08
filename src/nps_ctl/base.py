@@ -16,8 +16,10 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .exceptions import NPSAPIError, NPSAuthError
+from .logging import get_operation_logger
 
 logger = logging.getLogger(__name__)
+op_logger = get_operation_logger(__name__)
 
 
 @dataclass
@@ -66,17 +68,26 @@ class NPSClient:
             self._ssl_context = ssl.create_default_context()
             self._ssl_context.check_hostname = False
             self._ssl_context.verify_mode = ssl.CERT_NONE
+            logger.debug(f"SSL verification disabled for {self.base_url}")
         else:
             self._ssl_context = ssl.create_default_context()
 
         # Setup proxy if specified
         if self.proxy:
-            logger.debug(f"Using proxy: {self.proxy}")
+            op_logger.connection_attempt(
+                self.base_url, proxy=self.proxy, verify_ssl=self.verify_ssl
+            )
             proxy_handler = urllib.request.ProxyHandler(
                 {"http": self.proxy, "https": self.proxy}
             )
             https_handler = urllib.request.HTTPSHandler(context=self._ssl_context)
             self._opener = urllib.request.build_opener(proxy_handler, https_handler)
+        else:
+            op_logger.connection_attempt(
+                self.base_url, verify_ssl=self.verify_ssl, timeout=self.timeout
+            )
+
+        logger.info(f"NPSClient initialized for {self.base_url}")
 
     def _request_with_retry(
         self,
@@ -100,46 +111,68 @@ class NPSClient:
         """
         last_error: Exception | None = None
         url = req.full_url
-        logger.debug(f"Request: {req.get_method()} {url}")
+        method = req.get_method()
+        start_time = time.perf_counter()
+
+        logger.debug(f"Request: {method} {url}")
 
         for attempt in range(self.max_retries):
+            attempt_start = time.perf_counter()
             try:
                 if self._opener:
                     with self._opener.open(req, timeout=self.timeout) as response:
                         data = response.read()
-                        logger.debug(f"Response: {response.status} ({len(data)} bytes)")
+                        elapsed_ms = (time.perf_counter() - attempt_start) * 1000
+                        op_logger.connection_success(url, response_time_ms=elapsed_ms)
+                        logger.debug(
+                            f"Response: {response.status} ({len(data)} bytes, "
+                            f"{elapsed_ms:.1f}ms)"
+                        )
                         return data
                 else:
                     with urllib.request.urlopen(
                         req, timeout=self.timeout, context=self._ssl_context
                     ) as response:
                         data = response.read()
-                        logger.debug(f"Response: {response.status} ({len(data)} bytes)")
+                        elapsed_ms = (time.perf_counter() - attempt_start) * 1000
+                        op_logger.connection_success(url, response_time_ms=elapsed_ms)
+                        logger.debug(
+                            f"Response: {response.status} ({len(data)} bytes, "
+                            f"{elapsed_ms:.1f}ms)"
+                        )
                         return data
             except urllib.error.HTTPError as e:
                 last_error = e
-                logger.warning(
-                    f"{error_prefix} (attempt {attempt + 1}/{self.max_retries}): "
-                    f"HTTP {e.code} {e.reason}"
+                op_logger.connection_failed(
+                    url, f"HTTP {e.code} {e.reason}", attempt=attempt + 1
                 )
                 if attempt < self.max_retries - 1:
                     wait = self.retry_backoff * (2**attempt)
-                    logger.debug(f"Retrying in {wait:.1f}s...")
+                    logger.info(f"Retrying in {wait:.1f}s...")
                     time.sleep(wait)
             except urllib.error.URLError as e:
                 last_error = e
+                op_logger.connection_failed(url, str(e.reason), attempt=attempt + 1)
                 if attempt < self.max_retries - 1:
                     wait = self.retry_backoff * (2**attempt)
-                    logger.warning(
-                        f"{error_prefix} (attempt {attempt + 1}/{self.max_retries},"
-                        f" retrying in {wait:.1f}s): {e}"
-                    )
+                    logger.info(f"Retrying in {wait:.1f}s...")
                     time.sleep(wait)
-                else:
-                    logger.error(
-                        f"{error_prefix} (attempt {attempt + 1}/{self.max_retries},"
-                        f" giving up): {e}"
-                    )
+            except (TimeoutError, OSError) as e:
+                # Handle socket timeout and other OS-level network errors
+                last_error = e
+                error_msg = "Timeout" if isinstance(e, TimeoutError) else str(e)
+                op_logger.connection_failed(url, error_msg, attempt=attempt + 1)
+                if attempt < self.max_retries - 1:
+                    wait = self.retry_backoff * (2**attempt)
+                    logger.info(f"Retrying in {wait:.1f}s...")
+                    time.sleep(wait)
+
+        # All retries exhausted
+        total_elapsed_ms = (time.perf_counter() - start_time) * 1000
+        logger.error(
+            f"{error_prefix} after {self.max_retries} attempts "
+            f"({total_elapsed_ms:.1f}ms total): {last_error}"
+        )
         raise error_cls(f"{error_prefix}: {last_error}") from last_error
 
     def _get_server_time(self) -> int:
@@ -198,6 +231,9 @@ class NPSClient:
         Raises:
             NPSAPIError: If the request fails.
         """
+        start_time = time.perf_counter()
+        op_logger.request_start(method, endpoint, data)
+
         timestamp = self._get_server_time()
         auth_key = self._generate_auth_key(timestamp)
 
@@ -221,7 +257,6 @@ class NPSClient:
             url = f"{self.base_url}{endpoint}?{urllib.parse.urlencode(params)}"
             req = urllib.request.Request(url, method=method)
 
-        logger.debug(f"API request: {method} {endpoint}")
         try:
             raw = self._request_with_retry(
                 req,
@@ -229,11 +264,20 @@ class NPSClient:
             )
             response_data = raw.decode("utf-8")
             result = json.loads(response_data)
-            logger.debug(f"API response: status={result.get('status')}")
+            elapsed_ms = (time.perf_counter() - start_time) * 1000
+            api_status = result.get("status")
+            op_logger.request_success(
+                method, endpoint, status=api_status, response_time_ms=elapsed_ms
+            )
             return result
 
-        except NPSAPIError:
+        except NPSAPIError as e:
+            elapsed_ms = (time.perf_counter() - start_time) * 1000
+            op_logger.request_failed(
+                method, endpoint, str(e), status_code=getattr(e, "status_code", None)
+            )
             raise
         except json.JSONDecodeError as e:
-            logger.error(f"Invalid JSON response for {endpoint}: {e}")
+            elapsed_ms = (time.perf_counter() - start_time) * 1000
+            op_logger.request_failed(method, endpoint, f"Invalid JSON: {e}")
             raise NPSAPIError(f"Invalid JSON response: {e}") from e

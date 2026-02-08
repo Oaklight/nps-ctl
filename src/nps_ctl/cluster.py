@@ -5,6 +5,7 @@ including broadcasting operations and syncing configurations.
 """
 
 import logging
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -16,9 +17,11 @@ from tqdm import tqdm
 from . import client_mgmt, host, tunnel
 from .base import NPSClient
 from .exceptions import NPSError
-from .types import ClientInfo, EdgeConfig, HostInfo, TunnelInfo, ClientIdMapping
+from .logging import OperationContext, get_operation_logger
+from .types import ClientIdMapping, ClientInfo, EdgeConfig, HostInfo, TunnelInfo
 
 logger = logging.getLogger(__name__)
+op_logger = get_operation_logger(__name__)
 
 
 @dataclass
@@ -50,6 +53,8 @@ class NPSCluster:
         if not path.exists():
             raise FileNotFoundError(f"Config file not found: {path}")
 
+        logger.info(f"Loading cluster configuration from {path}")
+
         with open(path, "rb") as f:
             config = tomllib.load(f)
 
@@ -68,6 +73,12 @@ class NPSCluster:
                 auth_key=edge_config.auth_key,
                 proxy=self.proxy,
             )
+            logger.debug(
+                f"Registered edge: {edge_config.name} ({edge_config.region}) "
+                f"-> {edge_config.api_url}"
+            )
+
+        logger.info(f"Cluster initialized with {len(self._edges)} edges")
 
     @property
     def edge_names(self) -> list[str]:
@@ -102,13 +113,27 @@ class NPSCluster:
         Returns:
             Dictionary mapping edge names to their client lists.
         """
+        ctx = OperationContext("get_all_clients", "cluster")
+        op_logger.operation_start(ctx)
+        start_time = time.perf_counter()
+
         result: dict[str, list[ClientInfo]] = {}
         for name, nps in self._clients.items():
             try:
-                result[name] = client_mgmt.list_clients(nps)
+                clients = client_mgmt.list_clients(nps)
+                result[name] = clients
+                op_logger.cluster_operation(
+                    "list_clients", name, True, f"{len(clients)} clients"
+                )
             except NPSError as e:
-                logger.error(f"Failed to get clients from {name}: {e}")
+                op_logger.cluster_operation("list_clients", name, False, str(e))
                 result[name] = []
+
+        elapsed_ms = (time.perf_counter() - start_time) * 1000
+        total_clients = sum(len(c) for c in result.values())
+        op_logger.operation_success(
+            ctx, result=f"{total_clients} clients total", duration_ms=elapsed_ms
+        )
         return result
 
     def get_all_tunnels(self) -> dict[str, list[TunnelInfo]]:
@@ -117,13 +142,27 @@ class NPSCluster:
         Returns:
             Dictionary mapping edge names to their tunnel lists.
         """
+        ctx = OperationContext("get_all_tunnels", "cluster")
+        op_logger.operation_start(ctx)
+        start_time = time.perf_counter()
+
         result: dict[str, list[TunnelInfo]] = {}
         for name, nps in self._clients.items():
             try:
-                result[name] = tunnel.list_tunnels(nps)
+                tunnels = tunnel.list_tunnels(nps)
+                result[name] = tunnels
+                op_logger.cluster_operation(
+                    "list_tunnels", name, True, f"{len(tunnels)} tunnels"
+                )
             except NPSError as e:
-                logger.error(f"Failed to get tunnels from {name}: {e}")
+                op_logger.cluster_operation("list_tunnels", name, False, str(e))
                 result[name] = []
+
+        elapsed_ms = (time.perf_counter() - start_time) * 1000
+        total_tunnels = sum(len(t) for t in result.values())
+        op_logger.operation_success(
+            ctx, result=f"{total_tunnels} tunnels total", duration_ms=elapsed_ms
+        )
         return result
 
     def get_all_hosts(self) -> dict[str, list[HostInfo]]:
@@ -132,13 +171,27 @@ class NPSCluster:
         Returns:
             Dictionary mapping edge names to their host lists.
         """
+        ctx = OperationContext("get_all_hosts", "cluster")
+        op_logger.operation_start(ctx)
+        start_time = time.perf_counter()
+
         result: dict[str, list[HostInfo]] = {}
         for name, nps in self._clients.items():
             try:
-                result[name] = host.list_hosts(nps)
+                hosts = host.list_hosts(nps)
+                result[name] = hosts
+                op_logger.cluster_operation(
+                    "list_hosts", name, True, f"{len(hosts)} hosts"
+                )
             except NPSError as e:
-                logger.error(f"Failed to get hosts from {name}: {e}")
+                op_logger.cluster_operation("list_hosts", name, False, str(e))
                 result[name] = []
+
+        elapsed_ms = (time.perf_counter() - start_time) * 1000
+        total_hosts = sum(len(h) for h in result.values())
+        op_logger.operation_success(
+            ctx, result=f"{total_hosts} hosts total", duration_ms=elapsed_ms
+        )
         return result
 
     def broadcast_client(
@@ -157,15 +210,33 @@ class NPSCluster:
         Returns:
             Dictionary mapping edge names to success status.
         """
+        ctx = OperationContext(
+            "broadcast_client", "cluster", details={"remark": remark}
+        )
+        op_logger.operation_start(ctx)
+        start_time = time.perf_counter()
+
         results: dict[str, bool] = {}
         for name, nps in self._clients.items():
             try:
-                results[name] = client_mgmt.add_client(
+                success = client_mgmt.add_client(
                     nps, remark=remark, vkey=vkey, **kwargs
                 )
+                results[name] = success
+                op_logger.cluster_operation(
+                    "add_client", name, success, f"remark={remark}"
+                )
             except NPSError as e:
-                logger.error(f"Failed to add client to {name}: {e}")
+                op_logger.cluster_operation("add_client", name, False, str(e))
                 results[name] = False
+
+        elapsed_ms = (time.perf_counter() - start_time) * 1000
+        success_count = sum(1 for v in results.values() if v)
+        op_logger.operation_success(
+            ctx,
+            result=f"{success_count}/{len(results)} edges",
+            duration_ms=elapsed_ms,
+        )
         return results
 
     def broadcast_host(
@@ -188,6 +259,14 @@ class NPSCluster:
         Returns:
             Dictionary mapping edge names to success status.
         """
+        ctx = OperationContext(
+            "broadcast_host",
+            "cluster",
+            details={"host": host_domain, "client": client_remark},
+        )
+        op_logger.operation_start(ctx)
+        start_time = time.perf_counter()
+
         results: dict[str, bool] = {}
         for name, nps in self._clients.items():
             try:
@@ -196,16 +275,31 @@ class NPSCluster:
                 matching = [c for c in clients if c.get("Remark") == client_remark]
                 if not matching:
                     logger.warning(f"Client '{client_remark}' not found on {name}")
+                    op_logger.cluster_operation(
+                        "add_host", name, False, f"client '{client_remark}' not found"
+                    )
                     results[name] = False
                     continue
 
                 client_id = matching[0]["Id"]
-                results[name] = host.add_host(
+                success = host.add_host(
                     nps, client_id=client_id, host=host_domain, target=target, **kwargs
                 )
+                results[name] = success
+                op_logger.cluster_operation(
+                    "add_host", name, success, f"host={host_domain}"
+                )
             except NPSError as e:
-                logger.error(f"Failed to add host to {name}: {e}")
+                op_logger.cluster_operation("add_host", name, False, str(e))
                 results[name] = False
+
+        elapsed_ms = (time.perf_counter() - start_time) * 1000
+        success_count = sum(1 for v in results.values() if v)
+        op_logger.operation_success(
+            ctx,
+            result=f"{success_count}/{len(results)} edges",
+            duration_ms=elapsed_ms,
+        )
         return results
 
     def _build_client_id_mapping(
@@ -268,13 +362,35 @@ class NPSCluster:
         if source_name not in self._clients:
             raise ValueError(f"Source edge not found: {source_name}")
 
+        sync_types = []
+        if sync_clients:
+            sync_types.append("clients")
+        if sync_tunnels:
+            sync_types.append("tunnels")
+        if sync_hosts:
+            sync_types.append("hosts")
+
+        ctx = OperationContext(
+            "sync_from",
+            source_name,
+            details={"types": ",".join(sync_types), "workers": max_workers},
+        )
+        op_logger.operation_start(ctx)
+        start_time = time.perf_counter()
+
         source = self._clients[source_name]
         results: dict[str, dict[str, bool]] = {}
 
         # Get source data
+        logger.info(f"Fetching source data from {source_name}...")
         source_clients = client_mgmt.list_clients(source) if sync_clients else []
         source_tunnels = tunnel.list_tunnels(source) if sync_tunnels else []
         source_hosts = host.list_hosts(source) if sync_hosts else []
+
+        logger.debug(
+            f"Source data: {len(source_clients)} clients, "
+            f"{len(source_tunnels)} tunnels, {len(source_hosts)} hosts"
+        )
 
         # Determine target edges
         if target_edges is None:
@@ -365,16 +481,25 @@ class NPSCluster:
                 # Check if client already exists (by vkey)
                 if vkey and vkey in target_existing_clients.get(target_name, set()):
                     logger.debug(f"Client {remark} already exists on {target_name}")
+                    op_logger.sync_progress(
+                        source_name, target_name, item_type, remark, True
+                    )
                     return (target_name, item_type, remark, True)
 
                 try:
                     success = client_mgmt.add_client(
                         target_nps, remark=remark, vkey=vkey
                     )
+                    op_logger.sync_progress(
+                        source_name, target_name, item_type, remark, success
+                    )
                     return (target_name, item_type, remark, success)
                 except NPSError as e:
                     logger.error(
                         f"Failed to sync client {remark} to {target_name}: {e}"
+                    )
+                    op_logger.sync_progress(
+                        source_name, target_name, item_type, remark, False
                     )
                     return (target_name, item_type, remark, False)
 
@@ -390,18 +515,25 @@ class NPSCluster:
                 port = item_info.get("Port", 0)
                 target_addr = item_info.get("Target", {}).get("TargetStr", "")
                 remark = item_info.get("Remark", "")
+                item_name = remark or f"port:{port}"
 
                 if not target_client_id:
                     logger.warning(
                         f"Cannot sync tunnel {remark}: client not found on {target_name}"
                     )
-                    return (target_name, item_type, remark or f"port:{port}", False)
+                    op_logger.sync_progress(
+                        source_name, target_name, item_type, item_name, False
+                    )
+                    return (target_name, item_type, item_name, False)
 
                 # Check if tunnel already exists
                 tunnel_key = (target_client_id, tunnel_type, port)
                 if tunnel_key in target_existing_tunnels.get(target_name, set()):
                     logger.debug(f"Tunnel {remark} already exists on {target_name}")
-                    return (target_name, item_type, remark or f"port:{port}", True)
+                    op_logger.sync_progress(
+                        source_name, target_name, item_type, item_name, True
+                    )
+                    return (target_name, item_type, item_name, True)
 
                 try:
                     success = tunnel.add_tunnel(
@@ -412,12 +544,18 @@ class NPSCluster:
                         target=target_addr,
                         remark=remark,
                     )
-                    return (target_name, item_type, remark or f"port:{port}", success)
+                    op_logger.sync_progress(
+                        source_name, target_name, item_type, item_name, success
+                    )
+                    return (target_name, item_type, item_name, success)
                 except NPSError as e:
                     logger.error(
                         f"Failed to sync tunnel {remark} to {target_name}: {e}"
                     )
-                    return (target_name, item_type, remark or f"port:{port}", False)
+                    op_logger.sync_progress(
+                        source_name, target_name, item_type, item_name, False
+                    )
+                    return (target_name, item_type, item_name, False)
 
             elif item_type == "host":
                 # Build client ID mapping for this target
@@ -437,11 +575,17 @@ class NPSCluster:
                     logger.warning(
                         f"Cannot sync host {host_domain}: client not found on {target_name}"
                     )
+                    op_logger.sync_progress(
+                        source_name, target_name, item_type, host_domain, False
+                    )
                     return (target_name, item_type, host_domain, False)
 
                 # Check if host already exists
                 if host_domain in target_existing_hosts.get(target_name, set()):
                     logger.debug(f"Host {host_domain} already exists on {target_name}")
+                    op_logger.sync_progress(
+                        source_name, target_name, item_type, host_domain, True
+                    )
                     return (target_name, item_type, host_domain, True)
 
                 try:
@@ -454,16 +598,24 @@ class NPSCluster:
                         location=location,
                         scheme=scheme,
                     )
+                    op_logger.sync_progress(
+                        source_name, target_name, item_type, host_domain, success
+                    )
                     return (target_name, item_type, host_domain, success)
                 except NPSError as e:
                     logger.error(
                         f"Failed to sync host {host_domain} to {target_name}: {e}"
+                    )
+                    op_logger.sync_progress(
+                        source_name, target_name, item_type, host_domain, False
                     )
                     return (target_name, item_type, host_domain, False)
 
             return (target_name, item_type, "unknown", False)
 
         # Execute tasks in parallel with progress bar
+        logger.info(f"Syncing {len(tasks)} items to {len(targets)} target edges...")
+
         with tqdm(total=len(tasks), desc="Syncing", disable=not show_progress) as pbar:
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 futures = {
@@ -497,5 +649,15 @@ class NPSCluster:
                         logger.error(f"Unexpected error syncing {item_type}: {e}")
                         results[target_name][f"{item_type}:{display_name}"] = False
                     pbar.update(1)
+
+        # Calculate summary statistics
+        elapsed_ms = (time.perf_counter() - start_time) * 1000
+        total_ops = sum(len(ops) for ops in results.values())
+        success_ops = sum(sum(1 for v in ops.values() if v) for ops in results.values())
+        op_logger.operation_success(
+            ctx,
+            result=f"{success_ops}/{total_ops} operations succeeded",
+            duration_ms=elapsed_ms,
+        )
 
         return results

@@ -14,9 +14,9 @@ Submodules:
     cmd_utils: Utility commands (auth key generation)
 """
 
-import logging
 import sys
 
+from ..logging import configure_logging
 from .helpers import get_default_config_path
 from .parser import create_parser
 
@@ -29,16 +29,13 @@ def setup_logging(verbose: bool = False, debug: bool = False) -> None:
         debug: Enable DEBUG level logging (overrides verbose).
     """
     if debug:
-        level = logging.DEBUG
-        fmt = "%(asctime)s %(levelname)s [%(name)s] %(message)s"
+        level = "DEBUG"
     elif verbose:
-        level = logging.INFO
-        fmt = "%(levelname)s: %(message)s"
+        level = "INFO"
     else:
-        level = logging.WARNING
-        fmt = "%(levelname)s: %(message)s"
+        level = "WARNING"
 
-    logging.basicConfig(level=level, format=fmt, stream=sys.stderr)
+    configure_logging(level=level, use_colors=True)
 
 
 def main() -> int:
