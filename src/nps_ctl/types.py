@@ -7,6 +7,9 @@ dataclass configurations.
 from dataclasses import dataclass
 from typing import Any, TypedDict
 
+# Type alias for client ID mapping (source_id -> target_id)
+ClientIdMapping = dict[int, int]
+
 
 class ClientInfo(TypedDict, total=False):
     """Client information from NPS API."""
