@@ -260,6 +260,17 @@ class NPSCluster:
                 for client_info in source_clients:
                     tasks.append((target_name, client_info))
 
+        # Get existing clients on target edges for "already exists" check
+        target_existing: dict[str, set[str]] = {}
+        for target_name in targets:
+            try:
+                existing = client_mgmt.list_clients(self._clients[target_name])
+                target_existing[target_name] = {
+                    c.get("VerifyKey", "") for c in existing
+                }
+            except NPSError:
+                target_existing[target_name] = set()
+
         def sync_single_client(
             target_name: str, client_info: dict[str, Any]
         ) -> tuple[str, str, bool]:
@@ -271,6 +282,12 @@ class NPSCluster:
             target_nps = self._clients[target_name]
             vkey = client_info.get("VerifyKey", "")
             remark = client_info.get("Remark", "")
+
+            # Check if client already exists (by vkey)
+            if vkey and vkey in target_existing.get(target_name, set()):
+                logger.debug(f"Client {remark} already exists on {target_name}")
+                return (target_name, remark, True)  # Treat as success
+
             try:
                 success = client_mgmt.add_client(target_nps, remark=remark, vkey=vkey)
                 return (target_name, remark, success)
