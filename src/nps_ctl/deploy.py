@@ -11,12 +11,22 @@ from typing import Any
 # Default NPS version
 DEFAULT_NPS_VERSION = "v0.34.1"
 
+# Default NPC version (same as NPS)
+DEFAULT_NPC_VERSION = "v0.34.1"
+
 # Mirror sources for NPS releases (in priority order)
 # Uses jsdelivr CDN mirrors which are faster in China and other regions
 NPS_MIRROR_SOURCES = [
     "https://fastly.jsdelivr.net/gh/djylb/nps-mirror@{version}/linux_amd64_server.tar.gz",
     "https://cdn.jsdelivr.net/gh/djylb/nps-mirror@{version}/linux_amd64_server.tar.gz",
     "https://github.com/djylb/nps/releases/download/{version}/linux_amd64_server.tar.gz",
+]
+
+# Mirror sources for NPC releases (in priority order)
+NPC_MIRROR_SOURCES = [
+    "https://fastly.jsdelivr.net/gh/djylb/nps-mirror@{version}/linux_amd64_client.tar.gz",
+    "https://cdn.jsdelivr.net/gh/djylb/nps-mirror@{version}/linux_amd64_client.tar.gz",
+    "https://github.com/djylb/nps/releases/download/{version}/linux_amd64_client.tar.gz",
 ]
 
 # Default NPS release URL (djylb/nps fork) - kept for backward compatibility
@@ -132,6 +142,18 @@ def get_download_urls(version: str = DEFAULT_NPS_VERSION) -> list[str]:
         List of URLs to try in order.
     """
     return [url.format(version=version) for url in NPS_MIRROR_SOURCES]
+
+
+def get_npc_download_urls(version: str = DEFAULT_NPC_VERSION) -> list[str]:
+    """Get list of download URLs for NPC release.
+
+    Args:
+        version: NPC version tag (e.g., "v0.34.1").
+
+    Returns:
+        List of URLs to try in order.
+    """
+    return [url.format(version=version) for url in NPC_MIRROR_SOURCES]
 
 
 def install_nps(
@@ -318,3 +340,175 @@ ss -tlnp 2>/dev/null | grep nps || echo "No ports"
 """
 
     return ssh_execute(ssh_host, check_script, timeout=30)
+
+
+def install_npc(
+    ssh_host: str,
+    server_addrs: str,
+    vkey: str,
+    tls_enable: bool = True,
+    version: str = DEFAULT_NPC_VERSION,
+    release_url: str | None = None,
+    timeout: int = 120,
+) -> DeployResult:
+    """Install NPC on a remote server.
+
+    Uses NPC's built-in install command with no-config mode.
+    Downloads from multiple mirror sources (jsdelivr CDN, GitHub) with fallback.
+
+    Args:
+        ssh_host: SSH host to install on.
+        server_addrs: Comma-separated server addresses (e.g., "host1:51235,host2:51235").
+        vkey: Client verification key.
+        tls_enable: Whether to enable TLS connection.
+        version: NPC version to install (e.g., "v0.34.1").
+        release_url: Custom URL to download NPC release tarball (overrides mirrors).
+        timeout: Command timeout in seconds.
+
+    Returns:
+        DeployResult with installation status.
+    """
+    # Build download URLs
+    if release_url:
+        urls = [release_url]
+    else:
+        urls = get_npc_download_urls(version)
+
+    # Build URL list for shell script
+    urls_shell = " ".join(f'"{url}"' for url in urls)
+
+    # Build install arguments
+    tls_arg = "-tls_enable=true" if tls_enable else ""
+
+    install_script = f"""
+set -e
+
+cd /tmp
+
+# Download with fallback mirrors
+URLS=({urls_shell})
+DOWNLOADED=0
+
+for url in "${{URLS[@]}}"; do
+    echo "Trying $url ..."
+    if curl -sfSL --connect-timeout 10 -o npc.tar.gz "$url"; then
+        if [ -s npc.tar.gz ]; then
+            echo "Downloaded successfully from $url"
+            DOWNLOADED=1
+            break
+        fi
+    fi
+    echo "Failed, trying next mirror..."
+done
+
+if [ "$DOWNLOADED" -ne 1 ]; then
+    echo "Error: Failed to download NPC from all mirrors"
+    exit 1
+fi
+
+echo "Extracting..."
+tar -xzf npc.tar.gz
+
+echo "Stopping existing NPC service if running..."
+npc stop 2>/dev/null || true
+
+echo "Uninstalling existing NPC if present..."
+/tmp/npc uninstall 2>/dev/null || true
+
+echo "Installing NPC..."
+chmod +x /tmp/npc
+/tmp/npc install -server="{server_addrs}" -vkey="{vkey}" {tls_arg}
+
+echo "Cleaning up..."
+rm -f /tmp/npc.tar.gz /tmp/npc
+
+echo "Starting NPC service..."
+npc start
+
+echo "Checking service status..."
+sleep 2
+if npc status 2>/dev/null | grep -q "running"; then
+    echo "NPC installed and running successfully."
+else
+    echo "Warning: NPC service may not be running properly."
+    npc status || true
+fi
+"""
+
+    return ssh_execute(ssh_host, install_script, timeout)
+
+
+def uninstall_npc(
+    ssh_host: str,
+    timeout: int = 60,
+) -> DeployResult:
+    """Uninstall NPC from a remote server.
+
+    Args:
+        ssh_host: SSH host to uninstall from.
+        timeout: Command timeout in seconds.
+
+    Returns:
+        DeployResult with uninstallation status.
+    """
+    uninstall_script = """
+set -e
+
+echo "Stopping NPC service..."
+npc stop 2>/dev/null || true
+
+echo "Uninstalling NPC..."
+npc uninstall 2>/dev/null || true
+
+echo "Removing NPC files..."
+rm -f /usr/bin/npc /usr/local/bin/npc
+
+echo "NPC uninstalled successfully."
+"""
+
+    return ssh_execute(ssh_host, uninstall_script, timeout)
+
+
+def check_npc_status(ssh_host: str) -> DeployResult:
+    """Check NPC status on a remote server.
+
+    Args:
+        ssh_host: SSH host to check.
+
+    Returns:
+        DeployResult with status information.
+    """
+    check_script = """
+echo "=== NPC Version ==="
+npc --version 2>/dev/null || echo "NPC not installed"
+
+echo ""
+echo "=== Service Status ==="
+npc status 2>/dev/null || echo "Not running or not installed"
+"""
+
+    return ssh_execute(ssh_host, check_script, timeout=30)
+
+
+def restart_npc(ssh_host: str) -> DeployResult:
+    """Restart NPC service on a remote server.
+
+    Args:
+        ssh_host: SSH host to restart NPC on.
+
+    Returns:
+        DeployResult with restart status.
+    """
+    restart_script = """
+echo "Restarting NPC service..."
+npc restart 2>/dev/null || {
+    echo "Failed to restart NPC"
+    exit 1
+}
+
+sleep 2
+echo "Checking service status..."
+npc status 2>/dev/null || echo "Status check failed"
+"""
+
+    return ssh_execute(ssh_host, restart_script, timeout=30)

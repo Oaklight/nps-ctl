@@ -80,3 +80,20 @@ class EdgeConfig:
     auth_key: str
     region: str = ""
     ssh_host: str = ""
+
+
+@dataclass
+class NPCClientConfig:
+    """Configuration for a single NPC client to be deployed."""
+
+    name: str
+    ssh_host: str
+    edges: list[str]
+    vkey: str = ""
+    remark: str = ""
+    conn_type: str = "tls"
+
+    def __post_init__(self) -> None:
+        """Set default remark to name if not provided."""
+        if not self.remark:
+            self.remark = self.name

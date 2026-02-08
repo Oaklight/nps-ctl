@@ -5,10 +5,11 @@ This module defines all subcommands and their arguments.
 
 import argparse
 
-from ..deploy import DEFAULT_NPS_VERSION
+from ..deploy import DEFAULT_NPC_VERSION, DEFAULT_NPS_VERSION
 from .cmd_clients import cmd_clients
 from .cmd_deploy import cmd_install, cmd_uninstall
 from .cmd_hosts import cmd_add_host, cmd_hosts
+from .cmd_npc import cmd_npc_install, cmd_npc_restart, cmd_npc_status, cmd_npc_uninstall
 from .cmd_status import cmd_status
 from .cmd_sync import cmd_export, cmd_sync
 from .cmd_tunnels import cmd_add_tunnel, cmd_tunnels
@@ -209,5 +210,70 @@ def create_parser() -> argparse.ArgumentParser:
         "--yes", "-y", action="store_true", help="Skip confirmation"
     )
     add_tunnel_parser.set_defaults(func=cmd_add_tunnel)
+
+    # ========== NPC Commands ==========
+
+    # npc-install command
+    npc_install_parser = subparsers.add_parser(
+        "npc-install", help="Install NPC on client machines via SSH"
+    )
+    npc_install_parser.add_argument(
+        "--client", "-c", help="Client name (all clients if not specified)"
+    )
+    npc_install_parser.add_argument(
+        "--version",
+        help=f"NPC version to install (default: {DEFAULT_NPC_VERSION})",
+    )
+    npc_install_parser.add_argument(
+        "--release-url", help="Custom NPC release URL (overrides mirrors)"
+    )
+    npc_install_parser.add_argument(
+        "--force-reinstall",
+        action="store_true",
+        help="Uninstall existing NPC before installing (clean reinstall)",
+    )
+    npc_install_parser.add_argument(
+        "--yes", "-y", action="store_true", help="Skip confirmation"
+    )
+    npc_install_parser.add_argument(
+        "--verbose", "-v", action="store_true", help="Show detailed output"
+    )
+    npc_install_parser.set_defaults(func=cmd_npc_install)
+
+    # npc-uninstall command
+    npc_uninstall_parser = subparsers.add_parser(
+        "npc-uninstall", help="Uninstall NPC from client machines via SSH"
+    )
+    npc_uninstall_parser.add_argument(
+        "--client", "-c", help="Client name (all clients if not specified)"
+    )
+    npc_uninstall_parser.add_argument(
+        "--yes", "-y", action="store_true", help="Skip confirmation"
+    )
+    npc_uninstall_parser.add_argument(
+        "--verbose", "-v", action="store_true", help="Show detailed output"
+    )
+    npc_uninstall_parser.set_defaults(func=cmd_npc_uninstall)
+
+    # npc-status command
+    npc_status_parser = subparsers.add_parser(
+        "npc-status", help="Check NPC status on client machines"
+    )
+    npc_status_parser.add_argument(
+        "--client", "-c", help="Client name (all clients if not specified)"
+    )
+    npc_status_parser.set_defaults(func=cmd_npc_status)
+
+    # npc-restart command
+    npc_restart_parser = subparsers.add_parser(
+        "npc-restart", help="Restart NPC service on client machines"
+    )
+    npc_restart_parser.add_argument(
+        "--client", "-c", help="Client name (all clients if not specified)"
+    )
+    npc_restart_parser.add_argument(
+        "--verbose", "-v", action="store_true", help="Show detailed output"
+    )
+    npc_restart_parser.set_defaults(func=cmd_npc_restart)
 
     return parser

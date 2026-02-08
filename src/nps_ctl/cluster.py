@@ -18,7 +18,14 @@ from . import client_mgmt, host, tunnel
 from .base import NPSClient
 from .exceptions import NPSError
 from .logging import OperationContext, get_operation_logger
-from .types import ClientIdMapping, ClientInfo, EdgeConfig, HostInfo, TunnelInfo
+from .types import (
+    ClientIdMapping,
+    ClientInfo,
+    EdgeConfig,
+    HostInfo,
+    NPCClientConfig,
+    TunnelInfo,
+)
 
 logger = logging.getLogger(__name__)
 op_logger = get_operation_logger(__name__)
@@ -44,6 +51,7 @@ class NPSCluster:
     proxy: str | None = None
     _edges: dict[str, EdgeConfig] = field(default_factory=dict, init=False)
     _clients: dict[str, NPSClient] = field(default_factory=dict, init=False)
+    _npc_clients: dict[str, NPCClientConfig] = field(default_factory=dict, init=False)
 
     def __post_init__(self) -> None:
         """Load configuration and initialize clients."""
@@ -80,12 +88,36 @@ class NPSCluster:
                 f"-> {edge_config.api_url}"
             )
 
-        op_logger.phase_info(f"Cluster initialized with {len(self._edges)} edges")
+        # Load NPC clients configuration
+        npc_clients = config.get("clients", [])
+        for npc_client in npc_clients:
+            npc_config = NPCClientConfig(
+                name=npc_client["name"],
+                ssh_host=npc_client["ssh_host"],
+                edges=npc_client.get("edges", []),
+                vkey=npc_client.get("vkey", ""),
+                remark=npc_client.get("remark", ""),
+                conn_type=npc_client.get("conn_type", "tls"),
+            )
+            self._npc_clients[npc_config.name] = npc_config
+            logger.debug(
+                f"Registered NPC client: {npc_config.name} -> {npc_config.ssh_host}"
+            )
+
+        op_logger.phase_info(
+            f"Cluster initialized with {len(self._edges)} edges, "
+            f"{len(self._npc_clients)} NPC clients"
+        )
 
     @property
     def edge_names(self) -> list[str]:
         """Get list of all edge names."""
         return list(self._edges.keys())
+
+    @property
+    def npc_client_names(self) -> list[str]:
+        """Get list of all NPC client names."""
+        return list(self._npc_clients.keys())
 
     def get_edge(self, name: str) -> EdgeConfig | None:
         """Get edge configuration by name.
@@ -108,6 +140,94 @@ class NPSCluster:
             NPSClient or None if not found.
         """
         return self._clients.get(name)
+
+    def get_npc_client(self, name: str) -> NPCClientConfig | None:
+        """Get NPC client configuration by name.
+
+        Args:
+            name: NPC client name.
+
+        Returns:
+            NPCClientConfig or None if not found.
+        """
+        return self._npc_clients.get(name)
+
+    def get_vkey_for_npc(self, npc_config: NPCClientConfig) -> str | None:
+        """Get vkey for an NPC client.
+
+        If vkey is configured, return it directly.
+        Otherwise, query the NPS API to find the client by remark.
+
+        Args:
+            npc_config: NPC client configuration.
+
+        Returns:
+            vkey string or None if not found.
+        """
+        # If vkey is configured, use it directly
+        if npc_config.vkey:
+            logger.debug(f"Using configured vkey for {npc_config.name}")
+            return npc_config.vkey
+
+        # Otherwise, query from NPS API
+        remark = npc_config.remark  # Already defaults to name in __post_init__
+
+        # Try to get vkey from any available edge
+        for edge_name in self._clients.keys():
+            try:
+                nps = self._clients[edge_name]
+                clients = client_mgmt.list_clients(nps, search=remark)
+                matching = [c for c in clients if c.get("Remark") == remark]
+                if matching:
+                    vkey = matching[0].get("VerifyKey", "")
+                    if vkey:
+                        logger.debug(
+                            f"Found vkey for {npc_config.name} from {edge_name}"
+                        )
+                        return vkey
+            except NPSError as e:
+                logger.warning(f"Failed to query clients from {edge_name}: {e}")
+                continue
+
+        logger.error(f"Could not find vkey for NPC client: {npc_config.name}")
+        return None
+
+    def get_server_addrs_for_npc(self, npc_config: NPCClientConfig) -> str:
+        """Get server addresses string for NPC client.
+
+        Builds a comma-separated list of server:port addresses based on
+        the edges configured for this NPC client.
+
+        Args:
+            npc_config: NPC client configuration.
+
+        Returns:
+            Comma-separated server addresses (e.g., "host1:51235,host2:51235").
+        """
+        addrs = []
+        # Determine port based on connection type
+        port = 51235 if npc_config.conn_type == "tls" else 51234
+
+        for edge_name in npc_config.edges:
+            edge = self._edges.get(edge_name)
+            if edge:
+                # Extract hostname from api_url
+                # api_url is like "https://nps-asia.example.com"
+                # We need to get the hostname part
+                api_url = edge.api_url
+                if api_url.startswith("https://"):
+                    hostname = api_url[8:]
+                elif api_url.startswith("http://"):
+                    hostname = api_url[7:]
+                else:
+                    hostname = api_url
+                # Remove any path
+                hostname = hostname.split("/")[0]
+                addrs.append(f"{hostname}:{port}")
+            else:
+                logger.warning(f"Edge {edge_name} not found for NPC {npc_config.name}")
+
+        return ",".join(addrs)
 
     def _parallel_fetch(
         self,
