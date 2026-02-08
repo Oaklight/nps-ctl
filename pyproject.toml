@@ -20,7 +20,7 @@ classifiers = [
 	"Topic :: System :: Networking",
 	"Topic :: System :: Systems Administration",
 ]
-dependencies = ["tqdm>=4.66.0"]
+dependencies = ["rich>=13.0.0"]
 
 [project.optional-dependencies]
 dev = ["pyright>=1.1.402", "build>=1.2.2.post1", "twine>=6.1.0"]

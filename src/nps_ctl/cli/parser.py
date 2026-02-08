@@ -107,6 +107,24 @@ def create_parser() -> argparse.ArgumentParser:
     sync_parser.add_argument(
         "--yes", "-y", action="store_true", help="Skip confirmation"
     )
+    sync_parser.add_argument(
+        "--parallel",
+        action="store_true",
+        help="Sync to all edges in parallel (default: sequential)",
+    )
+    sync_parser.add_argument(
+        "--quiet",
+        "-q",
+        action="store_true",
+        help="Only show final summary",
+    )
+    sync_parser.add_argument(
+        "--workers",
+        "-w",
+        type=int,
+        default=4,
+        help="Number of parallel workers for items within each edge (default: 4)",
+    )
     sync_parser.set_defaults(func=cmd_sync)
 
     # export command

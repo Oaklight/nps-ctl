@@ -12,7 +12,16 @@ from pathlib import Path
 from typing import Any, Callable, TypeVar
 
 import tomllib
-from tqdm import tqdm
+from rich.console import Console
+from rich.progress import (
+    BarColumn,
+    MofNCompleteColumn,
+    Progress,
+    SpinnerColumn,
+    TaskProgressColumn,
+    TextColumn,
+    TimeElapsedColumn,
+)
 
 from . import client_mgmt, host, tunnel
 from .base import NPSClient
@@ -31,6 +40,9 @@ logger = logging.getLogger(__name__)
 op_logger = get_operation_logger(__name__)
 
 T = TypeVar("T")
+
+# Rich console for output
+console = Console()
 
 
 @dataclass
@@ -104,10 +116,7 @@ class NPSCluster:
                 f"Registered NPC client: {npc_config.name} -> {npc_config.ssh_host}"
             )
 
-        op_logger.phase_info(
-            f"Cluster initialized with {len(self._edges)} edges, "
-            f"{len(self._npc_clients)} NPC clients"
-        )
+        op_logger.phase_info(f"Cluster initialized with {len(self._edges)} edges")
 
     @property
     def edge_names(self) -> list[str]:
@@ -538,12 +547,14 @@ class NPSCluster:
         target_edges: list[str] | None = None,
         show_progress: bool = False,
         max_workers: int = 4,
+        parallel: bool = False,
+        quiet: bool = False,
     ) -> dict[str, dict[str, bool]]:
         """Sync configuration from one edge to all others.
 
-        This method fetches source data and target edge data in parallel,
-        then syncs items to each target edge. Failed edges are skipped
-        and the operation continues with remaining edges.
+        This method fetches source data and syncs to target edges.
+        By default, syncs to edges sequentially for clearer output.
+        Use parallel=True for faster but noisier parallel sync.
 
         Args:
             source_name: Source edge name.
@@ -552,7 +563,10 @@ class NPSCluster:
             sync_hosts: Whether to sync hosts.
             target_edges: List of target edge names. If None, sync to all others.
             show_progress: Whether to show progress bar.
-            max_workers: Maximum number of parallel workers.
+            max_workers: Maximum number of parallel workers for items.
+            parallel: If True, sync to all edges in parallel (original behavior).
+                      If False (default), sync to edges sequentially.
+            quiet: If True, suppress progress output and only show summary.
 
         Returns:
             Nested dictionary: {target_edge: {operation: success}}.
@@ -568,16 +582,20 @@ class NPSCluster:
         if sync_hosts:
             sync_types.append("hosts")
 
+        mode = "parallel" if parallel else "sequential"
         ctx = OperationContext(
             "sync_from",
             source_name,
-            details={"types": ",".join(sync_types), "workers": max_workers},
+            details={
+                "types": ",".join(sync_types),
+                "mode": mode,
+                "workers": max_workers,
+            },
         )
         op_logger.operation_start(ctx)
         start_time = time.perf_counter()
 
         source = self._clients[source_name]
-        results: dict[str, dict[str, bool]] = {}
 
         # Determine target edges
         if target_edges is None:
@@ -587,27 +605,109 @@ class NPSCluster:
                 n for n in target_edges if n != source_name and n in self._clients
             ]
 
-        # Phase 1: Fetch source data in parallel
-        op_logger.phase_info(f"Fetching source data from {source_name}...")
+        if not targets:
+            console.print("[yellow]No target edges to sync to[/yellow]")
+            return {}
+
+        # Phase 1: Fetch source data
+        if not quiet:
+            console.print(
+                f"\n[bold blue]Fetching source data from {source_name}...[/bold blue]"
+            )
+
+        source_data = self._fetch_source_data(
+            source, sync_clients, sync_tunnels, sync_hosts, source_name
+        )
+        source_clients = source_data["clients"]
+        source_tunnels = source_data["tunnels"]
+        source_hosts = source_data["hosts"]
+
+        if not quiet:
+            console.print(
+                f"  Source: {len(source_clients)} clients, "
+                f"{len(source_tunnels)} tunnels, {len(source_hosts)} hosts"
+            )
+
+        # Choose sync strategy
+        if parallel:
+            results = self._sync_from_parallel(
+                source_name=source_name,
+                targets=targets,
+                source_clients=source_clients,
+                source_tunnels=source_tunnels,
+                source_hosts=source_hosts,
+                sync_clients=sync_clients,
+                sync_tunnels=sync_tunnels,
+                sync_hosts=sync_hosts,
+                show_progress=show_progress and not quiet,
+                max_workers=max_workers,
+                quiet=quiet,
+            )
+        else:
+            results = self._sync_from_sequential(
+                source_name=source_name,
+                targets=targets,
+                source_clients=source_clients,
+                source_tunnels=source_tunnels,
+                source_hosts=source_hosts,
+                sync_clients=sync_clients,
+                sync_tunnels=sync_tunnels,
+                sync_hosts=sync_hosts,
+                show_progress=show_progress and not quiet,
+                max_workers=max_workers,
+                quiet=quiet,
+            )
+
+        # Calculate and display summary
+        elapsed_ms = (time.perf_counter() - start_time) * 1000
+        self._print_sync_summary(results, elapsed_ms, quiet)
+
+        op_logger.operation_success(
+            ctx,
+            result=self._get_summary_string(results),
+            duration_ms=elapsed_ms,
+        )
+
+        return results
+
+    def _fetch_source_data(
+        self,
+        source: NPSClient,
+        sync_clients: bool,
+        sync_tunnels: bool,
+        sync_hosts: bool,
+        source_name: str,
+    ) -> dict[str, list[dict[str, Any]]]:
+        """Fetch source data in parallel.
+
+        Args:
+            source: Source NPSClient.
+            sync_clients: Whether to fetch clients.
+            sync_tunnels: Whether to fetch tunnels.
+            sync_hosts: Whether to fetch hosts.
+            source_name: Source edge name for logging.
+
+        Returns:
+            Dictionary with 'clients', 'tunnels', 'hosts' keys.
+        """
         source_clients: list[dict[str, Any]] = []
         source_tunnels: list[dict[str, Any]] = []
         source_hosts: list[dict[str, Any]] = []
-        source_fetch_failed = False
 
-        def fetch_source_clients() -> list[dict[str, Any]]:
+        def fetch_clients() -> list[dict[str, Any]]:
             return client_mgmt.list_clients(source) if sync_clients else []
 
-        def fetch_source_tunnels() -> list[dict[str, Any]]:
+        def fetch_tunnels() -> list[dict[str, Any]]:
             return tunnel.list_tunnels(source) if sync_tunnels else []
 
-        def fetch_source_hosts() -> list[dict[str, Any]]:
+        def fetch_hosts() -> list[dict[str, Any]]:
             return host.list_hosts(source) if sync_hosts else []
 
         with ThreadPoolExecutor(max_workers=3) as executor:
             futures = {
-                executor.submit(fetch_source_clients): "clients",
-                executor.submit(fetch_source_tunnels): "tunnels",
-                executor.submit(fetch_source_hosts): "hosts",
+                executor.submit(fetch_clients): "clients",
+                executor.submit(fetch_tunnels): "tunnels",
+                executor.submit(fetch_hosts): "hosts",
             }
             for future in as_completed(futures):
                 data_type = futures[future]
@@ -620,365 +720,630 @@ class NPSCluster:
                     else:
                         source_hosts = result
                 except NPSError as e:
-                    op_logger.cluster_operation(
-                        f"fetch_source_{data_type}", source_name, False, str(e)
+                    logger.warning(
+                        f"Failed to fetch {data_type} from {source_name}: {e}"
                     )
-                    source_fetch_failed = True
                 except Exception as e:
-                    op_logger.cluster_operation(
-                        f"fetch_source_{data_type}",
-                        source_name,
-                        False,
-                        f"Unexpected error: {e}",
+                    logger.warning(f"Unexpected error fetching {data_type}: {e}")
+
+        return {
+            "clients": source_clients,
+            "tunnels": source_tunnels,
+            "hosts": source_hosts,
+        }
+
+    def _fetch_target_existing_data(
+        self,
+        target_name: str,
+        sync_tunnels: bool,
+        sync_hosts: bool,
+    ) -> tuple[
+        list[dict[str, Any]] | None,
+        set[str],
+        set[tuple[int, str, int]],
+        set[str],
+    ]:
+        """Fetch existing data from a target edge.
+
+        Args:
+            target_name: Target edge name.
+            sync_tunnels: Whether to fetch tunnels.
+            sync_hosts: Whether to fetch hosts.
+
+        Returns:
+            Tuple of (clients_list, existing_vkeys, existing_tunnels, existing_hosts).
+        """
+        target_nps = self._clients[target_name]
+        clients_list: list[dict[str, Any]] | None = None
+        existing_vkeys: set[str] = set()
+        existing_tunnels: set[tuple[int, str, int]] = set()
+        existing_hosts: set[str] = set()
+
+        # Always fetch clients (needed for ID mapping)
+        try:
+            clients_list = client_mgmt.list_clients(target_nps)
+            existing_vkeys = {c.get("VerifyKey", "") for c in clients_list}
+        except NPSError as e:
+            logger.warning(f"Failed to fetch clients from {target_name}: {e}")
+
+        if sync_tunnels:
+            try:
+                tunnels = tunnel.list_tunnels(target_nps)
+                existing_tunnels = {
+                    (
+                        t.get("Client", {}).get("Id", 0),
+                        t.get("Mode", ""),
+                        t.get("Port", 0),
                     )
-                    source_fetch_failed = True
+                    for t in tunnels
+                }
+            except NPSError as e:
+                logger.warning(f"Failed to fetch tunnels from {target_name}: {e}")
 
-        if source_fetch_failed:
-            op_logger.phase_info(
-                "Warning: Some source data fetch failed, continuing with available data"
-            )
+        if sync_hosts:
+            try:
+                hosts = host.list_hosts(target_nps)
+                existing_hosts = {h.get("Host", "") for h in hosts}
+            except NPSError as e:
+                logger.warning(f"Failed to fetch hosts from {target_name}: {e}")
 
-        logger.debug(
-            f"Source data: {len(source_clients)} clients, "
-            f"{len(source_tunnels)} tunnels, {len(source_hosts)} hosts"
-        )
+        return clients_list, existing_vkeys, existing_tunnels, existing_hosts
 
-        # Initialize results dict
+    def _sync_single_item(
+        self,
+        source_name: str,
+        target_name: str,
+        item_type: str,
+        item_info: dict[str, Any],
+        source_clients: list[dict[str, Any]],
+        target_clients: list[dict[str, Any]],
+        existing_vkeys: set[str],
+        existing_tunnels: set[tuple[int, str, int]],
+        existing_hosts: set[str],
+    ) -> tuple[str, str, str, bool]:
+        """Sync a single item to a target edge.
+
+        Returns:
+            Tuple of (target_name, item_type, item_name, success).
+        """
+        target_nps = self._clients[target_name]
+
+        if item_type == "client":
+            vkey = item_info.get("VerifyKey", "")
+            remark = item_info.get("Remark", "")
+
+            # Check if client already exists (by vkey)
+            if vkey and vkey in existing_vkeys:
+                logger.debug(f"Client {remark} already exists on {target_name}")
+                return (target_name, item_type, remark, True)
+
+            try:
+                success = client_mgmt.add_client(target_nps, remark=remark, vkey=vkey)
+                return (target_name, item_type, remark, success)
+            except NPSError as e:
+                logger.error(f"Failed to sync client {remark} to {target_name}: {e}")
+                return (target_name, item_type, remark, False)
+
+        elif item_type == "tunnel":
+            id_mapping = self._build_client_id_mapping(source_clients, target_clients)
+
+            source_client_id = item_info.get("Client", {}).get("Id", 0)
+            target_client_id = id_mapping.get(source_client_id)
+            tunnel_type = item_info.get("Mode", "tcp")
+            port = item_info.get("Port", 0)
+            target_addr = item_info.get("Target", {}).get("TargetStr", "")
+            remark = item_info.get("Remark", "")
+            item_name = remark or f"port:{port}"
+
+            if not target_client_id:
+                logger.warning(
+                    f"Cannot sync tunnel {remark}: client not found on {target_name}"
+                )
+                return (target_name, item_type, item_name, False)
+
+            # Check if tunnel already exists
+            tunnel_key = (target_client_id, tunnel_type, port)
+            if tunnel_key in existing_tunnels:
+                logger.debug(f"Tunnel {remark} already exists on {target_name}")
+                return (target_name, item_type, item_name, True)
+
+            try:
+                success = tunnel.add_tunnel(
+                    target_nps,
+                    client_id=target_client_id,
+                    tunnel_type=tunnel_type,
+                    port=port,
+                    target=target_addr,
+                    remark=remark,
+                )
+                return (target_name, item_type, item_name, success)
+            except NPSError as e:
+                logger.error(f"Failed to sync tunnel {remark} to {target_name}: {e}")
+                return (target_name, item_type, item_name, False)
+
+        elif item_type == "host":
+            id_mapping = self._build_client_id_mapping(source_clients, target_clients)
+
+            source_client_id = item_info.get("Client", {}).get("Id", 0)
+            target_client_id = id_mapping.get(source_client_id)
+            host_domain = item_info.get("Host", "")
+            target_addr = item_info.get("Target", {}).get("TargetStr", "")
+            remark = item_info.get("Remark", "")
+            location = item_info.get("Location", "")
+            scheme = item_info.get("Scheme", "all")
+
+            if not target_client_id:
+                logger.warning(
+                    f"Cannot sync host {host_domain}: client not found on {target_name}"
+                )
+                return (target_name, item_type, host_domain, False)
+
+            # Check if host already exists
+            if host_domain in existing_hosts:
+                logger.debug(f"Host {host_domain} already exists on {target_name}")
+                return (target_name, item_type, host_domain, True)
+
+            try:
+                success = host.add_host(
+                    target_nps,
+                    client_id=target_client_id,
+                    host=host_domain,
+                    target=target_addr,
+                    remark=remark,
+                    location=location,
+                    scheme=scheme,
+                )
+                return (target_name, item_type, host_domain, success)
+            except NPSError as e:
+                logger.error(f"Failed to sync host {host_domain} to {target_name}: {e}")
+                return (target_name, item_type, host_domain, False)
+
+        return (target_name, item_type, "unknown", False)
+
+    def _sync_from_sequential(
+        self,
+        source_name: str,
+        targets: list[str],
+        source_clients: list[dict[str, Any]],
+        source_tunnels: list[dict[str, Any]],
+        source_hosts: list[dict[str, Any]],
+        sync_clients: bool,
+        sync_tunnels: bool,
+        sync_hosts: bool,
+        show_progress: bool,
+        max_workers: int,
+        quiet: bool,
+    ) -> dict[str, dict[str, bool]]:
+        """Sync to edges one by one (sequential mode).
+
+        This provides clearer output by processing one edge at a time.
+        """
+        results: dict[str, dict[str, bool]] = {}
+
+        for i, target_name in enumerate(targets, 1):
+            if not quiet:
+                console.print(
+                    f"\n[bold cyan][{i}/{len(targets)}] Syncing to {target_name}...[/bold cyan]"
+                )
+
+            edge_start = time.perf_counter()
+
+            # Fetch existing data for this target
+            (
+                target_clients,
+                existing_vkeys,
+                existing_tunnels,
+                existing_hosts,
+            ) = self._fetch_target_existing_data(target_name, sync_tunnels, sync_hosts)
+
+            if target_clients is None:
+                if not quiet:
+                    console.print(f"  [red]✗ Failed to connect to {target_name}[/red]")
+                results[target_name] = {"_edge_failed": False}
+                continue
+
+            # Build task list for this edge
+            tasks: list[tuple[str, dict[str, Any]]] = []
+            if sync_clients:
+                for c in source_clients:
+                    tasks.append(("client", c))
+            if sync_tunnels:
+                for t in source_tunnels:
+                    tasks.append(("tunnel", t))
+            if sync_hosts:
+                for h in source_hosts:
+                    tasks.append(("host", h))
+
+            edge_results: dict[str, bool] = {}
+            client_success = client_total = 0
+            tunnel_success = tunnel_total = 0
+            host_success = host_total = 0
+
+            # Sync items with progress bar
+            if show_progress:
+                with Progress(
+                    SpinnerColumn(),
+                    TextColumn("[progress.description]{task.description}"),
+                    BarColumn(),
+                    MofNCompleteColumn(),
+                    TimeElapsedColumn(),
+                    console=console,
+                    transient=True,
+                ) as progress:
+                    task = progress.add_task("Syncing...", total=len(tasks))
+
+                    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                        futures = {
+                            executor.submit(
+                                self._sync_single_item,
+                                source_name,
+                                target_name,
+                                item_type,
+                                item_info,
+                                source_clients,
+                                target_clients,
+                                existing_vkeys,
+                                existing_tunnels,
+                                existing_hosts,
+                            ): (item_type, item_info)
+                            for item_type, item_info in tasks
+                        }
+
+                        for future in as_completed(futures):
+                            item_type, item_info = futures[future]
+                            try:
+                                _, i_type, i_name, success = future.result()
+                                edge_results[f"{i_type}:{i_name}"] = success
+
+                                if i_type == "client":
+                                    client_total += 1
+                                    if success:
+                                        client_success += 1
+                                elif i_type == "tunnel":
+                                    tunnel_total += 1
+                                    if success:
+                                        tunnel_success += 1
+                                elif i_type == "host":
+                                    host_total += 1
+                                    if success:
+                                        host_success += 1
+                            except Exception as e:
+                                logger.error(f"Unexpected error: {e}")
+                                edge_results[f"{item_type}:error"] = False
+
+                            progress.update(task, advance=1)
+            else:
+                # No progress bar, just execute
+                with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                    futures = {
+                        executor.submit(
+                            self._sync_single_item,
+                            source_name,
+                            target_name,
+                            item_type,
+                            item_info,
+                            source_clients,
+                            target_clients,
+                            existing_vkeys,
+                            existing_tunnels,
+                            existing_hosts,
+                        ): (item_type, item_info)
+                        for item_type, item_info in tasks
+                    }
+
+                    for future in as_completed(futures):
+                        item_type, item_info = futures[future]
+                        try:
+                            _, i_type, i_name, success = future.result()
+                            edge_results[f"{i_type}:{i_name}"] = success
+
+                            if i_type == "client":
+                                client_total += 1
+                                if success:
+                                    client_success += 1
+                            elif i_type == "tunnel":
+                                tunnel_total += 1
+                                if success:
+                                    tunnel_success += 1
+                            elif i_type == "host":
+                                host_total += 1
+                                if success:
+                                    host_success += 1
+                        except Exception as e:
+                            logger.error(f"Unexpected error: {e}")
+                            edge_results[f"{item_type}:error"] = False
+
+            results[target_name] = edge_results
+            edge_elapsed = time.perf_counter() - edge_start
+
+            # Print edge summary
+            if not quiet:
+                self._print_edge_summary(
+                    target_name,
+                    client_success,
+                    client_total,
+                    tunnel_success,
+                    tunnel_total,
+                    host_success,
+                    host_total,
+                    edge_elapsed,
+                )
+
+        return results
+
+    def _sync_from_parallel(
+        self,
+        source_name: str,
+        targets: list[str],
+        source_clients: list[dict[str, Any]],
+        source_tunnels: list[dict[str, Any]],
+        source_hosts: list[dict[str, Any]],
+        sync_clients: bool,
+        sync_tunnels: bool,
+        sync_hosts: bool,
+        show_progress: bool,
+        max_workers: int,
+        quiet: bool,
+    ) -> dict[str, dict[str, bool]]:
+        """Sync to all edges in parallel (original behavior).
+
+        This is faster but produces interleaved output.
+        """
+        results: dict[str, dict[str, bool]] = {}
         for target_name in targets:
             results[target_name] = {}
 
-        # Phase 2: Fetch existing data from all target edges in parallel
-        op_logger.phase_info(
-            f"Fetching existing data from {len(targets)} target edges..."
-        )
-        target_existing_clients: dict[str, set[str]] = {}
-        target_existing_tunnels: dict[str, set[tuple[int, str, int]]] = {}
-        target_existing_hosts: dict[str, set[str]] = {}
-        target_clients_list: dict[str, list[dict[str, Any]]] = {}
-        failed_targets: set[str] = set()
+        if not quiet:
+            console.print(
+                f"\n[bold blue]Fetching existing data from {len(targets)} target edges...[/bold blue]"
+            )
 
-        def fetch_target_data(
-            target_name: str,
-        ) -> tuple[
+        # Fetch existing data from all targets in parallel
+        target_data: dict[
             str,
-            list[dict[str, Any]] | None,
-            list[dict[str, Any]] | None,
-            list[dict[str, Any]] | None,
-        ]:
-            """Fetch all data types from a target edge.
-
-            Returns:
-                Tuple of (target_name, clients, tunnels, hosts).
-                None values indicate fetch failure for that type.
-            """
-            target_nps = self._clients[target_name]
-            clients_result: list[dict[str, Any]] | None = None
-            tunnels_result: list[dict[str, Any]] | None = None
-            hosts_result: list[dict[str, Any]] | None = None
-
-            # Always fetch clients (needed for ID mapping)
-            try:
-                clients_result = client_mgmt.list_clients(target_nps)
-            except NPSError as e:
-                logger.warning(f"Failed to fetch clients from {target_name}: {e}")
-
-            if sync_tunnels:
-                try:
-                    tunnels_result = tunnel.list_tunnels(target_nps)
-                except NPSError as e:
-                    logger.warning(f"Failed to fetch tunnels from {target_name}: {e}")
-
-            if sync_hosts:
-                try:
-                    hosts_result = host.list_hosts(target_nps)
-                except NPSError as e:
-                    logger.warning(f"Failed to fetch hosts from {target_name}: {e}")
-
-            return (target_name, clients_result, tunnels_result, hosts_result)
+            tuple[
+                list[dict[str, Any]] | None,
+                set[str],
+                set[tuple[int, str, int]],
+                set[str],
+            ],
+        ] = {}
+        failed_targets: set[str] = set()
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = {
-                executor.submit(fetch_target_data, name): name for name in targets
+                executor.submit(
+                    self._fetch_target_existing_data,
+                    name,
+                    sync_tunnels,
+                    sync_hosts,
+                ): name
+                for name in targets
             }
             for future in as_completed(futures):
                 target_name = futures[future]
                 try:
-                    name, clients, tunnels, hosts = future.result()
-
-                    if clients is not None:
-                        target_existing_clients[name] = {
-                            c.get("VerifyKey", "") for c in clients
-                        }
-                        target_clients_list[name] = clients
-                        op_logger.cluster_operation(
-                            "fetch_existing", name, True, f"{len(clients)} clients"
-                        )
-                    else:
-                        target_existing_clients[name] = set()
-                        target_clients_list[name] = []
-                        # Mark as failed if we can't even get clients
-                        failed_targets.add(name)
-                        op_logger.cluster_operation(
-                            "fetch_existing", name, False, "Failed to fetch clients"
-                        )
-
-                    if tunnels is not None:
-                        target_existing_tunnels[name] = {
-                            (
-                                t.get("Client", {}).get("Id", 0),
-                                t.get("Mode", ""),
-                                t.get("Port", 0),
-                            )
-                            for t in tunnels
-                        }
-                    else:
-                        target_existing_tunnels[name] = set()
-
-                    if hosts is not None:
-                        target_existing_hosts[name] = {h.get("Host", "") for h in hosts}
-                    else:
-                        target_existing_hosts[name] = set()
-
+                    data = future.result()
+                    target_data[target_name] = data
+                    if data[0] is None:
+                        failed_targets.add(target_name)
                 except Exception as e:
-                    logger.error(
-                        f"Unexpected error fetching data from {target_name}: {e}"
-                    )
+                    logger.error(f"Failed to fetch data from {target_name}: {e}")
                     failed_targets.add(target_name)
-                    target_existing_clients[target_name] = set()
-                    target_existing_tunnels[target_name] = set()
-                    target_existing_hosts[target_name] = set()
-                    target_clients_list[target_name] = []
-                    op_logger.cluster_operation(
-                        "fetch_existing", target_name, False, f"Unexpected error: {e}"
-                    )
+                    target_data[target_name] = (None, set(), set(), set())
 
-        # Remove failed targets from sync
         active_targets = [t for t in targets if t not in failed_targets]
-        if failed_targets:
-            op_logger.phase_info(
-                f"Skipping {len(failed_targets)} failed edges: {', '.join(failed_targets)}"
+        if failed_targets and not quiet:
+            console.print(
+                f"[yellow]Skipping {len(failed_targets)} failed edges: "
+                f"{', '.join(failed_targets)}[/yellow]"
             )
-            # Mark failed targets in results
             for target_name in failed_targets:
                 results[target_name]["_edge_failed"] = False
 
-        # Phase 3: Build task list (only for active targets)
-        tasks: list[tuple[str, str, dict[str, Any]]] = []  # (target, type, data)
-
+        # Build all tasks
+        tasks: list[tuple[str, str, dict[str, Any]]] = []
         if sync_clients:
             for target_name in active_targets:
-                for client_info in source_clients:
-                    tasks.append((target_name, "client", client_info))
-
+                for c in source_clients:
+                    tasks.append((target_name, "client", c))
         if sync_tunnels:
             for target_name in active_targets:
-                for tunnel_info in source_tunnels:
-                    tasks.append((target_name, "tunnel", tunnel_info))
-
+                for t in source_tunnels:
+                    tasks.append((target_name, "tunnel", t))
         if sync_hosts:
             for target_name in active_targets:
-                for host_info in source_hosts:
-                    tasks.append((target_name, "host", host_info))
+                for h in source_hosts:
+                    tasks.append((target_name, "host", h))
 
-        def sync_single_item(
-            target_name: str, item_type: str, item_info: dict[str, Any]
-        ) -> tuple[str, str, str, bool]:
-            """Sync a single item to a target edge.
+        if not quiet:
+            console.print(
+                f"\n[bold blue]Syncing {len(tasks)} items to "
+                f"{len(active_targets)} target edges...[/bold blue]"
+            )
 
-            Returns:
-                Tuple of (target_name, item_type, item_name, success).
-            """
-            target_nps = self._clients[target_name]
+        # Execute all tasks in parallel
+        if show_progress:
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(),
+                MofNCompleteColumn(),
+                TaskProgressColumn(),
+                TimeElapsedColumn(),
+                console=console,
+            ) as progress:
+                task = progress.add_task("Syncing...", total=len(tasks))
 
-            if item_type == "client":
-                vkey = item_info.get("VerifyKey", "")
-                remark = item_info.get("Remark", "")
+                with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                    futures = {
+                        executor.submit(
+                            self._sync_single_item,
+                            source_name,
+                            target_name,
+                            item_type,
+                            item_info,
+                            source_clients,
+                            target_data[target_name][0] or [],
+                            target_data[target_name][1],
+                            target_data[target_name][2],
+                            target_data[target_name][3],
+                        ): (target_name, item_type, item_info)
+                        for target_name, item_type, item_info in tasks
+                    }
 
-                # Check if client already exists (by vkey)
-                if vkey and vkey in target_existing_clients.get(target_name, set()):
-                    logger.debug(f"Client {remark} already exists on {target_name}")
-                    op_logger.sync_progress(
-                        source_name, target_name, item_type, remark, True
-                    )
-                    return (target_name, item_type, remark, True)
+                    for future in as_completed(futures):
+                        target_name, item_type, item_info = futures[future]
+                        try:
+                            t_name, i_type, i_name, success = future.result()
+                            results[t_name][f"{i_type}:{i_name}"] = success
+                        except Exception as e:
+                            logger.error(f"Unexpected error: {e}")
+                            if item_type == "client":
+                                name = item_info.get("Remark", "")
+                            elif item_type == "tunnel":
+                                name = (
+                                    item_info.get("Remark", "")
+                                    or f"port:{item_info.get('Port', 0)}"
+                                )
+                            else:
+                                name = item_info.get("Host", "")
+                            results[target_name][f"{item_type}:{name}"] = False
 
-                try:
-                    success = client_mgmt.add_client(
-                        target_nps, remark=remark, vkey=vkey
-                    )
-                    op_logger.sync_progress(
-                        source_name, target_name, item_type, remark, success
-                    )
-                    return (target_name, item_type, remark, success)
-                except NPSError as e:
-                    logger.error(
-                        f"Failed to sync client {remark} to {target_name}: {e}"
-                    )
-                    op_logger.sync_progress(
-                        source_name, target_name, item_type, remark, False
-                    )
-                    return (target_name, item_type, remark, False)
-
-            elif item_type == "tunnel":
-                # Build client ID mapping for this target
-                id_mapping = self._build_client_id_mapping(
-                    source_clients, target_clients_list.get(target_name, [])
-                )
-
-                source_client_id = item_info.get("Client", {}).get("Id", 0)
-                target_client_id = id_mapping.get(source_client_id)
-                tunnel_type = item_info.get("Mode", "tcp")
-                port = item_info.get("Port", 0)
-                target_addr = item_info.get("Target", {}).get("TargetStr", "")
-                remark = item_info.get("Remark", "")
-                item_name = remark or f"port:{port}"
-
-                if not target_client_id:
-                    logger.warning(
-                        f"Cannot sync tunnel {remark}: client not found on {target_name}"
-                    )
-                    op_logger.sync_progress(
-                        source_name, target_name, item_type, item_name, False
-                    )
-                    return (target_name, item_type, item_name, False)
-
-                # Check if tunnel already exists
-                tunnel_key = (target_client_id, tunnel_type, port)
-                if tunnel_key in target_existing_tunnels.get(target_name, set()):
-                    logger.debug(f"Tunnel {remark} already exists on {target_name}")
-                    op_logger.sync_progress(
-                        source_name, target_name, item_type, item_name, True
-                    )
-                    return (target_name, item_type, item_name, True)
-
-                try:
-                    success = tunnel.add_tunnel(
-                        target_nps,
-                        client_id=target_client_id,
-                        tunnel_type=tunnel_type,
-                        port=port,
-                        target=target_addr,
-                        remark=remark,
-                    )
-                    op_logger.sync_progress(
-                        source_name, target_name, item_type, item_name, success
-                    )
-                    return (target_name, item_type, item_name, success)
-                except NPSError as e:
-                    logger.error(
-                        f"Failed to sync tunnel {remark} to {target_name}: {e}"
-                    )
-                    op_logger.sync_progress(
-                        source_name, target_name, item_type, item_name, False
-                    )
-                    return (target_name, item_type, item_name, False)
-
-            elif item_type == "host":
-                # Build client ID mapping for this target
-                id_mapping = self._build_client_id_mapping(
-                    source_clients, target_clients_list.get(target_name, [])
-                )
-
-                source_client_id = item_info.get("Client", {}).get("Id", 0)
-                target_client_id = id_mapping.get(source_client_id)
-                host_domain = item_info.get("Host", "")
-                target_addr = item_info.get("Target", {}).get("TargetStr", "")
-                remark = item_info.get("Remark", "")
-                location = item_info.get("Location", "")
-                scheme = item_info.get("Scheme", "all")
-
-                if not target_client_id:
-                    logger.warning(
-                        f"Cannot sync host {host_domain}: client not found on {target_name}"
-                    )
-                    op_logger.sync_progress(
-                        source_name, target_name, item_type, host_domain, False
-                    )
-                    return (target_name, item_type, host_domain, False)
-
-                # Check if host already exists
-                if host_domain in target_existing_hosts.get(target_name, set()):
-                    logger.debug(f"Host {host_domain} already exists on {target_name}")
-                    op_logger.sync_progress(
-                        source_name, target_name, item_type, host_domain, True
-                    )
-                    return (target_name, item_type, host_domain, True)
-
-                try:
-                    success = host.add_host(
-                        target_nps,
-                        client_id=target_client_id,
-                        host=host_domain,
-                        target=target_addr,
-                        remark=remark,
-                        location=location,
-                        scheme=scheme,
-                    )
-                    op_logger.sync_progress(
-                        source_name, target_name, item_type, host_domain, success
-                    )
-                    return (target_name, item_type, host_domain, success)
-                except NPSError as e:
-                    logger.error(
-                        f"Failed to sync host {host_domain} to {target_name}: {e}"
-                    )
-                    op_logger.sync_progress(
-                        source_name, target_name, item_type, host_domain, False
-                    )
-                    return (target_name, item_type, host_domain, False)
-
-            return (target_name, item_type, "unknown", False)
-
-        # Phase 4: Execute sync tasks in parallel with progress bar
-        op_logger.phase_info(
-            f"Syncing {len(tasks)} items to {len(active_targets)} target edges..."
-        )
-
-        with tqdm(total=len(tasks), desc="Syncing", disable=not show_progress) as pbar:
+                        progress.update(task, advance=1)
+        else:
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 futures = {
                     executor.submit(
-                        sync_single_item, target_name, item_type, item_info
-                    ): (
+                        self._sync_single_item,
+                        source_name,
                         target_name,
                         item_type,
                         item_info,
-                    )
+                        source_clients,
+                        target_data[target_name][0] or [],
+                        target_data[target_name][1],
+                        target_data[target_name][2],
+                        target_data[target_name][3],
+                    ): (target_name, item_type, item_info)
                     for target_name, item_type, item_info in tasks
                 }
+
                 for future in as_completed(futures):
                     target_name, item_type, item_info = futures[future]
-                    # Get display name for progress bar
-                    if item_type == "client":
-                        display_name = item_info.get("Remark", "")
-                    elif item_type == "tunnel":
-                        display_name = (
-                            item_info.get("Remark", "")
-                            or f"port:{item_info.get('Port', 0)}"
-                        )
-                    else:
-                        display_name = item_info.get("Host", "")
-                    pbar.set_postfix_str(f"{target_name}:{display_name}")
-
                     try:
                         t_name, i_type, i_name, success = future.result()
                         results[t_name][f"{i_type}:{i_name}"] = success
                     except Exception as e:
-                        logger.error(f"Unexpected error syncing {item_type}: {e}")
-                        results[target_name][f"{item_type}:{display_name}"] = False
-                    pbar.update(1)
+                        logger.error(f"Unexpected error: {e}")
+                        if item_type == "client":
+                            name = item_info.get("Remark", "")
+                        elif item_type == "tunnel":
+                            name = (
+                                item_info.get("Remark", "")
+                                or f"port:{item_info.get('Port', 0)}"
+                            )
+                        else:
+                            name = item_info.get("Host", "")
+                        results[target_name][f"{item_type}:{name}"] = False
 
-        # Calculate summary statistics
-        elapsed_ms = (time.perf_counter() - start_time) * 1000
-        total_ops = sum(len(ops) for ops in results.values())
+        return results
+
+    def _print_edge_summary(
+        self,
+        target_name: str,
+        client_success: int,
+        client_total: int,
+        tunnel_success: int,
+        tunnel_total: int,
+        host_success: int,
+        host_total: int,
+        elapsed: float,
+    ) -> None:
+        """Print summary for a single edge sync."""
+        if client_total > 0:
+            status = (
+                "[green]✓[/green]" if client_success == client_total else "[red]✗[/red]"
+            )
+            failed_msg = (
+                f" [dim]({client_total - client_success} failed)[/dim]"
+                if client_success < client_total
+                else ""
+            )
+            console.print(
+                f"  Clients: {client_success}/{client_total} {status}{failed_msg}"
+            )
+
+        if tunnel_total > 0:
+            status = (
+                "[green]✓[/green]" if tunnel_success == tunnel_total else "[red]✗[/red]"
+            )
+            failed_msg = (
+                f" [dim]({tunnel_total - tunnel_success} failed)[/dim]"
+                if tunnel_success < tunnel_total
+                else ""
+            )
+            console.print(
+                f"  Tunnels: {tunnel_success}/{tunnel_total} {status}{failed_msg}"
+            )
+
+        if host_total > 0:
+            status = (
+                "[green]✓[/green]" if host_success == host_total else "[red]✗[/red]"
+            )
+            failed_msg = (
+                f" [dim]({host_total - host_success} failed)[/dim]"
+                if host_success < host_total
+                else ""
+            )
+            console.print(f"  Hosts: {host_success}/{host_total} {status}{failed_msg}")
+
+        console.print(f"  [dim]Completed in {elapsed:.1f}s[/dim]")
+
+    def _print_sync_summary(
+        self,
+        results: dict[str, dict[str, bool]],
+        elapsed_ms: float,
+        quiet: bool,
+    ) -> None:
+        """Print final sync summary."""
+        if not results:
+            return
+
+        console.print("\n[bold]Summary:[/bold]")
+
+        total_ops = 0
+        total_success = 0
+
+        for target_name, ops in results.items():
+            success = sum(1 for k, v in ops.items() if v and k != "_edge_failed")
+            total = sum(1 for k in ops.keys() if k != "_edge_failed")
+            total_ops += total
+            total_success += success
+
+            if "_edge_failed" in ops:
+                console.print(f"  {target_name}: [red]connection failed[/red]")
+            elif success == total:
+                console.print(f"  {target_name}: {success}/{total} [green]✓[/green]")
+            else:
+                console.print(f"  {target_name}: {success}/{total} [red]✗[/red]")
+
+        if total_ops > 0:
+            pct = (total_success / total_ops) * 100
+            console.print(
+                f"\n  [bold]Total: {total_success}/{total_ops} ({pct:.1f}%) | "
+                f"{elapsed_ms / 1000:.1f}s[/bold]"
+            )
+
+    def _get_summary_string(self, results: dict[str, dict[str, bool]]) -> str:
+        """Get summary string for logging."""
+        total_ops = sum(
+            sum(1 for k in ops.keys() if k != "_edge_failed")
+            for ops in results.values()
+        )
         success_ops = sum(
             sum(1 for k, v in ops.items() if v and k != "_edge_failed")
             for ops in results.values()
         )
-        op_logger.operation_success(
-            ctx,
-            result=f"{success_ops}/{total_ops} operations succeeded, {len(failed_targets)} edges skipped",
-            duration_ms=elapsed_ms,
-        )
-
-        return results
+        failed_edges = sum(1 for ops in results.values() if "_edge_failed" in ops)
+        return f"{success_ops}/{total_ops} operations succeeded, {failed_edges} edges failed"
