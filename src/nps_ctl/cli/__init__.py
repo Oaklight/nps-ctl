@@ -17,7 +17,8 @@ Submodules:
 import sys
 
 from ..logging import configure_logging
-from .helpers import get_default_config_path
+from ..ssh_proxy import SSHProxy
+from .helpers import console, get_default_config_path
 from .parser import create_parser
 
 
@@ -68,7 +69,29 @@ def main() -> int:
             print(f"Error: {e}", file=sys.stderr)
             return 1
 
-    return args.func(args)
+    # Handle --auto-proxy option
+    auto_proxy = getattr(args, "auto_proxy", None)
+    ssh_proxy: SSHProxy | None = None
+
+    if auto_proxy:
+        # Create and start SSH SOCKS proxy
+        try:
+            console.print(f"[blue]Creating SSH SOCKS proxy via {auto_proxy}...[/blue]")
+            ssh_proxy = SSHProxy(ssh_host=auto_proxy)
+            ssh_proxy.start()
+            # Set socks_proxy for the command to use
+            args.socks_proxy = ssh_proxy.address
+            console.print(f"[green]✓ SSH proxy ready on {ssh_proxy.address}[/green]")
+        except Exception as e:
+            console.print(f"[red]Failed to create SSH proxy: {e}[/red]")
+            return 1
+
+    try:
+        return args.func(args)
+    finally:
+        # Clean up SSH proxy if we created one
+        if ssh_proxy:
+            ssh_proxy.stop()
 
 
 if __name__ == "__main__":

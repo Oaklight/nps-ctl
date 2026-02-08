@@ -40,6 +40,14 @@ def create_parser() -> argparse.ArgumentParser:
         "More stable than HTTP proxy for unreliable networks.",
     )
     parser.add_argument(
+        "--auto-proxy",
+        metavar="SSH_HOST",
+        default=None,
+        help="Automatically create SSH SOCKS proxy using the specified SSH host "
+        "(e.g., cloud.usa4). The proxy will be created before operations and "
+        "cleaned up on exit.",
+    )
+    parser.add_argument(
         "-v",
         "--verbose",
         action="store_true",
