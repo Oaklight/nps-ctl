@@ -27,6 +27,7 @@ class NPSCluster:
 
     Args:
         config_path: Path to the edges.toml configuration file.
+        proxy: HTTP/HTTPS proxy URL for all API requests.
 
     Example:
         >>> cluster = NPSCluster("config/edges.toml")
@@ -35,6 +36,7 @@ class NPSCluster:
     """
 
     config_path: str | Path
+    proxy: str | None = None
     _edges: dict[str, EdgeConfig] = field(default_factory=dict, init=False)
     _clients: dict[str, NPSClient] = field(default_factory=dict, init=False)
 
@@ -64,6 +66,7 @@ class NPSCluster:
             self._clients[edge_config.name] = NPSClient(
                 base_url=edge_config.api_url,
                 auth_key=edge_config.auth_key,
+                proxy=self.proxy,
             )
 
     @property

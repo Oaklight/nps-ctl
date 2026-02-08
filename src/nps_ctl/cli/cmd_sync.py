@@ -11,8 +11,9 @@ from ..exceptions import NPSError
 
 def cmd_sync(args: argparse.Namespace) -> int:
     """Sync configuration from one edge to others."""
+    proxy = getattr(args, "proxy", None)
     try:
-        cluster = NPSCluster(args.config)
+        cluster = NPSCluster(args.config, proxy=proxy)
     except FileNotFoundError as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1
@@ -78,8 +79,9 @@ def cmd_sync(args: argparse.Namespace) -> int:
 
 def cmd_export(args: argparse.Namespace) -> int:
     """Export configuration from an edge."""
+    proxy = getattr(args, "proxy", None)
     try:
-        cluster = NPSCluster(args.config)
+        cluster = NPSCluster(args.config, proxy=proxy)
     except FileNotFoundError as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1

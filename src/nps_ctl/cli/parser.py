@@ -27,6 +27,12 @@ def create_parser() -> argparse.ArgumentParser:
         default=None,
         help="Path to edges.toml configuration file",
     )
+    parser.add_argument(
+        "--proxy",
+        "-p",
+        default=None,
+        help="HTTP/HTTPS proxy URL (e.g., http://127.0.0.1:7890)",
+    )
 
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 

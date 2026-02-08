@@ -34,6 +34,7 @@ class NPSClient:
         auth_key: The authentication key configured in nps.conf.
         timeout: Request timeout in seconds.
         verify_ssl: Whether to verify SSL certificates.
+        proxy: HTTP/HTTPS proxy URL (e.g., "http://127.0.0.1:7890").
 
     Example:
         >>> from nps_ctl.base import NPSClient
@@ -50,15 +51,26 @@ class NPSClient:
     verify_ssl: bool = True
     max_retries: int = 3
     retry_backoff: float = 1.0
+    proxy: str | None = None
     _ssl_context: ssl.SSLContext | None = field(default=None, init=False, repr=False)
+    _opener: urllib.request.OpenerDirector | None = field(
+        default=None, init=False, repr=False
+    )
 
     def __post_init__(self) -> None:
-        """Initialize SSL context."""
+        """Initialize SSL context and proxy handler."""
         self.base_url = self.base_url.rstrip("/")
         if not self.verify_ssl:
             self._ssl_context = ssl.create_default_context()
             self._ssl_context.check_hostname = False
             self._ssl_context.verify_mode = ssl.CERT_NONE
+
+        # Setup proxy if specified
+        if self.proxy:
+            proxy_handler = urllib.request.ProxyHandler(
+                {"http": self.proxy, "https": self.proxy}
+            )
+            self._opener = urllib.request.build_opener(proxy_handler)
 
     def _request_with_retry(
         self,
@@ -83,10 +95,14 @@ class NPSClient:
         last_error: Exception | None = None
         for attempt in range(self.max_retries):
             try:
-                with urllib.request.urlopen(
-                    req, timeout=self.timeout, context=self._ssl_context
-                ) as response:
-                    return response.read()
+                if self._opener:
+                    with self._opener.open(req, timeout=self.timeout) as response:
+                        return response.read()
+                else:
+                    with urllib.request.urlopen(
+                        req, timeout=self.timeout, context=self._ssl_context
+                    ) as response:
+                        return response.read()
             except urllib.error.URLError as e:
                 last_error = e
                 if attempt < self.max_retries - 1:
