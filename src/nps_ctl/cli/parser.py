@@ -34,6 +34,12 @@ def create_parser() -> argparse.ArgumentParser:
         help="HTTP/HTTPS proxy URL (e.g., http://127.0.0.1:7890)",
     )
     parser.add_argument(
+        "--socks-proxy",
+        default=None,
+        help="SOCKS5 proxy address for SSH tunnel (e.g., localhost:1080). "
+        "More stable than HTTP proxy for unreliable networks.",
+    )
+    parser.add_argument(
         "-v",
         "--verbose",
         action="store_true",

@@ -16,10 +16,11 @@ console = Console()
 def cmd_sync(args: argparse.Namespace) -> int:
     """Sync configuration from one edge to others."""
     proxy = getattr(args, "proxy", None)
+    socks_proxy = getattr(args, "socks_proxy", None)
     quiet = getattr(args, "quiet", False)
 
     try:
-        cluster = NPSCluster(args.config, proxy=proxy)
+        cluster = NPSCluster(args.config, proxy=proxy, socks_proxy=socks_proxy)
     except FileNotFoundError as e:
         console.print(f"[red]Error: {e}[/red]", file=sys.stderr)
         return 1
@@ -115,8 +116,9 @@ def _print_detailed_results(results: dict[str, dict[str, bool]]) -> None:
 def cmd_export(args: argparse.Namespace) -> int:
     """Export configuration from an edge."""
     proxy = getattr(args, "proxy", None)
+    socks_proxy = getattr(args, "socks_proxy", None)
     try:
-        cluster = NPSCluster(args.config, proxy=proxy)
+        cluster = NPSCluster(args.config, proxy=proxy, socks_proxy=socks_proxy)
     except FileNotFoundError as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1

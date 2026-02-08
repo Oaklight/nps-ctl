@@ -7,6 +7,7 @@ HTTP requests, and SSL configuration for communicating with NPS servers.
 import hashlib
 import json
 import logging
+import socket
 import ssl
 import time
 import urllib.error
@@ -14,6 +15,13 @@ import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
 from typing import Any
+
+try:
+    import socks
+
+    HAS_SOCKS = True
+except ImportError:
+    HAS_SOCKS = False
 
 from .exceptions import NPSAPIError, NPSAuthError
 from .logging import get_operation_logger
@@ -37,6 +45,7 @@ class NPSClient:
         timeout: Request timeout in seconds.
         verify_ssl: Whether to verify SSL certificates.
         proxy: HTTP/HTTPS proxy URL (e.g., "http://127.0.0.1:7890").
+        socks_proxy: SOCKS5 proxy address (e.g., "localhost:1080" for SSH tunnel).
 
     Example:
         >>> from nps_ctl.base import NPSClient
@@ -54,10 +63,12 @@ class NPSClient:
     max_retries: int = 3
     retry_backoff: float = 1.0
     proxy: str | None = None
+    socks_proxy: str | None = None
     _ssl_context: ssl.SSLContext | None = field(default=None, init=False, repr=False)
     _opener: urllib.request.OpenerDirector | None = field(
         default=None, init=False, repr=False
     )
+    _original_socket: type | None = field(default=None, init=False, repr=False)
 
     def __post_init__(self) -> None:
         """Initialize SSL context and proxy handler."""
@@ -72,8 +83,40 @@ class NPSClient:
         else:
             self._ssl_context = ssl.create_default_context()
 
-        # Setup proxy if specified
-        if self.proxy:
+        # Setup SOCKS proxy if specified (takes precedence over HTTP proxy)
+        if self.socks_proxy:
+            if not HAS_SOCKS:
+                raise ImportError(
+                    "PySocks is required for SOCKS proxy support. "
+                    "Install it with: pip install PySocks"
+                )
+            # Parse socks_proxy address (format: host:port)
+            if ":" in self.socks_proxy:
+                socks_host, socks_port_str = self.socks_proxy.rsplit(":", 1)
+                socks_port = int(socks_port_str)
+            else:
+                socks_host = self.socks_proxy
+                socks_port = 1080  # Default SOCKS port
+
+            op_logger.connection_attempt(
+                self.base_url,
+                proxy=f"socks5://{socks_host}:{socks_port}",
+                verify_ssl=self.verify_ssl,
+            )
+
+            # Store original socket class for potential cleanup
+            self._original_socket = socket.socket
+
+            # Set default SOCKS proxy globally for this client
+            socks.set_default_proxy(socks.SOCKS5, socks_host, socks_port)
+            socket.socket = socks.socksocket
+
+            logger.info(
+                f"SOCKS5 proxy enabled: {socks_host}:{socks_port} for {self.base_url}"
+            )
+
+        # Setup HTTP proxy if specified (only if SOCKS proxy is not set)
+        elif self.proxy:
             op_logger.connection_attempt(
                 self.base_url, proxy=self.proxy, verify_ssl=self.verify_ssl
             )

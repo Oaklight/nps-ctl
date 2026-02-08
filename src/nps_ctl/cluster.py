@@ -87,6 +87,7 @@ class NPSCluster:
     Args:
         config_path: Path to the edges.toml configuration file.
         proxy: HTTP/HTTPS proxy URL for all API requests.
+        socks_proxy: SOCKS5 proxy address for SSH tunnel (e.g., "localhost:1080").
 
     Example:
         >>> cluster = NPSCluster("config/edges.toml")
@@ -96,6 +97,7 @@ class NPSCluster:
 
     config_path: str | Path
     proxy: str | None = None
+    socks_proxy: str | None = None
     _edges: dict[str, EdgeConfig] = field(default_factory=dict, init=False)
     _clients: dict[str, NPSClient] = field(default_factory=dict, init=False)
     _npc_clients: dict[str, NPCClientConfig] = field(default_factory=dict, init=False)
@@ -129,6 +131,7 @@ class NPSCluster:
                 base_url=edge_config.api_url,
                 auth_key=edge_config.auth_key,
                 proxy=self.proxy,
+                socks_proxy=self.socks_proxy,
             )
             logger.debug(
                 f"Registered edge: {edge_config.name} ({edge_config.region}) "
