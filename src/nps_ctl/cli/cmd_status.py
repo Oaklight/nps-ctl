@@ -1,12 +1,14 @@
 """CLI command: status - Show status of all edge nodes."""
 
 import argparse
-import sys
+
+from rich.live import Live
+from rich.spinner import Spinner
 
 from .. import client_mgmt
 from ..cluster import NPSCluster
 from ..exceptions import NPSError
-from .helpers import format_table
+from .helpers import console, create_table, print_error
 
 
 def cmd_status(args: argparse.Namespace) -> int:
@@ -14,26 +16,34 @@ def cmd_status(args: argparse.Namespace) -> int:
     try:
         cluster = NPSCluster(args.config)
     except FileNotFoundError as e:
-        print(f"Error: {e}", file=sys.stderr)
+        print_error(str(e))
         return 1
 
-    headers = ["Edge", "Region", "API URL", "Status"]
-    rows = []
+    # Create table
+    table = create_table(title="NPS Edge Status")
+    table.add_column("Edge", style="bold")
+    table.add_column("Region")
+    table.add_column("API URL", style="dim")
+    table.add_column("Status")
 
-    for name in cluster.edge_names:
-        edge = cluster.get_edge(name)
-        nps = cluster.get_client(name)
-        if not edge or not nps:
-            continue
+    # Check status with live display
+    with Live(
+        Spinner("dots", text="Checking edge status..."), console=console, transient=True
+    ):
+        for name in cluster.edge_names:
+            edge = cluster.get_edge(name)
+            nps = cluster.get_client(name)
+            if not edge or not nps:
+                continue
 
-        try:
-            # Try to get clients to verify connection
-            client_mgmt.list_clients(nps, limit=1)
-            status = "✓ Online"
-        except NPSError:
-            status = "✗ Offline"
+            try:
+                # Try to get clients to verify connection
+                client_mgmt.list_clients(nps, limit=1)
+                status = "[green]✓ Online[/green]"
+            except NPSError:
+                status = "[red]✗ Offline[/red]"
 
-        rows.append([name, edge.region, edge.api_url, status])
+            table.add_row(name, edge.region, edge.api_url, status)
 
-    print(format_table(headers, rows))
+    console.print(table)
     return 0

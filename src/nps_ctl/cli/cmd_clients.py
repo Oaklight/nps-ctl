@@ -1,13 +1,12 @@
 """CLI command: clients - List and manage NPC clients."""
 
 import argparse
-import sys
 from typing import Any
 
 from .. import client_mgmt
 from ..cluster import NPSCluster
 from ..exceptions import NPSError
-from .helpers import format_table
+from .helpers import console, create_table, print_error
 
 
 def cmd_clients(args: argparse.Namespace) -> int:
@@ -15,7 +14,7 @@ def cmd_clients(args: argparse.Namespace) -> int:
     try:
         cluster = NPSCluster(args.config)
     except FileNotFoundError as e:
-        print(f"Error: {e}", file=sys.stderr)
+        print_error(str(e))
         return 1
 
     if args.all:
@@ -24,7 +23,7 @@ def cmd_clients(args: argparse.Namespace) -> int:
         for edge_name, clients in all_clients.items():
             edge = cluster.get_edge(edge_name)
             region = edge.region if edge else ""
-            print(f"\n=== {edge_name} ({region}) ===")
+            console.print(f"\n[bold cyan]=== {edge_name} ({region}) ===[/bold cyan]")
             _print_clients(clients)
     else:
         # Show clients from specific edge
@@ -33,19 +32,19 @@ def cmd_clients(args: argparse.Namespace) -> int:
             # Use first edge as default
             edge_name = cluster.edge_names[0] if cluster.edge_names else None
             if not edge_name:
-                print("Error: No edges configured", file=sys.stderr)
+                print_error("No edges configured")
                 return 1
 
         nps = cluster.get_client(edge_name)
         if not nps:
-            print(f"Error: Edge '{edge_name}' not found", file=sys.stderr)
+            print_error(f"Edge '{edge_name}' not found")
             return 1
 
         try:
             clients = client_mgmt.list_clients(nps)
             _print_clients(clients)
         except NPSError as e:
-            print(f"Error: {e}", file=sys.stderr)
+            print_error(str(e))
             return 1
 
     return 0
@@ -53,19 +52,27 @@ def cmd_clients(args: argparse.Namespace) -> int:
 
 def _print_clients(clients: list[dict[str, Any]]) -> None:
     """Print client list as table."""
-    headers = ["ID", "Remark", "VKey", "Status", "Conn"]
-    rows = []
+    table = create_table()
+    table.add_column("ID", style="dim")
+    table.add_column("Remark", style="bold")
+    table.add_column("VKey", style="dim")
+    table.add_column("Status")
+    table.add_column("Conn", justify="right")
+
     for c in clients:
-        status = "Connected" if c.get("IsConnect") else "Disconnected"
-        rows.append(
-            [
-                str(c.get("Id", "")),
-                c.get("Remark", ""),
-                c.get("VerifyKey", "")[:20] + "..."
-                if len(c.get("VerifyKey", "")) > 20
-                else c.get("VerifyKey", ""),
-                status,
-                str(c.get("NowConn", 0)),
-            ]
+        is_connected = c.get("IsConnect", False)
+        status = (
+            "[green]Connected[/green]" if is_connected else "[red]Disconnected[/red]"
         )
-    print(format_table(headers, rows))
+        vkey = c.get("VerifyKey", "")
+        vkey_display = vkey[:20] + "..." if len(vkey) > 20 else vkey
+
+        table.add_row(
+            str(c.get("Id", "")),
+            c.get("Remark", ""),
+            vkey_display,
+            status,
+            str(c.get("NowConn", 0)),
+        )
+
+    console.print(table)

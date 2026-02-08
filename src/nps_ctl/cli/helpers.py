@@ -5,6 +5,13 @@ such as table formatting and configuration path resolution.
 """
 
 from pathlib import Path
+from typing import Any
+
+from rich.console import Console
+from rich.table import Table
+
+# Shared console instance for all CLI commands
+console = Console()
 
 
 def get_default_config_path() -> Path:
@@ -34,35 +41,103 @@ def get_default_config_path() -> Path:
     )
 
 
-def format_table(
-    headers: list[str], rows: list[list[str]], widths: list[int] | None = None
-) -> str:
-    """Format data as a simple ASCII table.
+def create_table(
+    title: str | None = None,
+    headers: list[str] | None = None,
+    show_header: bool = True,
+    box_style: Any = None,
+) -> Table:
+    """Create a rich Table with consistent styling.
+
+    Args:
+        title: Optional table title.
+        headers: Column headers to add.
+        show_header: Whether to show the header row.
+        box_style: Box style for the table (default: ROUNDED).
+
+    Returns:
+        Configured Table instance.
+    """
+    from rich.box import ROUNDED
+
+    table = Table(
+        title=title,
+        show_header=show_header,
+        header_style="bold cyan",
+        box=box_style or ROUNDED,
+    )
+
+    if headers:
+        for header in headers:
+            table.add_column(header)
+
+    return table
+
+
+def print_table(
+    headers: list[str],
+    rows: list[list[str]],
+    title: str | None = None,
+) -> None:
+    """Print a table using rich.
 
     Args:
         headers: Column headers.
         rows: Table rows.
-        widths: Optional column widths (auto-calculated if not provided).
+        title: Optional table title.
+    """
+    table = create_table(title=title, headers=headers)
+    for row in rows:
+        table.add_row(*[str(cell) for cell in row])
+    console.print(table)
+
+
+def print_error(message: str) -> None:
+    """Print an error message in red.
+
+    Args:
+        message: Error message to print.
+    """
+    console.print(f"[red]Error: {message}[/red]")
+
+
+def print_success(message: str) -> None:
+    """Print a success message in green.
+
+    Args:
+        message: Success message to print.
+    """
+    console.print(f"[green]✓ {message}[/green]")
+
+
+def print_warning(message: str) -> None:
+    """Print a warning message in yellow.
+
+    Args:
+        message: Warning message to print.
+    """
+    console.print(f"[yellow]⚠ {message}[/yellow]")
+
+
+def print_info(message: str) -> None:
+    """Print an info message in blue.
+
+    Args:
+        message: Info message to print.
+    """
+    console.print(f"[blue]{message}[/blue]")
+
+
+def format_status(success: bool) -> str:
+    """Format a status indicator.
+
+    Args:
+        success: Whether the status is successful.
 
     Returns:
-        Formatted table string.
+        Formatted status string with color.
     """
-    if widths is None:
-        widths = [len(h) for h in headers]
-        for row in rows:
-            for i, cell in enumerate(row):
-                if i < len(widths):
-                    widths[i] = max(widths[i], len(str(cell)))
-
-    # Build format string
-    fmt = "  ".join(f"{{:<{w}}}" for w in widths)
-    lines = [fmt.format(*headers)]
-    lines.append("  ".join("-" * w for w in widths))
-    for row in rows:
-        # Pad row if needed
-        padded = list(row) + [""] * (len(headers) - len(row))
-        lines.append(fmt.format(*[str(c)[:w] for c, w in zip(padded, widths)]))
-    return "\n".join(lines)
+    return "[green]✓[/green]" if success else "[red]✗[/red]"
 
 
 def get_template_path() -> Path:
