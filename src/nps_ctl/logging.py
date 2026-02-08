@@ -214,10 +214,12 @@ class OperationLogger:
     def operation_start(self, ctx: OperationContext) -> None:
         """Log the start of an operation.
 
+        This logs at WARNING level so it's visible by default.
+
         Args:
             ctx: Operation context.
         """
-        self._logger.info(f"Starting {ctx}")
+        self._logger.warning(f"Starting {ctx}")
 
     def operation_success(
         self,
@@ -226,6 +228,8 @@ class OperationLogger:
         duration_ms: float | None = None,
     ) -> None:
         """Log a successful operation.
+
+        This logs at WARNING level so it's visible by default.
 
         Args:
             ctx: Operation context.
@@ -237,7 +241,7 @@ class OperationLogger:
             msg += f" | result={result}"
         if duration_ms is not None:
             msg += f" | {duration_ms:.1f}ms"
-        self._logger.info(msg)
+        self._logger.warning(msg)
 
     def operation_failed(
         self,
@@ -301,9 +305,19 @@ class OperationLogger:
         if details:
             msg += f" | {details}"
         if success:
-            self._logger.info(msg)
+            self._logger.debug(msg)
         else:
             self._logger.error(msg)
+
+    def phase_info(self, message: str) -> None:
+        """Log a phase/milestone message at WARNING level.
+
+        Use this for key phase transitions that should be visible by default.
+
+        Args:
+            message: The phase message.
+        """
+        self._logger.warning(message)
 
 
 def _mask_sensitive_data(data: dict[str, Any]) -> dict[str, Any]:

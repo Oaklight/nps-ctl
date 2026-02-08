@@ -53,7 +53,7 @@ class NPSCluster:
         if not path.exists():
             raise FileNotFoundError(f"Config file not found: {path}")
 
-        logger.info(f"Loading cluster configuration from {path}")
+        op_logger.phase_info(f"Loading cluster configuration from {path}")
 
         with open(path, "rb") as f:
             config = tomllib.load(f)
@@ -78,7 +78,7 @@ class NPSCluster:
                 f"-> {edge_config.api_url}"
             )
 
-        logger.info(f"Cluster initialized with {len(self._edges)} edges")
+        op_logger.phase_info(f"Cluster initialized with {len(self._edges)} edges")
 
     @property
     def edge_names(self) -> list[str]:
@@ -382,7 +382,7 @@ class NPSCluster:
         results: dict[str, dict[str, bool]] = {}
 
         # Get source data
-        logger.info(f"Fetching source data from {source_name}...")
+        op_logger.phase_info(f"Fetching source data from {source_name}...")
         source_clients = client_mgmt.list_clients(source) if sync_clients else []
         source_tunnels = tunnel.list_tunnels(source) if sync_tunnels else []
         source_hosts = host.list_hosts(source) if sync_hosts else []
@@ -614,7 +614,9 @@ class NPSCluster:
             return (target_name, item_type, "unknown", False)
 
         # Execute tasks in parallel with progress bar
-        logger.info(f"Syncing {len(tasks)} items to {len(targets)} target edges...")
+        op_logger.phase_info(
+            f"Syncing {len(tasks)} items to {len(targets)} target edges..."
+        )
 
         with tqdm(total=len(tasks), desc="Syncing", disable=not show_progress) as pbar:
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
