@@ -27,8 +27,24 @@ def cmd_sync(args: argparse.Namespace) -> int:
     sync_tunnels = args.type in ("all", "tunnels")
     sync_hosts = args.type in ("all", "hosts")
 
+    # Determine target edges
+    if args.target:
+        target_edges = args.target
+        # Validate target edges
+        invalid = [t for t in target_edges if t not in cluster.edge_names]
+        if invalid:
+            print(f"Error: Unknown target edges: {', '.join(invalid)}", file=sys.stderr)
+            return 1
+        if source in target_edges:
+            target_edges = [t for t in target_edges if t != source]
+    else:
+        target_edges = [n for n in cluster.edge_names if n != source]
+
+    if not target_edges:
+        print("Error: No target edges to sync to", file=sys.stderr)
+        return 1
+
     # Confirm
-    target_edges = [n for n in cluster.edge_names if n != source]
     if not args.yes:
         print(f"Will sync from '{source}' to: {', '.join(target_edges)}")
         print(
@@ -45,6 +61,8 @@ def cmd_sync(args: argparse.Namespace) -> int:
             sync_clients=sync_clients,
             sync_tunnels=sync_tunnels,
             sync_hosts=sync_hosts,
+            target_edges=target_edges,
+            show_progress=True,
         )
         for target, ops in results.items():
             print(f"\n{target}:")

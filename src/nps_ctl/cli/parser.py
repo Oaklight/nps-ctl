@@ -73,6 +73,14 @@ def create_parser() -> argparse.ArgumentParser:
         "--from", "-f", dest="source", required=True, help="Source edge name"
     )
     sync_parser.add_argument(
+        "--to",
+        "--edge",
+        "-e",
+        dest="target",
+        nargs="+",
+        help="Target edge names (default: all other edges)",
+    )
+    sync_parser.add_argument(
         "--type",
         "-t",
         choices=["all", "clients", "tunnels", "hosts"],

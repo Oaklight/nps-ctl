@@ -5,12 +5,13 @@ including broadcasting operations and syncing configurations.
 """
 
 import logging
-import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 import tomllib
+from tqdm import tqdm
 
 from . import client_mgmt, host, tunnel
 from .base import NPSClient
@@ -210,6 +211,9 @@ class NPSCluster:
         sync_clients: bool = True,
         sync_tunnels: bool = True,
         sync_hosts: bool = True,
+        target_edges: list[str] | None = None,
+        show_progress: bool = False,
+        max_workers: int = 4,
     ) -> dict[str, dict[str, bool]]:
         """Sync configuration from one edge to all others.
 
@@ -218,6 +222,9 @@ class NPSCluster:
             sync_clients: Whether to sync clients.
             sync_tunnels: Whether to sync tunnels.
             sync_hosts: Whether to sync hosts.
+            target_edges: List of target edge names. If None, sync to all others.
+            show_progress: Whether to show progress bar.
+            max_workers: Maximum number of parallel workers.
 
         Returns:
             Nested dictionary: {target_edge: {operation: success}}.
@@ -234,26 +241,63 @@ class NPSCluster:
         # which is more complex and should be implemented based on specific needs
         _ = sync_tunnels, sync_hosts  # Mark as intentionally unused for now
 
-        for target_name, target_nps in self._clients.items():
-            if target_name == source_name:
-                continue
+        # Determine target edges
+        if target_edges is None:
+            targets = [n for n in self._clients.keys() if n != source_name]
+        else:
+            targets = [
+                n for n in target_edges if n != source_name and n in self._clients
+            ]
 
+        # Initialize results dict
+        for target_name in targets:
             results[target_name] = {}
 
-            # Sync clients
-            if sync_clients:
+        # Build task list: (target_name, client_info)
+        tasks: list[tuple[str, dict[str, Any]]] = []
+        if sync_clients:
+            for target_name in targets:
                 for client_info in source_clients:
-                    vkey = client_info.get("VerifyKey", "")
-                    remark = client_info.get("Remark", "")
+                    tasks.append((target_name, client_info))
+
+        def sync_single_client(
+            target_name: str, client_info: dict[str, Any]
+        ) -> tuple[str, str, bool]:
+            """Sync a single client to a target edge.
+
+            Returns:
+                Tuple of (target_name, remark, success).
+            """
+            target_nps = self._clients[target_name]
+            vkey = client_info.get("VerifyKey", "")
+            remark = client_info.get("Remark", "")
+            try:
+                success = client_mgmt.add_client(target_nps, remark=remark, vkey=vkey)
+                return (target_name, remark, success)
+            except NPSError as e:
+                msg = f"Failed to sync client {remark} to {target_name}: {e}"
+                logger.error(msg)
+                return (target_name, remark, False)
+
+        # Execute tasks in parallel with progress bar
+        with tqdm(total=len(tasks), desc="Syncing", disable=not show_progress) as pbar:
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = {
+                    executor.submit(sync_single_client, target_name, client_info): (
+                        target_name,
+                        client_info.get("Remark", ""),
+                    )
+                    for target_name, client_info in tasks
+                }
+                for future in as_completed(futures):
+                    target_name, remark = futures[future]
+                    pbar.set_postfix_str(f"{target_name}:{remark}")
                     try:
-                        success = client_mgmt.add_client(
-                            target_nps, remark=remark, vkey=vkey
-                        )
-                        results[target_name][f"client:{remark}"] = success
-                    except NPSError as e:
-                        msg = f"Failed to sync client {remark} to {target_name}: {e}"
-                        logger.error(msg)
-                        print(msg, file=sys.stderr)
+                        t_name, r_name, success = future.result()
+                        results[t_name][f"client:{r_name}"] = success
+                    except Exception as e:
+                        logger.error(f"Unexpected error syncing {remark}: {e}")
                         results[target_name][f"client:{remark}"] = False
+                    pbar.update(1)
 
         return results

@@ -20,8 +20,7 @@ classifiers = [
 	"Topic :: System :: Networking",
 	"Topic :: System :: Systems Administration",
 ]
-# No external dependencies - stdlib only
-dependencies = []
+dependencies = ["tqdm>=4.66.0"]
 
 [project.optional-dependencies]
 dev = ["pyright>=1.1.402", "build>=1.2.2.post1", "twine>=6.1.0"]
