@@ -14,10 +14,31 @@ Submodules:
     cmd_utils: Utility commands (auth key generation)
 """
 
+import logging
 import sys
 
 from .helpers import get_default_config_path
 from .parser import create_parser
+
+
+def setup_logging(verbose: bool = False, debug: bool = False) -> None:
+    """Configure logging based on verbosity level.
+
+    Args:
+        verbose: Enable INFO level logging.
+        debug: Enable DEBUG level logging (overrides verbose).
+    """
+    if debug:
+        level = logging.DEBUG
+        fmt = "%(asctime)s %(levelname)s [%(name)s] %(message)s"
+    elif verbose:
+        level = logging.INFO
+        fmt = "%(levelname)s: %(message)s"
+    else:
+        level = logging.WARNING
+        fmt = "%(levelname)s: %(message)s"
+
+    logging.basicConfig(level=level, format=fmt, stream=sys.stderr)
 
 
 def main() -> int:
@@ -28,6 +49,11 @@ def main() -> int:
     if args.command is None:
         parser.print_help()
         return 0
+
+    # Setup logging
+    verbose = getattr(args, "verbose", False)
+    debug = getattr(args, "debug", False)
+    setup_logging(verbose=verbose, debug=debug)
 
     # Check if this command requires config
     requires_config = getattr(args, "requires_config", True)

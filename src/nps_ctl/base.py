@@ -60,17 +60,23 @@ class NPSClient:
     def __post_init__(self) -> None:
         """Initialize SSL context and proxy handler."""
         self.base_url = self.base_url.rstrip("/")
+
+        # Setup SSL context
         if not self.verify_ssl:
             self._ssl_context = ssl.create_default_context()
             self._ssl_context.check_hostname = False
             self._ssl_context.verify_mode = ssl.CERT_NONE
+        else:
+            self._ssl_context = ssl.create_default_context()
 
         # Setup proxy if specified
         if self.proxy:
+            logger.debug(f"Using proxy: {self.proxy}")
             proxy_handler = urllib.request.ProxyHandler(
                 {"http": self.proxy, "https": self.proxy}
             )
-            self._opener = urllib.request.build_opener(proxy_handler)
+            https_handler = urllib.request.HTTPSHandler(context=self._ssl_context)
+            self._opener = urllib.request.build_opener(proxy_handler, https_handler)
 
     def _request_with_retry(
         self,
@@ -93,16 +99,33 @@ class NPSClient:
             error_cls: If all retries are exhausted.
         """
         last_error: Exception | None = None
+        url = req.full_url
+        logger.debug(f"Request: {req.get_method()} {url}")
+
         for attempt in range(self.max_retries):
             try:
                 if self._opener:
                     with self._opener.open(req, timeout=self.timeout) as response:
-                        return response.read()
+                        data = response.read()
+                        logger.debug(f"Response: {response.status} ({len(data)} bytes)")
+                        return data
                 else:
                     with urllib.request.urlopen(
                         req, timeout=self.timeout, context=self._ssl_context
                     ) as response:
-                        return response.read()
+                        data = response.read()
+                        logger.debug(f"Response: {response.status} ({len(data)} bytes)")
+                        return data
+            except urllib.error.HTTPError as e:
+                last_error = e
+                logger.warning(
+                    f"{error_prefix} (attempt {attempt + 1}/{self.max_retries}): "
+                    f"HTTP {e.code} {e.reason}"
+                )
+                if attempt < self.max_retries - 1:
+                    wait = self.retry_backoff * (2**attempt)
+                    logger.debug(f"Retrying in {wait:.1f}s...")
+                    time.sleep(wait)
             except urllib.error.URLError as e:
                 last_error = e
                 if attempt < self.max_retries - 1:
@@ -129,6 +152,7 @@ class NPSClient:
             NPSAuthError: If failed to get server time.
         """
         url = f"{self.base_url}/auth/gettime"
+        logger.debug(f"Getting server time from {url}")
         req = urllib.request.Request(url)
         try:
             raw = self._request_with_retry(
@@ -197,15 +221,19 @@ class NPSClient:
             url = f"{self.base_url}{endpoint}?{urllib.parse.urlencode(params)}"
             req = urllib.request.Request(url, method=method)
 
+        logger.debug(f"API request: {method} {endpoint}")
         try:
             raw = self._request_with_retry(
                 req,
                 error_prefix=f"API request {endpoint} failed",
             )
             response_data = raw.decode("utf-8")
-            return json.loads(response_data)
+            result = json.loads(response_data)
+            logger.debug(f"API response: status={result.get('status')}")
+            return result
 
         except NPSAPIError:
             raise
         except json.JSONDecodeError as e:
+            logger.error(f"Invalid JSON response for {endpoint}: {e}")
             raise NPSAPIError(f"Invalid JSON response: {e}") from e

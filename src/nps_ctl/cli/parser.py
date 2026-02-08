@@ -29,9 +29,19 @@ def create_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--proxy",
-        "-p",
         default=None,
         help="HTTP/HTTPS proxy URL (e.g., http://127.0.0.1:7890)",
+    )
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Enable verbose output (INFO level logging)",
+    )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Enable debug output (DEBUG level logging)",
     )
 
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
