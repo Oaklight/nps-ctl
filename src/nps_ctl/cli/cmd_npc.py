@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import TYPE_CHECKING
 
 from rich.progress import (
@@ -212,8 +213,73 @@ def cmd_npc_uninstall(args: argparse.Namespace) -> int:
     return 0 if fail_count == 0 else 1
 
 
+def _parse_npc_status_output(
+    stdout: str,
+) -> tuple[str, str]:
+    """Parse NPC status check output into status and details.
+
+    Extracts version and service status from the SSH command output
+    produced by ``check_npc_status``.
+
+    Args:
+        stdout: Raw stdout from the SSH status check command.
+
+    Returns:
+        A tuple of (status, details) where *status* is a rich-markup
+        string like ``[green]Running[/green]`` and *details* contains
+        extra information such as the NPC version.
+    """
+    lines = stdout.strip().splitlines()
+
+    version = ""
+    service_status = ""
+
+    section = ""
+    for line in lines:
+        stripped = line.strip()
+        if stripped == "=== NPC Version ===":
+            section = "version"
+            continue
+        elif stripped == "=== Service Status ===":
+            section = "service"
+            continue
+
+        if section == "version" and stripped:
+            if "not installed" in stripped.lower():
+                version = "Not installed"
+            else:
+                version = stripped
+        elif section == "service" and stripped:
+            if not service_status:
+                service_status = stripped
+
+    # Determine rich-formatted status string
+    if not version or version == "Not installed":
+        status = "[red]Not Installed[/red]"
+    elif "running" in service_status.lower():
+        status = "[green]Running[/green]"
+    elif "stopped" in service_status.lower() or "not running" in service_status.lower():
+        status = "[yellow]Stopped[/yellow]"
+    else:
+        status = f"[yellow]{service_status or 'Unknown'}[/yellow]"
+
+    # Build details string
+    details_parts: list[str] = []
+    if version and version != "Not installed":
+        details_parts.append(version)
+    if service_status and "running" not in service_status.lower():
+        details_parts.append(service_status)
+
+    return status, ", ".join(details_parts)
+
+
 def cmd_npc_status(args: argparse.Namespace) -> int:
-    """Check NPC status on client machines."""
+    """Check NPC status on client machines and display as a rich table.
+
+    When ``--parallel`` is passed, SSH checks run concurrently using a
+    thread pool, which significantly speeds up status collection for
+    many clients.
+    """
     try:
         cluster = NPSCluster(args.config)
     except FileNotFoundError as e:
@@ -233,24 +299,93 @@ def cmd_npc_status(args: argparse.Namespace) -> int:
         print("Error: No NPC clients configured", file=sys.stderr)
         return 1
 
+    parallel = getattr(args, "parallel", False)
+
+    # Collect rows: list of (client_name, ssh_host, edges_str, status, details)
+    rows: list[tuple[str, str, str, str, str]] = []
+
+    # Pre-resolve configs and identify missing ones
+    configs: dict[str, object] = {}
     for client_name in target_clients:
         npc_config = cluster.get_npc_client(client_name)
         if not npc_config:
-            print(f"✗ {client_name}: Configuration not found")
-            continue
-
-        print(f"\n=== {client_name} ({npc_config.ssh_host}) ===")
-
-        result = check_npc_status(ssh_host=npc_config.ssh_host)
-
-        if result.success:
-            if result.stdout:
-                print(result.stdout.strip())
+            rows.append((client_name, "—", "—", "[red]Config Not Found[/red]", ""))
         else:
-            print(f"Error: {result.message}")
-            if result.stderr:
-                print(result.stderr.strip())
+            configs[client_name] = npc_config
 
+    # Fetch status (parallel or sequential)
+    valid_clients = [n for n in target_clients if n in configs]
+
+    if parallel and len(valid_clients) > 1:
+        # Parallel SSH checks
+        results_map: dict[str, tuple[str, str]] = {}
+
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            MofNCompleteColumn(),
+            console=console,
+            transient=True,
+        ) as progress:
+            task = progress.add_task("Checking NPC status...", total=len(valid_clients))
+
+            def _check_one(name: str) -> tuple[str, str, str]:
+                """Run SSH status check for a single client.
+
+                Returns:
+                    Tuple of (client_name, status, details).
+                """
+                cfg = configs[name]
+                result = check_npc_status(ssh_host=cfg.ssh_host)  # type: ignore[union-attr]
+                if result.success:
+                    s, d = _parse_npc_status_output(result.stdout or "")
+                else:
+                    s, d = "[red]Error[/red]", result.message
+                return name, s, d
+
+            with ThreadPoolExecutor(max_workers=min(8, len(valid_clients))) as executor:
+                futures = {
+                    executor.submit(_check_one, name): name for name in valid_clients
+                }
+                for future in as_completed(futures):
+                    name, status, details = future.result()
+                    results_map[name] = (status, details)
+                    progress.advance(task)
+
+        # Build rows in original order
+        for client_name in valid_clients:
+            cfg = configs[client_name]
+            edges_str = ", ".join(cfg.edges) if cfg.edges else "—"  # type: ignore[union-attr]
+            status, details = results_map[client_name]
+            rows.append((client_name, cfg.ssh_host, edges_str, status, details))  # type: ignore[union-attr]
+    else:
+        # Sequential SSH checks
+        for client_name in valid_clients:
+            cfg = configs[client_name]
+            edges_str = ", ".join(cfg.edges) if cfg.edges else "—"  # type: ignore[union-attr]
+            result = check_npc_status(ssh_host=cfg.ssh_host)  # type: ignore[union-attr]
+
+            if result.success:
+                status, details = _parse_npc_status_output(result.stdout or "")
+            else:
+                status = "[red]Error[/red]"
+                details = result.message
+
+            rows.append((client_name, cfg.ssh_host, edges_str, status, details))  # type: ignore[union-attr]
+
+    # Build and display table
+    table = Table(title="NPC Client Status")
+    table.add_column("Client", style="cyan")
+    table.add_column("SSH Host", style="blue")
+    table.add_column("Edges", style="magenta")
+    table.add_column("NPC Status", style="bold")
+    table.add_column("Details")
+
+    for client_name, ssh_host, edges_str, status, details in rows:
+        table.add_row(client_name, ssh_host, edges_str, status, details)
+
+    console.print(table)
     return 0
 
 
@@ -321,8 +456,9 @@ def cmd_client_add(args: argparse.Namespace) -> int:
     """
     import secrets
     import string
-    import tomllib
     from pathlib import Path
+
+    import tomllib
 
     from .helpers import get_clients_config_path
 

@@ -7,7 +7,7 @@ A Python library and CLI tool for managing [NPS](https://github.com/ehang-io/nps
 - **API Client**: Type-safe Python wrapper for NPS HTTP API
 - **Multi-node Support**: Manage multiple NPS servers from a single interface
 - **CLI Tool**: Command-line interface for common operations
-- **Zero Dependencies**: Uses only Python standard library
+- **Minimal Dependencies**: Only requires [rich](https://github.com/Textualize/rich) for CLI output
 
 ## Installation
 
@@ -92,4 +92,4 @@ Multi-node manager.
 
 ## License
 
-MIT
+GPL-3.0 — see [LICENSE](LICENSE) for details.

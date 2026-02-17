@@ -271,6 +271,11 @@ def _add_client_commands(subparsers) -> None:
         "--client",
         help="Client name to check (default: all clients)",
     )
+    status_parser.add_argument(
+        "--parallel",
+        action="store_true",
+        help="Check all clients in parallel via SSH",
+    )
     status_parser.set_defaults(requires_config=True)
 
     # client restart (原 npc-restart)
