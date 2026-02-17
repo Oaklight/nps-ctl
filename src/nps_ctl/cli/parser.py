@@ -308,4 +308,23 @@ def create_parser() -> argparse.ArgumentParser:
     )
     npc_restart_parser.set_defaults(func=cmd_npc_restart)
 
+    # npc-list command
+    npc_list_parser = subparsers.add_parser(
+        "npc-list",
+        help="List clients from NPS API and update clients.toml",
+        description="Fetch client list from a specific edge's NPS API and update the clients.toml configuration file.",
+    )
+    npc_list_parser.add_argument(
+        "-e",
+        "--edge",
+        required=True,
+        help="Edge name to query clients from",
+    )
+    npc_list_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Show what would be written without modifying clients.toml",
+    )
+    npc_list_parser.set_defaults(requires_config=True)
+
     return parser

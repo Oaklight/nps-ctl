@@ -1,10 +1,15 @@
-"""CLI commands: npc-install, npc-uninstall, npc-status, npc-restart.
+"""CLI commands: npc-install, npc-uninstall, npc-status, npc-restart, npc-list.
 
 Deploy and manage NPC clients on remote servers.
 """
 
+from __future__ import annotations
+
 import argparse
 import sys
+from typing import TYPE_CHECKING
+
+from rich.table import Table
 
 from ..cluster import NPSCluster
 from ..deploy import (
@@ -14,6 +19,10 @@ from ..deploy import (
     restart_npc,
     uninstall_npc,
 )
+from .helpers import console
+
+if TYPE_CHECKING:
+    pass
 
 
 def cmd_npc_install(args: argparse.Namespace) -> int:
@@ -288,3 +297,199 @@ def cmd_npc_restart(args: argparse.Namespace) -> int:
 
     print(f"\nSummary: {success_count} succeeded, {fail_count} failed")
     return 0 if fail_count == 0 else 1
+
+
+def handle_npc_list(args, cluster: NPSCluster) -> None:
+    """Handle the npc-list command.
+
+    Fetch client list from a specific edge's NPS API and update
+    the clients.toml configuration file.
+
+    Args:
+        args: Parsed command line arguments.
+        cluster: NPSCluster instance.
+    """
+    from .. import client_mgmt
+
+    edge_name = args.edge
+    dry_run = args.dry_run
+
+    # Validate edge name
+    if edge_name not in cluster.edge_names:
+        console.print(
+            f"[red]Error:[/red] Edge '{edge_name}' not found. "
+            f"Available edges: {', '.join(cluster.edge_names)}"
+        )
+        return
+
+    # Get NPS API client for the edge
+    nps = cluster.get_client(edge_name)
+
+    console.print(f"\n[bold]Fetching clients from edge:[/bold] {edge_name}")
+
+    try:
+        clients = client_mgmt.list_clients(nps)
+    except Exception as e:
+        console.print(f"[red]Error fetching clients:[/red] {e}")
+        return
+
+    if not clients:
+        console.print("[yellow]No clients found on this edge.[/yellow]")
+        return
+
+    # Display clients in a table
+    table = Table(title=f"Clients on {edge_name}")
+    table.add_column("ID", style="cyan", justify="right")
+    table.add_column("Remark", style="green")
+    table.add_column("VKey", style="yellow")
+    table.add_column("Status", style="bold")
+
+    for client in clients:
+        vkey = client.get("VerifyKey", "")
+        is_connect = client.get("IsConnect", False)
+        status = "[green]Connected[/green]" if is_connect else "[red]Disconnected[/red]"
+        table.add_row(
+            str(client.get("Id", "")),
+            client.get("Remark", ""),
+            vkey[:20] + "..." if len(vkey) > 20 else vkey,
+            status,
+        )
+
+    console.print(table)
+    console.print(f"\nTotal: {len(clients)} client(s)")
+
+    # Update clients.toml
+    _update_clients_toml(cluster, edge_name, clients, dry_run)
+
+
+def _update_clients_toml(
+    cluster: NPSCluster,
+    edge_name: str,
+    api_clients: list,
+    dry_run: bool = False,
+) -> None:
+    """Update clients.toml with client info fetched from NPS API.
+
+    For each client returned by the API, update the vkey in the existing
+    clients.toml entry (matched by remark/name), or add a new entry if
+    it doesn't exist.
+
+    Args:
+        cluster: NPSCluster instance.
+        edge_name: Name of the edge the clients were fetched from.
+        api_clients: List of ClientInfo dicts from the NPS API.
+        dry_run: If True, only show what would be written.
+    """
+    import tomllib
+
+    clients_path = cluster.clients_config_path
+
+    # Load existing clients.toml if it exists
+    existing_clients: list[dict] = []
+    if clients_path.exists():
+        with open(clients_path, "rb") as f:
+            data = tomllib.load(f)
+        existing_clients = data.get("clients", [])
+
+    # Build a lookup by name/remark for existing clients
+    existing_by_name: dict[str, dict] = {}
+    for c in existing_clients:
+        existing_by_name[c["name"]] = c
+
+    # Update existing entries and track new ones
+    updated_count = 0
+    added_count = 0
+
+    for api_client in api_clients:
+        remark = api_client.get("Remark", "").strip()
+        vkey = api_client.get("VerifyKey", "")
+
+        if not remark:
+            continue
+
+        if remark in existing_by_name:
+            # Update vkey if changed
+            old_vkey = existing_by_name[remark].get("vkey", "")
+            if old_vkey != vkey:
+                existing_by_name[remark]["vkey"] = vkey
+                updated_count += 1
+                console.print(f"  [cyan]Updated[/cyan] vkey for '{remark}'")
+            # Ensure this edge is in the edges list
+            edges = existing_by_name[remark].get("edges", [])
+            if edge_name not in edges:
+                edges.append(edge_name)
+                existing_by_name[remark]["edges"] = edges
+                console.print(f"  [cyan]Added[/cyan] edge '{edge_name}' to '{remark}'")
+        else:
+            # Add new client entry
+            new_entry = {
+                "name": remark,
+                "ssh_host": remark,
+                "edges": [edge_name],
+                "remark": remark,
+                "vkey": vkey,
+            }
+            existing_by_name[remark] = new_entry
+            existing_clients.append(new_entry)
+            added_count += 1
+            console.print(f"  [green]Added[/green] new client '{remark}'")
+
+    # Generate TOML content
+    toml_content = _generate_clients_toml(list(existing_by_name.values()))
+
+    if dry_run:
+        console.print("\n[bold yellow]Dry run - would write:[/bold yellow]")
+        console.print(toml_content)
+        return
+
+    # Write to file
+    with open(clients_path, "w") as f:
+        f.write(toml_content)
+
+    console.print(
+        f"\n[bold green]Updated {clients_path}:[/bold green] "
+        f"{updated_count} updated, {added_count} added"
+    )
+
+
+def _generate_clients_toml(clients: list[dict]) -> str:
+    """Generate TOML content for clients configuration.
+
+    Args:
+        clients: List of client configuration dicts.
+
+    Returns:
+        TOML formatted string.
+    """
+    lines = [
+        "# NPC client configurations",
+        "# This file defines NPC (NPS client) deployment targets.",
+        "# Use `nps-ctl npc-list -e <edge>` to refresh client info from NPS API.",
+        "",
+    ]
+
+    for client in clients:
+        lines.append("[[clients]]")
+        lines.append(f'name = "{client["name"]}"')
+        lines.append(f'ssh_host = "{client.get("ssh_host", client["name"])}"')
+
+        # Format edges list
+        edges = client.get("edges", [])
+        edges_str = ", ".join(f'"{e}"' for e in edges)
+        lines.append(f"edges = [{edges_str}]")
+
+        # Optional fields - only write if they have non-default values
+        remark = client.get("remark", "")
+        if remark and remark != client["name"]:
+            lines.append(f'remark = "{remark}"')
+
+        conn_type = client.get("conn_type", "")
+        if conn_type and conn_type != "tls":
+            lines.append(f'conn_type = "{conn_type}"')
+
+        vkey = client.get("vkey", "")
+        lines.append(f'vkey = "{vkey}"')
+
+        lines.append("")  # blank line between entries
+
+    return "\n".join(lines) + "\n"

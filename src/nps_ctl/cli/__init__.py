@@ -16,7 +16,7 @@ Submodules:
 
 import sys
 
-from ..logging import configure_logging
+from ..logging import configure_logging, flush_output
 from ..ssh_proxy import SSHProxy
 from .helpers import console, get_default_config_path
 from .parser import create_parser
@@ -77,16 +77,28 @@ def main() -> int:
         # Create and start SSH SOCKS proxy
         try:
             console.print(f"[blue]Creating SSH SOCKS proxy via {auto_proxy}...[/blue]")
+            flush_output()
             ssh_proxy = SSHProxy(ssh_host=auto_proxy)
             ssh_proxy.start()
             # Set socks_proxy for the command to use
             args.socks_proxy = ssh_proxy.address
             console.print(f"[green]✓ SSH proxy ready on {ssh_proxy.address}[/green]")
+            flush_output()
         except Exception as e:
             console.print(f"[red]Failed to create SSH proxy: {e}[/red]")
+            flush_output()
             return 1
 
     try:
+        # npc-list uses a different dispatch pattern (needs cluster)
+        if args.command == "npc-list":
+            from ..cluster import NPSCluster
+
+            from .cmd_npc import handle_npc_list
+
+            cluster = NPSCluster(args.config)
+            handle_npc_list(args, cluster)
+            return 0
         return args.func(args)
     finally:
         # Clean up SSH proxy if we created one
