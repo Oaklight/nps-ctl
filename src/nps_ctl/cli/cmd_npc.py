@@ -299,6 +299,152 @@ def cmd_npc_restart(args: argparse.Namespace) -> int:
     return 0 if fail_count == 0 else 1
 
 
+def cmd_client_add(args: argparse.Namespace) -> int:
+    """Interactively add a new client entry to clients.toml.
+
+    Prompts the user step-by-step for client information. A vkey is
+    auto-generated unless the user provides one during the prompt or
+    via the --vkey flag.
+
+    Args:
+        args: Parsed command line arguments.
+
+    Returns:
+        Exit code (0 for success, 1 for failure).
+    """
+    import secrets
+    import string
+    import tomllib
+    from pathlib import Path
+
+    from .helpers import get_clients_config_path
+
+    # Resolve clients.toml path
+    config_path = Path(args.config)
+    clients_path = get_clients_config_path(config_path)
+
+    # Load existing clients to check for duplicates
+    existing_names: set[str] = set()
+    existing_clients: list[dict] = []
+    if clients_path.exists():
+        with open(clients_path, "rb") as f:
+            data = tomllib.load(f)
+        existing_clients = data.get("clients", [])
+        existing_names = {c["name"] for c in existing_clients}
+
+    # Load edges config to show available edge names
+    with open(config_path, "rb") as f:
+        edges_data = tomllib.load(f)
+    available_edges = [e["name"] for e in edges_data.get("edges", [])]
+
+    # --- Step 1: Client name ---
+    name = args.name
+    if not name:
+        console.print("\n[bold cyan]Step 1/5: Client name[/bold cyan]")
+        console.print(
+            "  A unique identifier for this client (e.g., 'cloud.usa7', 'homelab.router')."
+        )
+        if existing_names:
+            console.print(f"  Existing clients: {', '.join(sorted(existing_names))}")
+        name = input("  Name: ").strip()
+        if not name:
+            console.print("[red]Error: Client name cannot be empty.[/red]")
+            return 1
+
+    if name in existing_names:
+        console.print(
+            f"[red]Error: Client '{name}' already exists in clients.toml.[/red]"
+        )
+        return 1
+
+    # --- Step 2: SSH host ---
+    ssh_host = getattr(args, "ssh_host", None)
+    if not ssh_host:
+        console.print("\n[bold cyan]Step 2/5: SSH host[/bold cyan]")
+        console.print(f"  SSH host alias or address for this client (default: {name}).")
+        ssh_host_input = input(f"  SSH host [{name}]: ").strip()
+        ssh_host = ssh_host_input if ssh_host_input else name
+
+    # --- Step 3: Edges ---
+    edges = args.edges
+    if not edges:
+        console.print("\n[bold cyan]Step 3/5: Edge nodes[/bold cyan]")
+        console.print(f"  Available edges: {', '.join(available_edges)}")
+        console.print("  Enter edge names separated by spaces, or 'all' for all edges.")
+        edges_input = input("  Edges [all]: ").strip()
+        if not edges_input or edges_input.lower() == "all":
+            edges = available_edges[:]
+        else:
+            edges = edges_input.split()
+            # Validate edge names
+            invalid = [e for e in edges if e not in available_edges]
+            if invalid:
+                console.print(
+                    f"[red]Error: Unknown edge(s): {', '.join(invalid)}. "
+                    f"Available: {', '.join(available_edges)}[/red]"
+                )
+                return 1
+
+    # --- Step 4: VKey ---
+    vkey = args.vkey
+    if not vkey:
+        # Generate a 16-char lowercase alphanumeric vkey
+        alphabet = string.ascii_lowercase + string.digits
+        generated_vkey = "".join(secrets.choice(alphabet) for _ in range(16))
+
+        console.print("\n[bold cyan]Step 4/5: Verify key (vkey)[/bold cyan]")
+        console.print(f"  Auto-generated vkey: [green]{generated_vkey}[/green]")
+        console.print("  Press Enter to accept, or type a custom vkey.")
+        vkey_input = input(f"  VKey [{generated_vkey}]: ").strip()
+        vkey = vkey_input if vkey_input else generated_vkey
+
+    # --- Step 5: Connection type ---
+    conn_type = getattr(args, "conn_type", None)
+    if not conn_type:
+        console.print("\n[bold cyan]Step 5/5: Connection type[/bold cyan]")
+        console.print("  Options: tls (default), tcp, kcp")
+        conn_type_input = input("  Connection type [tls]: ").strip().lower()
+        conn_type = (
+            conn_type_input if conn_type_input in ("tls", "tcp", "kcp") else "tls"
+        )
+
+    # --- Confirmation ---
+    console.print("\n[bold]New client entry:[/bold]")
+    console.print(f"  Name:       [green]{name}[/green]")
+    console.print(f"  SSH host:   [green]{ssh_host}[/green]")
+    console.print(f"  Edges:      [green]{', '.join(edges)}[/green]")
+    console.print(f"  VKey:       [green]{vkey}[/green]")
+    console.print(f"  Conn type:  [green]{conn_type}[/green]")
+
+    if not getattr(args, "yes", False):
+        response = input("\nAdd this client? [y/N] ").strip()
+        if response.lower() != "y":
+            console.print("Aborted.")
+            return 0
+
+    # Build new entry
+    new_entry = {
+        "name": name,
+        "ssh_host": ssh_host,
+        "edges": edges,
+        "vkey": vkey,
+    }
+    if conn_type != "tls":
+        new_entry["conn_type"] = conn_type
+
+    # Append to clients.toml
+    existing_clients.append(new_entry)
+    toml_content = _generate_clients_toml(existing_clients)
+
+    with open(clients_path, "w") as f:
+        f.write(toml_content)
+
+    console.print(
+        f"\n[bold green]✓ Added client '{name}' to {clients_path}[/bold green]"
+    )
+    return 0
+
+
 def handle_npc_list(args, cluster: NPSCluster) -> None:
     """Handle the npc-list command.
 
@@ -493,3 +639,162 @@ def _generate_clients_toml(clients: list[dict]) -> str:
         lines.append("")  # blank line between entries
 
     return "\n".join(lines) + "\n"
+
+
+def handle_client_push(args, cluster: "NPSCluster") -> None:
+    """Push client configurations from clients.toml to NPS edges via API.
+
+    For each client in clients.toml, ensure it exists on all configured
+    edges by calling the NPS API to add missing clients.
+
+    Args:
+        args: Parsed command line arguments.
+        cluster: NPSCluster instance.
+    """
+    from .. import client_mgmt
+
+    dry_run = getattr(args, "dry_run", False)
+    yes = getattr(args, "yes", False)
+    update = getattr(args, "update", False)
+    target_client = getattr(args, "client", None)
+    target_edge = getattr(args, "edge", None)
+
+    # Get target clients
+    if target_client:
+        npc_config = cluster.get_npc_client(target_client)
+        if not npc_config:
+            console.print(
+                f"[red]Error:[/red] Client '{target_client}' not found in clients.toml. "
+                f"Available: {', '.join(cluster.npc_client_names)}"
+            )
+            return
+        npc_clients = [npc_config]
+    else:
+        npc_clients = [
+            cluster.get_npc_client(name) for name in cluster.npc_client_names
+        ]
+
+    if not npc_clients:
+        console.print("[yellow]No clients configured in clients.toml.[/yellow]")
+        return
+
+    # Show plan
+    console.print("\n[bold]Client Push Plan:[/bold]")
+    plan_table = Table(title="Clients to push")
+    plan_table.add_column("Client", style="green")
+    plan_table.add_column("Remark", style="cyan")
+    plan_table.add_column("VKey", style="yellow")
+    plan_table.add_column("Target Edges", style="blue")
+
+    for npc in npc_clients:
+        edges = npc.edges
+        if target_edge:
+            edges = [e for e in edges if e == target_edge]
+        vkey_display = (
+            npc.vkey[:16] + "..." if len(npc.vkey) > 16 else (npc.vkey or "(auto)")
+        )
+        plan_table.add_row(
+            npc.name,
+            npc.remark,
+            vkey_display,
+            ", ".join(edges) if edges else "[red]none[/red]",
+        )
+
+    console.print(plan_table)
+
+    if update:
+        console.print(
+            "[bold cyan]Update mode:[/bold cyan] Existing clients will be updated "
+            "with local vkey."
+        )
+
+    if dry_run:
+        console.print("\n[yellow]Dry run mode - no changes will be made.[/yellow]")
+        return
+
+    if not yes:
+        confirm = input("\nProceed with push? [y/N] ").strip().lower()
+        if confirm not in ("y", "yes"):
+            console.print("[yellow]Aborted.[/yellow]")
+            return
+
+    # Execute push
+    results_table = Table(title="Push Results")
+    results_table.add_column("Client", style="green")
+    results_table.add_column("Edge", style="blue")
+    results_table.add_column("Result", style="bold")
+
+    for npc in npc_clients:
+        edges = npc.edges
+        if target_edge:
+            edges = [e for e in edges if e == target_edge]
+
+        for edge_name in edges:
+            if edge_name not in cluster.edge_names:
+                results_table.add_row(npc.name, edge_name, "[red]Edge not found[/red]")
+                continue
+
+            nps = cluster.get_client(edge_name)
+
+            try:
+                existing = client_mgmt.list_clients(nps)
+                # Check if client already exists by remark
+                matched_client = None
+                for ec in existing:
+                    if ec.get("Remark", "") == npc.remark:
+                        matched_client = ec
+                        break
+
+                if matched_client:
+                    if update:
+                        # Update existing client with local vkey
+                        client_id = matched_client.get("Id")
+                        remote_vkey = matched_client.get("VerifyKey", "")
+                        if remote_vkey == npc.vkey:
+                            results_table.add_row(
+                                npc.name,
+                                edge_name,
+                                "[cyan]Already up-to-date (skipped)[/cyan]",
+                            )
+                        else:
+                            success = client_mgmt.edit_client(
+                                nps,
+                                client_id=client_id,
+                                remark=npc.remark,
+                                vkey=npc.vkey,
+                            )
+                            if success:
+                                results_table.add_row(
+                                    npc.name,
+                                    edge_name,
+                                    "[yellow]Updated (vkey synced)[/yellow]",
+                                )
+                            else:
+                                results_table.add_row(
+                                    npc.name,
+                                    edge_name,
+                                    "[red]Failed to update[/red]",
+                                )
+                    else:
+                        results_table.add_row(
+                            npc.name,
+                            edge_name,
+                            "[cyan]Already exists (skipped)[/cyan]",
+                        )
+                else:
+                    success = client_mgmt.add_client(
+                        nps, remark=npc.remark, vkey=npc.vkey
+                    )
+                    if success:
+                        results_table.add_row(
+                            npc.name, edge_name, "[green]Added[/green]"
+                        )
+                    else:
+                        results_table.add_row(
+                            npc.name, edge_name, "[red]Failed to add[/red]"
+                        )
+            except Exception as e:
+                results_table.add_row(npc.name, edge_name, f"[red]Error: {e}[/red]")
+
+    console.print()
+    console.print(results_table)

@@ -11,6 +11,7 @@ Submodules:
     cmd_hosts: Host management commands
     cmd_sync: Sync and export commands
     cmd_deploy: Install and uninstall commands
+    cmd_npc: NPC deployment commands
     cmd_utils: Utility commands (auth key generation)
 """
 
@@ -44,14 +45,68 @@ def setup_logging(verbose: bool = False, debug: bool = False) -> None:
     configure_logging(level=level, use_colors=True)
 
 
+def _dispatch_client_list(args) -> int:
+    """Dispatch client list command with special handling.
+
+    If --update or --dry-run is specified, fetches client info from NPS API
+    and updates clients.toml. Otherwise, displays the API client list.
+
+    Args:
+        args: Parsed command line arguments.
+
+    Returns:
+        Exit code.
+    """
+    update = getattr(args, "update", False)
+    dry_run = getattr(args, "dry_run", False)
+
+    if update or dry_run:
+        from ..cluster import NPSCluster
+
+        from .cmd_npc import handle_npc_list
+
+        cluster = NPSCluster(args.config)
+        handle_npc_list(args, cluster)
+        return 0
+    else:
+        from .cmd_clients import cmd_clients
+
+        return cmd_clients(args)
+
+
+def _dispatch_client_push(args) -> int:
+    """Dispatch client push command.
+
+    Args:
+        args: Parsed command line arguments.
+
+    Returns:
+        Exit code.
+    """
+    from ..cluster import NPSCluster
+    from .cmd_npc import handle_client_push
+
+    cluster = NPSCluster(args.config)
+    handle_client_push(args, cluster)
+    return 0
+
+
 def main() -> int:
-    """Main entry point."""
+    """Main entry point for nps-ctl CLI."""
     parser = create_parser()
     args = parser.parse_args()
 
+    # No command specified -> print top-level help
     if args.command is None:
         parser.print_help()
         return 0
+
+    # Command specified but no subcommand -> print command group help
+    subcommand = getattr(args, "subcommand", None)
+    if subcommand is None:
+        # Re-parse to get the subparser and print its help
+        parser.parse_args([args.command, "--help"])
+        return 0  # pragma: no cover (--help exits)
 
     # Setup logging
     verbose = getattr(args, "verbose", False)
@@ -90,20 +145,73 @@ def main() -> int:
             return 1
 
     try:
-        # npc-list uses a different dispatch pattern (needs cluster)
-        if args.command == "npc-list":
-            from ..cluster import NPSCluster
-
-            from .cmd_npc import handle_npc_list
-
-            cluster = NPSCluster(args.config)
-            handle_npc_list(args, cluster)
-            return 0
-        return args.func(args)
+        return _dispatch(args)
     finally:
         # Clean up SSH proxy if we created one
         if ssh_proxy:
             ssh_proxy.stop()
+
+
+def _dispatch(args) -> int:
+    """Dispatch to the appropriate handler based on (command, subcommand).
+
+    Args:
+        args: Parsed command line arguments with command and subcommand set.
+
+    Returns:
+        Exit code.
+    """
+    from .cmd_deploy import cmd_install, cmd_uninstall
+    from .cmd_hosts import cmd_add_host, cmd_hosts
+    from .cmd_npc import (
+        cmd_client_add,
+        cmd_npc_install,
+        cmd_npc_restart,
+        cmd_npc_status,
+        cmd_npc_uninstall,
+    )
+    from .cmd_status import cmd_status
+    from .cmd_sync import cmd_export, cmd_sync
+    from .cmd_tunnels import cmd_add_tunnel, cmd_tunnels
+    from .cmd_utils import cmd_generate_auth_key
+
+    # Command dispatch table: (command, subcommand) -> handler
+    dispatch_table: dict[tuple[str, str], object] = {
+        # client commands
+        ("client", "list"): _dispatch_client_list,
+        ("client", "add"): cmd_client_add,
+        ("client", "push"): _dispatch_client_push,
+        ("client", "install"): cmd_npc_install,
+        ("client", "uninstall"): cmd_npc_uninstall,
+        ("client", "status"): cmd_npc_status,
+        ("client", "restart"): cmd_npc_restart,
+        # edge commands
+        ("edge", "status"): cmd_status,
+        ("edge", "install"): cmd_install,
+        ("edge", "uninstall"): cmd_uninstall,
+        ("edge", "sync"): cmd_sync,
+        ("edge", "export"): cmd_export,
+        # tunnel commands
+        ("tunnel", "list"): cmd_tunnels,
+        ("tunnel", "add"): cmd_add_tunnel,
+        # host commands
+        ("host", "list"): cmd_hosts,
+        ("host", "add"): cmd_add_host,
+        # util commands
+        ("util", "generate-auth-key"): cmd_generate_auth_key,
+    }
+
+    key = (args.command, args.subcommand)
+    handler = dispatch_table.get(key)
+
+    if handler is None:
+        print(
+            f"Error: Unknown command '{args.command} {args.subcommand}'",
+            file=sys.stderr,
+        )
+        return 1
+
+    return handler(args)
 
 
 if __name__ == "__main__":
