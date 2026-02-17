@@ -14,7 +14,6 @@ from threading import Lock
 from typing import Any, Callable, TypeVar
 
 import tomllib
-from rich.console import Console
 from rich.progress import (
     BarColumn,
     MofNCompleteColumn,
@@ -28,7 +27,7 @@ from rich.progress import (
 from . import client_mgmt, host, tunnel
 from .base import NPSClient
 from .exceptions import NPSError
-from .logging import OperationContext, get_operation_logger
+from .logging import FlushingConsole, OperationContext, get_operation_logger
 from .types import (
     ClientIdMapping,
     ClientInfo,
@@ -45,7 +44,8 @@ T = TypeVar("T")
 
 # Rich console for output with forced flush for streaming
 # force_terminal=True ensures output is not buffered when piped or through proxies
-console = Console(force_terminal=True)
+# FlushingConsole auto-flushes after every print for immediate visibility
+console = FlushingConsole(force_terminal=True)
 
 
 class RateLimiter:
@@ -155,7 +155,33 @@ class NPSCluster:
                 f"Registered NPC client: {npc_config.name} -> {npc_config.ssh_host}"
             )
 
+        # Load NPC clients from clients.toml if it exists (takes precedence)
+        clients_config_path = path.parent / "clients.toml"
+        if clients_config_path.exists():
+            with open(clients_config_path, "rb") as f:
+                clients_config = tomllib.load(f)
+            for npc_client in clients_config.get("clients", []):
+                npc_config = NPCClientConfig(
+                    name=npc_client["name"],
+                    ssh_host=npc_client["ssh_host"],
+                    edges=npc_client.get("edges", []),
+                    vkey=npc_client.get("vkey", ""),
+                    remark=npc_client.get("remark", ""),
+                    conn_type=npc_client.get("conn_type", "tls"),
+                )
+                self._npc_clients[npc_config.name] = npc_config
+            logger.debug(
+                "Loaded %d NPC client(s) from %s",
+                len(clients_config.get("clients", [])),
+                clients_config_path,
+            )
+
         op_logger.phase_info(f"Cluster initialized with {len(self._edges)} edges")
+
+    @property
+    def clients_config_path(self) -> Path:
+        """Path to the clients.toml configuration file."""
+        return Path(self.config_path).parent / "clients.toml"
 
     @property
     def edge_names(self) -> list[str]:

@@ -7,12 +7,32 @@ such as table formatting and configuration path resolution.
 from pathlib import Path
 from typing import Any
 
-from rich.console import Console
 from rich.table import Table
+
+from ..logging import FlushingConsole, flush_output
 
 # Shared console instance for all CLI commands
 # Use force_terminal=True to ensure immediate output through proxies
-console = Console(force_terminal=True)
+# Use FlushingConsole to auto-flush after every print
+console = FlushingConsole(force_terminal=True)
+
+# Re-export flush_output for convenience
+__all__ = ["console", "flush_output", "FlushingConsole"]
+
+
+def get_clients_config_path(config_path: Path) -> Path:
+    """Derive the clients.toml path from the edges config path.
+
+    The clients.toml is expected to be in the same directory as the
+    edges config file (edges.toml).
+
+    Args:
+        config_path: Path to the edges config file (edges.toml).
+
+    Returns:
+        Path to the clients.toml file.
+    """
+    return config_path.parent / "clients.toml"
 
 
 def get_default_config_path() -> Path:
