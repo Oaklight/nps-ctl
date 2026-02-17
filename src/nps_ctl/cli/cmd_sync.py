@@ -4,14 +4,10 @@ import argparse
 import json
 import sys
 
-from rich.console import Console
-
 from .. import client_mgmt, host, tunnel
 from ..cluster import NPSCluster
 from ..exceptions import NPSError
-
-# Use force_terminal=True to ensure immediate output through proxies
-console = Console(force_terminal=True)
+from .helpers import console
 
 
 def cmd_sync(args: argparse.Namespace) -> int:

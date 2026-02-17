@@ -3,6 +3,8 @@
 This module provides structured logging for NPSClient and NPSCluster operations,
 including connection attempts, request/response tracking, and operation results.
 
+It also provides FlushingConsole for immediate output visibility through proxies.
+
 Usage:
     >>> from nps_ctl.logging import configure_logging, get_logger
     >>> configure_logging(level="DEBUG")
@@ -14,6 +16,8 @@ import sys
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any
+
+from rich.console import Console
 
 # Custom log level NOTICE (25) - between INFO (20) and WARNING (30)
 # Used for key phase information that should be visible by default
@@ -469,3 +473,43 @@ def set_log_level(level: str | int) -> None:
     logger.setLevel(level)
     for handler in logger.handlers:
         handler.setLevel(level)
+
+
+class FlushingConsole(Console):
+    """Console that flushes output after every print.
+
+    This ensures immediate output visibility when running through
+    SSH SOCKS proxies or other tunneled connections where output
+    buffering can cause delays.
+
+    When using --auto-proxy, PySocks replaces the global socket.socket,
+    which can affect Python's TTY detection and trigger full buffering
+    instead of line buffering. This class ensures output is flushed
+    immediately after every print call.
+
+    Example:
+        >>> from nps_ctl.logging import FlushingConsole
+        >>> console = FlushingConsole(force_terminal=True)
+        >>> console.print("[green]This will be visible immediately[/green]")
+    """
+
+    def print(
+        self,
+        *objects: Any,
+        **kwargs: Any,
+    ) -> None:
+        """Print and immediately flush output."""
+        super().print(*objects, **kwargs)
+        # Flush the underlying file to ensure immediate output
+        if self.file:
+            self.file.flush()
+
+
+def flush_output() -> None:
+    """Flush stdout and stderr to ensure immediate output.
+
+    This is critical when running through SSH SOCKS proxies or other
+    tunneled connections where output buffering can cause delays.
+    """
+    sys.stdout.flush()
+    sys.stderr.flush()
