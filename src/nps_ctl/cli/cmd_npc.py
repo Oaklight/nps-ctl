@@ -9,6 +9,13 @@ import argparse
 import sys
 from typing import TYPE_CHECKING
 
+from rich.progress import (
+    BarColumn,
+    MofNCompleteColumn,
+    Progress,
+    SpinnerColumn,
+    TextColumn,
+)
 from rich.table import Table
 
 from ..cluster import NPSCluster
@@ -718,83 +725,105 @@ def handle_client_push(args, cluster: "NPSCluster") -> None:
             console.print("[yellow]Aborted.[/yellow]")
             return
 
+    # Calculate total operations for progress bar
+    total_ops = sum(
+        len([e for e in npc.edges if not target_edge or e == target_edge])
+        for npc in npc_clients
+    )
+
     # Execute push
     results_table = Table(title="Push Results")
     results_table.add_column("Client", style="green")
     results_table.add_column("Edge", style="blue")
     results_table.add_column("Result", style="bold")
 
-    for npc in npc_clients:
-        edges = npc.edges
-        if target_edge:
-            edges = [e for e in edges if e == target_edge]
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        MofNCompleteColumn(),
+        console=console,
+    ) as progress:
+        task = progress.add_task("Pushing clients...", total=total_ops)
 
-        for edge_name in edges:
-            if edge_name not in cluster.edge_names:
-                results_table.add_row(npc.name, edge_name, "[red]Edge not found[/red]")
-                continue
+        for npc in npc_clients:
+            edges = npc.edges
+            if target_edge:
+                edges = [e for e in edges if e == target_edge]
 
-            nps = cluster.get_client(edge_name)
+            for edge_name in edges:
+                progress.update(task, description=f"Pushing {npc.name} → {edge_name}")
 
-            try:
-                existing = client_mgmt.list_clients(nps)
-                # Check if client already exists by remark
-                matched_client = None
-                for ec in existing:
-                    if ec.get("Remark", "") == npc.remark:
-                        matched_client = ec
-                        break
+                if edge_name not in cluster.edge_names:
+                    results_table.add_row(
+                        npc.name, edge_name, "[red]Edge not found[/red]"
+                    )
+                    progress.advance(task)
+                    continue
 
-                if matched_client:
-                    if update:
-                        # Update existing client with local vkey
-                        client_id = matched_client.get("Id")
-                        remote_vkey = matched_client.get("VerifyKey", "")
-                        if remote_vkey == npc.vkey:
+                nps = cluster.get_client(edge_name)
+
+                try:
+                    existing = client_mgmt.list_clients(nps)
+                    # Check if client already exists by remark
+                    matched_client = None
+                    for ec in existing:
+                        if ec.get("Remark", "") == npc.remark:
+                            matched_client = ec
+                            break
+
+                    if matched_client:
+                        if update:
+                            # Update existing client with local vkey
+                            client_id = matched_client.get("Id")
+                            remote_vkey = matched_client.get("VerifyKey", "")
+                            if remote_vkey == npc.vkey:
+                                results_table.add_row(
+                                    npc.name,
+                                    edge_name,
+                                    "[cyan]Already up-to-date (skipped)[/cyan]",
+                                )
+                            else:
+                                success = client_mgmt.edit_client(
+                                    nps,
+                                    client_id=client_id,
+                                    remark=npc.remark,
+                                    vkey=npc.vkey,
+                                )
+                                if success:
+                                    results_table.add_row(
+                                        npc.name,
+                                        edge_name,
+                                        "[yellow]Updated (vkey synced)[/yellow]",
+                                    )
+                                else:
+                                    results_table.add_row(
+                                        npc.name,
+                                        edge_name,
+                                        "[red]Failed to update[/red]",
+                                    )
+                        else:
                             results_table.add_row(
                                 npc.name,
                                 edge_name,
-                                "[cyan]Already up-to-date (skipped)[/cyan]",
+                                "[cyan]Already exists (skipped)[/cyan]",
+                            )
+                    else:
+                        success = client_mgmt.add_client(
+                            nps, remark=npc.remark, vkey=npc.vkey
+                        )
+                        if success:
+                            results_table.add_row(
+                                npc.name, edge_name, "[green]Added[/green]"
                             )
                         else:
-                            success = client_mgmt.edit_client(
-                                nps,
-                                client_id=client_id,
-                                remark=npc.remark,
-                                vkey=npc.vkey,
+                            results_table.add_row(
+                                npc.name, edge_name, "[red]Failed to add[/red]"
                             )
-                            if success:
-                                results_table.add_row(
-                                    npc.name,
-                                    edge_name,
-                                    "[yellow]Updated (vkey synced)[/yellow]",
-                                )
-                            else:
-                                results_table.add_row(
-                                    npc.name,
-                                    edge_name,
-                                    "[red]Failed to update[/red]",
-                                )
-                    else:
-                        results_table.add_row(
-                            npc.name,
-                            edge_name,
-                            "[cyan]Already exists (skipped)[/cyan]",
-                        )
-                else:
-                    success = client_mgmt.add_client(
-                        nps, remark=npc.remark, vkey=npc.vkey
-                    )
-                    if success:
-                        results_table.add_row(
-                            npc.name, edge_name, "[green]Added[/green]"
-                        )
-                    else:
-                        results_table.add_row(
-                            npc.name, edge_name, "[red]Failed to add[/red]"
-                        )
-            except Exception as e:
-                results_table.add_row(npc.name, edge_name, f"[red]Error: {e}[/red]")
+                except Exception as e:
+                    results_table.add_row(npc.name, edge_name, f"[red]Error: {e}[/red]")
+
+                progress.advance(task)
 
     console.print()
     console.print(results_table)
