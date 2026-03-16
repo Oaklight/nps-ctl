@@ -109,7 +109,7 @@ class NPSClient:
 
             # Set default SOCKS proxy globally for this client
             socks.set_default_proxy(socks.SOCKS5, socks_host, socks_port)
-            socket.socket = socks.socksocket
+            socket.socket = socks.socksocket  # type: ignore[assignment]  # runtime monkey-patch for SOCKS proxy
 
             logger.info(
                 f"SOCKS5 proxy enabled: {socks_host}:{socks_port} for {self.base_url}"
