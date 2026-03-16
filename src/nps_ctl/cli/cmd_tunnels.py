@@ -1,11 +1,11 @@
 """CLI command: tunnels - List and manage tunnels."""
 
 import argparse
-from typing import Any
 
 from .. import client_mgmt, tunnel
 from ..cluster import NPSCluster
 from ..exceptions import NPSError
+from ..types import TunnelInfo
 from .helpers import console, create_table, print_error
 
 
@@ -112,7 +112,7 @@ def cmd_add_tunnel(args: argparse.Namespace) -> int:
     return 0
 
 
-def _print_tunnels(tunnels: list[dict[str, Any]]) -> None:
+def _print_tunnels(tunnels: list[TunnelInfo]) -> None:
     """Print tunnel list as table."""
     table = create_table()
     table.add_column("ID", style="dim")

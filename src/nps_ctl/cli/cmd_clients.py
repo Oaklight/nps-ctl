@@ -1,11 +1,11 @@
 """CLI command: clients - List and manage NPC clients."""
 
 import argparse
-from typing import Any
 
 from .. import client_mgmt
 from ..cluster import NPSCluster
 from ..exceptions import NPSError
+from ..types import ClientInfo
 from .helpers import console, create_table, print_error
 
 
@@ -50,7 +50,7 @@ def cmd_clients(args: argparse.Namespace) -> int:
     return 0
 
 
-def _print_clients(clients: list[dict[str, Any]]) -> None:
+def _print_clients(clients: list[ClientInfo]) -> None:
     """Print client list as table."""
     table = create_table()
     table.add_column("ID", style="dim")

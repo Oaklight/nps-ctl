@@ -1,11 +1,11 @@
 """CLI commands: hosts, add-host - List and manage host mappings."""
 
 import argparse
-from typing import Any
 
 from .. import client_mgmt, host
 from ..cluster import NPSCluster
 from ..exceptions import NPSError
+from ..types import HostInfo
 from .helpers import console, create_table, print_error
 
 
@@ -117,7 +117,7 @@ def cmd_add_host(args: argparse.Namespace) -> int:
     return 0
 
 
-def _print_hosts(hosts: list[dict[str, Any]]) -> None:
+def _print_hosts(hosts: list[HostInfo]) -> None:
     """Print host list as table."""
     table = create_table()
     table.add_column("ID", style="dim")

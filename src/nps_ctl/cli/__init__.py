@@ -16,6 +16,7 @@ Submodules:
 """
 
 import sys
+from collections.abc import Callable
 
 from ..logging import configure_logging, flush_output
 from ..ssh_proxy import SSHProxy
@@ -176,7 +177,7 @@ def _dispatch(args) -> int:
     from .cmd_utils import cmd_generate_auth_key
 
     # Command dispatch table: (command, subcommand) -> handler
-    dispatch_table: dict[tuple[str, str], object] = {
+    dispatch_table: dict[tuple[str, str], Callable[..., int]] = {
         # client commands
         ("client", "list"): _dispatch_client_list,
         ("client", "add"): cmd_client_add,

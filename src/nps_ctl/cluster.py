@@ -11,7 +11,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
 from threading import Lock
-from typing import Any, Callable, TypeVar
+from typing import Any, TypeVar
+from collections.abc import Callable
 
 import tomllib
 from rich.progress import (
@@ -41,6 +42,9 @@ logger = logging.getLogger(__name__)
 op_logger = get_operation_logger(__name__)
 
 T = TypeVar("T")
+
+# Union of all NPS API item types
+SyncItem = ClientInfo | TunnelInfo | HostInfo
 
 # Rich console for output with forced flush for streaming
 # force_terminal=True ensures output is not buffered when piped or through proxies
@@ -572,8 +576,8 @@ class NPSCluster:
 
     def _build_client_id_mapping(
         self,
-        source_clients: list[dict[str, Any]],
-        target_clients: list[dict[str, Any]],
+        source_clients: list[ClientInfo],
+        target_clients: list[ClientInfo],
     ) -> ClientIdMapping:
         """Build a mapping from source client IDs to target client IDs.
 
@@ -680,12 +684,9 @@ class NPSCluster:
                 f"\n[bold blue]Fetching source data from {source_name}...[/bold blue]"
             )
 
-        source_data = self._fetch_source_data(
+        source_clients, source_tunnels, source_hosts = self._fetch_source_data(
             source, sync_clients, sync_tunnels, sync_hosts, source_name
         )
-        source_clients = source_data["clients"]
-        source_tunnels = source_data["tunnels"]
-        source_hosts = source_data["hosts"]
 
         if not quiet:
             console.print(
@@ -742,7 +743,7 @@ class NPSCluster:
         sync_tunnels: bool,
         sync_hosts: bool,
         source_name: str,
-    ) -> dict[str, list[dict[str, Any]]]:
+    ) -> tuple[list[ClientInfo], list[TunnelInfo], list[HostInfo]]:
         """Fetch source data in parallel.
 
         Args:
@@ -753,49 +754,42 @@ class NPSCluster:
             source_name: Source edge name for logging.
 
         Returns:
-            Dictionary with 'clients', 'tunnels', 'hosts' keys.
+            Tuple of (clients, tunnels, hosts).
         """
-        source_clients: list[dict[str, Any]] = []
-        source_tunnels: list[dict[str, Any]] = []
-        source_hosts: list[dict[str, Any]] = []
+        source_clients: list[ClientInfo] = []
+        source_tunnels: list[TunnelInfo] = []
+        source_hosts: list[HostInfo] = []
 
-        def fetch_clients() -> list[dict[str, Any]]:
+        def fetch_clients() -> list[ClientInfo]:
             return client_mgmt.list_clients(source) if sync_clients else []
 
-        def fetch_tunnels() -> list[dict[str, Any]]:
+        def fetch_tunnels() -> list[TunnelInfo]:
             return tunnel.list_tunnels(source) if sync_tunnels else []
 
-        def fetch_hosts() -> list[dict[str, Any]]:
+        def fetch_hosts() -> list[HostInfo]:
             return host.list_hosts(source) if sync_hosts else []
 
         with ThreadPoolExecutor(max_workers=3) as executor:
-            futures = {
-                executor.submit(fetch_clients): "clients",
-                executor.submit(fetch_tunnels): "tunnels",
-                executor.submit(fetch_hosts): "hosts",
-            }
-            for future in as_completed(futures):
-                data_type = futures[future]
-                try:
-                    result = future.result()
-                    if data_type == "clients":
-                        source_clients = result
-                    elif data_type == "tunnels":
-                        source_tunnels = result
-                    else:
-                        source_hosts = result
-                except NPSError as e:
-                    logger.warning(
-                        f"Failed to fetch {data_type} from {source_name}: {e}"
-                    )
-                except Exception as e:
-                    logger.warning(f"Unexpected error fetching {data_type}: {e}")
+            client_future = executor.submit(fetch_clients)
+            tunnel_future = executor.submit(fetch_tunnels)
+            host_future = executor.submit(fetch_hosts)
 
-        return {
-            "clients": source_clients,
-            "tunnels": source_tunnels,
-            "hosts": source_hosts,
-        }
+            try:
+                source_clients = client_future.result()
+            except (NPSError, Exception) as e:
+                logger.warning(f"Failed to fetch clients from {source_name}: {e}")
+
+            try:
+                source_tunnels = tunnel_future.result()
+            except (NPSError, Exception) as e:
+                logger.warning(f"Failed to fetch tunnels from {source_name}: {e}")
+
+            try:
+                source_hosts = host_future.result()
+            except (NPSError, Exception) as e:
+                logger.warning(f"Failed to fetch hosts from {source_name}: {e}")
+
+        return source_clients, source_tunnels, source_hosts
 
     def _fetch_target_existing_data(
         self,
@@ -803,7 +797,7 @@ class NPSCluster:
         sync_tunnels: bool,
         sync_hosts: bool,
     ) -> tuple[
-        list[dict[str, Any]] | None,
+        list[ClientInfo] | None,
         set[str],
         set[tuple[int, str, int]],
         set[str],
@@ -819,7 +813,7 @@ class NPSCluster:
             Tuple of (clients_list, existing_vkeys, existing_tunnels, existing_hosts).
         """
         target_nps = self._clients[target_name]
-        clients_list: list[dict[str, Any]] | None = None
+        clients_list: list[ClientInfo] | None = None
         existing_vkeys: set[str] = set()
         existing_tunnels: set[tuple[int, str, int]] = set()
         existing_hosts: set[str] = set()
@@ -859,9 +853,9 @@ class NPSCluster:
         source_name: str,
         target_name: str,
         item_type: str,
-        item_info: dict[str, Any],
-        source_clients: list[dict[str, Any]],
-        target_clients: list[dict[str, Any]],
+        item_info: SyncItem,
+        source_clients: list[ClientInfo],
+        target_clients: list[ClientInfo],
         existing_vkeys: set[str],
         existing_tunnels: set[tuple[int, str, int]],
         existing_hosts: set[str],
@@ -974,9 +968,9 @@ class NPSCluster:
         self,
         source_name: str,
         targets: list[str],
-        source_clients: list[dict[str, Any]],
-        source_tunnels: list[dict[str, Any]],
-        source_hosts: list[dict[str, Any]],
+        source_clients: list[ClientInfo],
+        source_tunnels: list[TunnelInfo],
+        source_hosts: list[HostInfo],
         sync_clients: bool,
         sync_tunnels: bool,
         sync_hosts: bool,
@@ -1013,7 +1007,7 @@ class NPSCluster:
                 continue
 
             # Build task list for this edge
-            tasks: list[tuple[str, dict[str, Any]]] = []
+            tasks: list[tuple[str, SyncItem]] = []
             if sync_clients:
                 for c in source_clients:
                     tasks.append(("client", c))
@@ -1151,9 +1145,9 @@ class NPSCluster:
         self,
         source_name: str,
         targets: list[str],
-        source_clients: list[dict[str, Any]],
-        source_tunnels: list[dict[str, Any]],
-        source_hosts: list[dict[str, Any]],
+        source_clients: list[ClientInfo],
+        source_tunnels: list[TunnelInfo],
+        source_hosts: list[HostInfo],
         sync_clients: bool,
         sync_tunnels: bool,
         sync_hosts: bool,
@@ -1178,7 +1172,7 @@ class NPSCluster:
         target_data: dict[
             str,
             tuple[
-                list[dict[str, Any]] | None,
+                list[ClientInfo] | None,
                 set[str],
                 set[tuple[int, str, int]],
                 set[str],
@@ -1218,7 +1212,7 @@ class NPSCluster:
                 results[target_name]["_edge_failed"] = False
 
         # Build all tasks
-        tasks: list[tuple[str, str, dict[str, Any]]] = []
+        tasks: list[tuple[str, str, SyncItem]] = []
         if sync_clients:
             for target_name in active_targets:
                 for c in source_clients:

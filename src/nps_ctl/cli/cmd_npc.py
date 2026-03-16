@@ -8,7 +8,6 @@ from __future__ import annotations
 import argparse
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import TYPE_CHECKING
 
 from rich.progress import (
     BarColumn,
@@ -27,10 +26,8 @@ from ..deploy import (
     restart_npc,
     uninstall_npc,
 )
+from ..types import NPCClientConfig
 from .helpers import console
-
-if TYPE_CHECKING:
-    pass
 
 
 def cmd_npc_install(args: argparse.Namespace) -> int:
@@ -305,7 +302,7 @@ def cmd_npc_status(args: argparse.Namespace) -> int:
     rows: list[tuple[str, str, str, str, str]] = []
 
     # Pre-resolve configs and identify missing ones
-    configs: dict[str, object] = {}
+    configs: dict[str, NPCClientConfig] = {}
     for client_name in target_clients:
         npc_config = cluster.get_npc_client(client_name)
         if not npc_config:
@@ -337,7 +334,7 @@ def cmd_npc_status(args: argparse.Namespace) -> int:
                     Tuple of (client_name, status, details).
                 """
                 cfg = configs[name]
-                result = check_npc_status(ssh_host=cfg.ssh_host)  # type: ignore[union-attr]
+                result = check_npc_status(ssh_host=cfg.ssh_host)
                 if result.success:
                     s, d = _parse_npc_status_output(result.stdout or "")
                 else:
@@ -356,15 +353,15 @@ def cmd_npc_status(args: argparse.Namespace) -> int:
         # Build rows in original order
         for client_name in valid_clients:
             cfg = configs[client_name]
-            edges_str = ", ".join(cfg.edges) if cfg.edges else "—"  # type: ignore[union-attr]
+            edges_str = ", ".join(cfg.edges) if cfg.edges else "—"
             status, details = results_map[client_name]
-            rows.append((client_name, cfg.ssh_host, edges_str, status, details))  # type: ignore[union-attr]
+            rows.append((client_name, cfg.ssh_host, edges_str, status, details))
     else:
         # Sequential SSH checks
         for client_name in valid_clients:
             cfg = configs[client_name]
-            edges_str = ", ".join(cfg.edges) if cfg.edges else "—"  # type: ignore[union-attr]
-            result = check_npc_status(ssh_host=cfg.ssh_host)  # type: ignore[union-attr]
+            edges_str = ", ".join(cfg.edges) if cfg.edges else "—"
+            result = check_npc_status(ssh_host=cfg.ssh_host)
 
             if result.success:
                 status, details = _parse_npc_status_output(result.stdout or "")
@@ -372,7 +369,7 @@ def cmd_npc_status(args: argparse.Namespace) -> int:
                 status = "[red]Error[/red]"
                 details = result.message
 
-            rows.append((client_name, cfg.ssh_host, edges_str, status, details))  # type: ignore[union-attr]
+            rows.append((client_name, cfg.ssh_host, edges_str, status, details))
 
     # Build and display table
     table = Table(title="NPC Client Status")
@@ -613,6 +610,9 @@ def handle_npc_list(args, cluster: NPSCluster) -> None:
 
     # Get NPS API client for the edge
     nps = cluster.get_client(edge_name)
+    if not nps:
+        console.print(f"[red]Error:[/red] Could not connect to edge '{edge_name}'")
+        return
 
     console.print(f"\n[bold]Fetching clients from edge:[/bold] {edge_name}")
 
@@ -784,7 +784,7 @@ def _generate_clients_toml(clients: list[dict]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def handle_client_push(args, cluster: "NPSCluster") -> None:
+def handle_client_push(args, cluster: NPSCluster) -> None:
     """Push client configurations from clients.toml to NPS edges via API.
 
     For each client in clients.toml, ensure it exists on all configured
@@ -814,7 +814,9 @@ def handle_client_push(args, cluster: "NPSCluster") -> None:
         npc_clients = [npc_config]
     else:
         npc_clients = [
-            cluster.get_npc_client(name) for name in cluster.npc_client_names
+            c
+            for name in cluster.npc_client_names
+            if (c := cluster.get_npc_client(name)) is not None
         ]
 
     if not npc_clients:
@@ -898,6 +900,12 @@ def handle_client_push(args, cluster: "NPSCluster") -> None:
                     continue
 
                 nps = cluster.get_client(edge_name)
+                if not nps:
+                    results_table.add_row(
+                        npc.name, edge_name, "[red]Edge client not found[/red]"
+                    )
+                    progress.advance(task)
+                    continue
 
                 try:
                     existing = client_mgmt.list_clients(nps)
@@ -911,7 +919,7 @@ def handle_client_push(args, cluster: "NPSCluster") -> None:
                     if matched_client:
                         if update:
                             # Update existing client with local vkey
-                            client_id = matched_client.get("Id")
+                            client_id = matched_client.get("Id", 0)
                             remote_vkey = matched_client.get("VerifyKey", "")
                             if remote_vkey == npc.vkey:
                                 results_table.add_row(
