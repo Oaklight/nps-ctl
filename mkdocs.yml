@@ -75,3 +75,4 @@ nav:
   - API Reference:
       - NPSClient: api/client.md
       - NPSCluster: api/cluster.md
+  - Changelog: changelog.md
