@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "nps-ctl"
 version = "0.1.0"
 authors = [{ name = "Oaklight", email = "oaklight@gmx.com" }]
-description = "A Python library and CLI tool for managing NPS (ehang-io/nps) servers"
+description = "A Python library and CLI tool for managing NPS (djylb/nps) proxy servers"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "GPL-3.0-only"
