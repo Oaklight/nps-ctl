@@ -75,3 +75,4 @@ nav:
   - API 参考:
       - NPSClient: api/client.md
       - NPSCluster: api/cluster.md
+  - 更新日志: changelog.md
