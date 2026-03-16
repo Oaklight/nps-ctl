@@ -1,0 +1,77 @@
+site_name: nps-ctl
+site_description: A Python library and CLI tool for managing NPS proxy servers
+site_author: Peng Ding
+site_url: https://nps-ctl.readthedocs.io/en/
+repo_name: Oaklight/nps-ctl
+repo_url: https://github.com/Oaklight/nps-ctl
+copyright: Copyright &copy; 2025 Peng Ding
+
+theme:
+  name: material
+  language: en
+  palette:
+    - media: "(prefers-color-scheme)"
+      toggle:
+        icon: material/brightness-auto
+        name: Switch to light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/brightness-4
+        name: Switch to system preference
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - search.highlight
+    - search.suggest
+    - content.code.copy
+
+plugins:
+  - search:
+      separator: '[\s\-,:!=\[\]()"`/]+|\.(?!\d)|&[lg]t;|(?!\b)(?=[A-Z][a-z])'
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.tabbed:
+      alternate_style: true
+  - attr_list
+  - toc:
+      permalink: true
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/Oaklight/nps-ctl
+    - icon: fontawesome/brands/python
+      link: https://pypi.org/project/nps-ctl/
+  alternate:
+    - name: English
+      link: /en/
+      lang: en
+    - name: 中文
+      link: /zh-cn/
+      lang: zh
+
+nav:
+  - Home: index.md
+  - Usage:
+      - Installation: usage/installation.md
+      - Configuration: usage/configuration.md
+      - CLI Reference: usage/cli.md
+      - Library Usage: usage/library.md
+  - API Reference:
+      - NPSClient: api/client.md
+      - NPSCluster: api/cluster.md
