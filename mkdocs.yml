@@ -1,0 +1,77 @@
+site_name: nps-ctl
+site_description: 用于管理 NPS 代理服务器的 Python 库和命令行工具
+site_author: Peng Ding
+site_url: https://nps-ctl.readthedocs.io/zh-cn/
+repo_name: Oaklight/nps-ctl
+repo_url: https://github.com/Oaklight/nps-ctl
+copyright: Copyright &copy; 2025 Peng Ding
+
+theme:
+  name: material
+  language: zh
+  palette:
+    - media: "(prefers-color-scheme)"
+      toggle:
+        icon: material/brightness-auto
+        name: 切换到浅色模式
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle:
+        icon: material/brightness-7
+        name: 切换到深色模式
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/brightness-4
+        name: 跟随系统设置
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - search.highlight
+    - search.suggest
+    - content.code.copy
+
+plugins:
+  - search:
+      separator: '[\s\-,:!=\[\]()"`/]+|\.(?!\d)|&[lg]t;|(?!\b)(?=[A-Z][a-z])'
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.tabbed:
+      alternate_style: true
+  - attr_list
+  - toc:
+      permalink: true
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/Oaklight/nps-ctl
+    - icon: fontawesome/brands/python
+      link: https://pypi.org/project/nps-ctl/
+  alternate:
+    - name: English
+      link: /en/
+      lang: en
+    - name: 中文
+      link: /zh-cn/
+      lang: zh
+
+nav:
+  - 首页: index.md
+  - 使用指南:
+      - 安装: usage/installation.md
+      - 配置: usage/configuration.md
+      - 命令行参考: usage/cli.md
+      - 库的使用: usage/library.md
+  - API 参考:
+      - NPSClient: api/client.md
+      - NPSCluster: api/cluster.md
