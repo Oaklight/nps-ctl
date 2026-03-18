@@ -1,9 +1,8 @@
 # nps-ctl
 
-[![PyPI version](https://badge.fury.io/py/nps-ctl.svg)](https://badge.fury.io/py/nps-ctl)
-[![GitHub version](https://badge.fury.io/gh/oaklight%2Fnps-ctl.svg)](https://badge.fury.io/gh/oaklight%2Fnps-ctl)
-[![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+[![PyPI version](https://img.shields.io/pypi/v/nps-ctl?color=green)](https://pypi.org/project/nps-ctl/)
 [![CI](https://github.com/Oaklight/nps-ctl/actions/workflows/ci.yml/badge.svg)](https://github.com/Oaklight/nps-ctl/actions/workflows/ci.yml)
+[![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-green.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
 [English](README_en.md) | [中文](README_zh.md)
 
