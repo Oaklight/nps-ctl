@@ -10,6 +10,8 @@ A Python library and CLI tool for managing [NPS](https://github.com/djylb/nps) p
 
 > **Note:** This project targets [djylb/nps](https://github.com/djylb/nps), the actively maintained fork of the original [ehang-io/nps](https://github.com/ehang-io/nps) (unmaintained since 2021). The API is compatible with both forks, but djylb/nps is recommended.
 
+> This project is actively maintained and will continue to evolve. I have no intention of going closed-source — please don't fork just to archive it. If you find it useful, a Star is appreciated.
+
 ## Features
 
 - **API Client**: Type-safe Python wrapper for the NPS HTTP API

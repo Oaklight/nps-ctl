@@ -10,6 +10,8 @@
 
 > **注意：** 本项目基于 [djylb/nps](https://github.com/djylb/nps)，这是原版 [ehang-io/nps](https://github.com/ehang-io/nps)（自 2021 年起停止维护）的活跃维护分支。API 兼容两个分支，但推荐使用 djylb/nps。
 
+> 本项目会根据需求持续迭代，我也无意搞开源再闭源，请不要为了存档而 fork。如果觉得好用，欢迎加个 Star。
+
 ## 功能特性
 
 - **API 客户端**：类型安全的 NPS HTTP API Python 封装
