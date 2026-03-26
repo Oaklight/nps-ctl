@@ -1,3 +1,9 @@
+---
+title: Home
+hide:
+  - navigation
+---
+
 # nps-ctl
 
 A Python library and CLI tool for managing [NPS](https://github.com/djylb/nps) proxy servers.
