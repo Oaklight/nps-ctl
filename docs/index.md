@@ -1,3 +1,9 @@
+---
+title: 首页
+hide:
+  - navigation
+---
+
 # nps-ctl
 
 用于管理 [NPS](https://github.com/djylb/nps) 代理服务器的 Python 库和命令行工具。
