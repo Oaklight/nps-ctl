@@ -153,6 +153,8 @@ class NPSCluster:
                 vkey=npc_client.get("vkey", ""),
                 remark=npc_client.get("remark", ""),
                 conn_type=npc_client.get("conn_type", "tls"),
+                ssh_user=npc_client.get("ssh_user", ""),
+                http_proxy=npc_client.get("http_proxy", ""),
             )
             self._npc_clients[npc_config.name] = npc_config
             logger.debug(
@@ -172,6 +174,8 @@ class NPSCluster:
                     vkey=npc_client.get("vkey", ""),
                     remark=npc_client.get("remark", ""),
                     conn_type=npc_client.get("conn_type", "tls"),
+                    ssh_user=npc_client.get("ssh_user", ""),
+                    http_proxy=npc_client.get("http_proxy", ""),
                 )
                 self._npc_clients[npc_config.name] = npc_config
             logger.debug(

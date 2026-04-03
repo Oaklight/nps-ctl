@@ -83,7 +83,12 @@ def cmd_npc_install(args: argparse.Namespace) -> int:
             fail_count += 1
             continue
 
-        print(f"\nProcessing {client_name} ({npc_config.ssh_host})...")
+        ssh_target = (
+            f"{npc_config.ssh_user}@{npc_config.ssh_host}"
+            if npc_config.ssh_user
+            else npc_config.ssh_host
+        )
+        print(f"\nProcessing {client_name} ({ssh_target})...")
 
         # Get vkey
         vkey = cluster.get_vkey_for_npc(npc_config)
@@ -109,7 +114,9 @@ def cmd_npc_install(args: argparse.Namespace) -> int:
         # Force reinstall: uninstall first
         if force_reinstall:
             print("  Uninstalling existing NPC...")
-            uninstall_result = uninstall_npc(ssh_host=npc_config.ssh_host)
+            uninstall_result = uninstall_npc(
+                ssh_host=npc_config.ssh_host, ssh_user=npc_config.ssh_user
+            )
             if uninstall_result.success:
                 print("  ✓ Uninstalled successfully")
             else:
@@ -124,6 +131,8 @@ def cmd_npc_install(args: argparse.Namespace) -> int:
             tls_enable=(npc_config.conn_type == "tls"),
             version=version,
             release_url=args.release_url,
+            ssh_user=npc_config.ssh_user,
+            http_proxy=npc_config.http_proxy,
         )
 
         if result.success:
@@ -191,7 +200,9 @@ def cmd_npc_uninstall(args: argparse.Namespace) -> int:
 
         print(f"\nUninstalling NPC from {client_name} ({npc_config.ssh_host})...")
 
-        result = uninstall_npc(ssh_host=npc_config.ssh_host)
+        result = uninstall_npc(
+            ssh_host=npc_config.ssh_host, ssh_user=npc_config.ssh_user
+        )
 
         if result.success:
             print(f"✓ {client_name}: Uninstalled successfully")
@@ -334,7 +345,7 @@ def cmd_npc_status(args: argparse.Namespace) -> int:
                     Tuple of (client_name, status, details).
                 """
                 cfg = configs[name]
-                result = check_npc_status(ssh_host=cfg.ssh_host)
+                result = check_npc_status(ssh_host=cfg.ssh_host, ssh_user=cfg.ssh_user)
                 if result.success:
                     s, d = _parse_npc_status_output(result.stdout or "")
                 else:
@@ -361,7 +372,7 @@ def cmd_npc_status(args: argparse.Namespace) -> int:
         for client_name in valid_clients:
             cfg = configs[client_name]
             edges_str = ", ".join(cfg.edges) if cfg.edges else "—"
-            result = check_npc_status(ssh_host=cfg.ssh_host)
+            result = check_npc_status(ssh_host=cfg.ssh_host, ssh_user=cfg.ssh_user)
 
             if result.success:
                 status, details = _parse_npc_status_output(result.stdout or "")
@@ -419,7 +430,7 @@ def cmd_npc_restart(args: argparse.Namespace) -> int:
 
         print(f"Restarting NPC on {client_name} ({npc_config.ssh_host})...")
 
-        result = restart_npc(ssh_host=npc_config.ssh_host)
+        result = restart_npc(ssh_host=npc_config.ssh_host, ssh_user=npc_config.ssh_user)
 
         if result.success:
             print(f"✓ {client_name}: Restarted successfully")
@@ -762,6 +773,11 @@ def _generate_clients_toml(clients: list[dict]) -> str:
         lines.append(f'name = "{client["name"]}"')
         lines.append(f'ssh_host = "{client.get("ssh_host", client["name"])}"')
 
+        # SSH user - only write if non-default
+        ssh_user = client.get("ssh_user", "")
+        if ssh_user:
+            lines.append(f'ssh_user = "{ssh_user}"')
+
         # Format edges list
         edges = client.get("edges", [])
         edges_str = ", ".join(f'"{e}"' for e in edges)
@@ -778,6 +794,11 @@ def _generate_clients_toml(clients: list[dict]) -> str:
 
         vkey = client.get("vkey", "")
         lines.append(f'vkey = "{vkey}"')
+
+        # HTTP proxy - only write if configured
+        http_proxy = client.get("http_proxy", "")
+        if http_proxy:
+            lines.append(f'http_proxy = "{http_proxy}"')
 
         lines.append("")  # blank line between entries
 

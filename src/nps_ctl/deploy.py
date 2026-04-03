@@ -15,10 +15,11 @@ DEFAULT_NPS_VERSION = "v0.34.1"
 DEFAULT_NPC_VERSION = "v0.34.1"
 
 # Mirror sources for NPS releases (in priority order)
-# Uses jsdelivr CDN mirrors which are faster in China and other regions
+# Uses jsdelivr CDN and ghfast.top proxy which are faster in China and other regions
 NPS_MIRROR_SOURCES = [
     "https://fastly.jsdelivr.net/gh/djylb/nps-mirror@{version}/linux_amd64_server.tar.gz",
     "https://cdn.jsdelivr.net/gh/djylb/nps-mirror@{version}/linux_amd64_server.tar.gz",
+    "https://ghfast.top/https://github.com/djylb/nps/releases/download/{version}/linux_amd64_server.tar.gz",
     "https://github.com/djylb/nps/releases/download/{version}/linux_amd64_server.tar.gz",
 ]
 
@@ -26,6 +27,7 @@ NPS_MIRROR_SOURCES = [
 NPC_MIRROR_SOURCES = [
     "https://fastly.jsdelivr.net/gh/djylb/nps-mirror@{version}/linux_amd64_client.tar.gz",
     "https://cdn.jsdelivr.net/gh/djylb/nps-mirror@{version}/linux_amd64_client.tar.gz",
+    "https://ghfast.top/https://github.com/djylb/nps/releases/download/{version}/linux_amd64_client.tar.gz",
     "https://github.com/djylb/nps/releases/download/{version}/linux_amd64_client.tar.gz",
 ]
 
@@ -85,6 +87,7 @@ def ssh_execute(
     ssh_host: str,
     script: str,
     timeout: int = 120,
+    ssh_user: str = "",
 ) -> DeployResult:
     """Execute a script on a remote host via SSH.
 
@@ -92,13 +95,18 @@ def ssh_execute(
         ssh_host: SSH host (e.g., "cloud.deu1").
         script: Bash script to execute.
         timeout: Command timeout in seconds.
+        ssh_user: SSH login user (overrides SSH config default).
 
     Returns:
         DeployResult with success status and output.
     """
     try:
+        ssh_cmd = ["ssh"]
+        if ssh_user:
+            ssh_cmd.extend(["-l", ssh_user])
+        ssh_cmd.extend([ssh_host, "bash -s"])
         result = subprocess.run(
-            ["ssh", ssh_host, "bash -s"],
+            ssh_cmd,
             input=script,
             capture_output=True,
             text=True,
@@ -349,7 +357,9 @@ def install_npc(
     tls_enable: bool = True,
     version: str = DEFAULT_NPC_VERSION,
     release_url: str | None = None,
-    timeout: int = 120,
+    timeout: int = 600,
+    ssh_user: str = "",
+    http_proxy: str = "",
 ) -> DeployResult:
     """Install NPC on a remote server.
 
@@ -364,6 +374,8 @@ def install_npc(
         version: NPC version to install (e.g., "v0.34.1").
         release_url: Custom URL to download NPC release tarball (overrides mirrors).
         timeout: Command timeout in seconds.
+        ssh_user: SSH login user (overrides SSH config default).
+        http_proxy: HTTP proxy URL for curl downloads (e.g., "http://host:port").
 
     Returns:
         DeployResult with installation status.
@@ -380,10 +392,27 @@ def install_npc(
     # Build install arguments
     tls_arg = "-tls_enable=true" if tls_enable else ""
 
+    # Build proxy env for curl
+    proxy_env = (
+        f'export http_proxy="{http_proxy}" https_proxy="{http_proxy}"'
+        if http_proxy
+        else ""
+    )
+
     install_script = f"""
 set -e
 
 cd /tmp
+
+# Pre-flight checks
+echo "=== Pre-flight ==="
+echo "User: $(whoami)"
+echo "Arch: $(uname -m)"
+echo "Disk /tmp: $(df -h /tmp 2>/dev/null | tail -1)"
+
+# Set proxy if configured
+{proxy_env}
+{f'echo "Using HTTP proxy: {http_proxy}"' if http_proxy else ""}
 
 # Download with fallback mirrors
 URLS=({urls_shell})
@@ -391,13 +420,18 @@ DOWNLOADED=0
 
 for url in "${{URLS[@]}}"; do
     echo "Trying $url ..."
-    if curl -sfSL --connect-timeout 10 -o npc.tar.gz "$url"; then
+    if curl -fSL --connect-timeout 10 -o npc.tar.gz "$url" 2>&1; then
         if [ -s npc.tar.gz ]; then
-            echo "Downloaded successfully from $url"
+            echo "Downloaded successfully from $url ($(stat -c%s npc.tar.gz 2>/dev/null || stat -f%z npc.tar.gz 2>/dev/null) bytes)"
             DOWNLOADED=1
             break
+        else
+            echo "Download produced empty file"
         fi
+    else
+        echo "curl exit code: $?"
     fi
+    rm -f npc.tar.gz
     echo "Failed, trying next mirror..."
 done
 
@@ -407,7 +441,7 @@ if [ "$DOWNLOADED" -ne 1 ]; then
 fi
 
 echo "Extracting..."
-tar -xzf npc.tar.gz
+tar -xzf npc.tar.gz || {{ echo "Error: Failed to extract tarball"; exit 1; }}
 
 echo "Stopping existing NPC service if running..."
 npc stop 2>/dev/null || true
@@ -417,13 +451,14 @@ echo "Uninstalling existing NPC if present..."
 
 echo "Installing NPC..."
 chmod +x /tmp/npc
-/tmp/npc install -server="{server_addrs}" -vkey="{vkey}" {tls_arg}
+cp /tmp/npc /usr/local/bin/npc
+/usr/local/bin/npc install -server="{server_addrs}" -vkey="{vkey}" {tls_arg} || {{ echo "Error: npc install failed"; exit 1; }}
 
 echo "Cleaning up..."
 rm -f /tmp/npc.tar.gz /tmp/npc
 
 echo "Starting NPC service..."
-npc start
+npc start || {{ echo "Error: npc start failed"; exit 1; }}
 
 echo "Checking service status..."
 sleep 2
@@ -435,18 +470,20 @@ else
 fi
 """
 
-    return ssh_execute(ssh_host, install_script, timeout)
+    return ssh_execute(ssh_host, install_script, timeout, ssh_user=ssh_user)
 
 
 def uninstall_npc(
     ssh_host: str,
     timeout: int = 60,
+    ssh_user: str = "",
 ) -> DeployResult:
     """Uninstall NPC from a remote server.
 
     Args:
         ssh_host: SSH host to uninstall from.
         timeout: Command timeout in seconds.
+        ssh_user: SSH login user (overrides SSH config default).
 
     Returns:
         DeployResult with uninstallation status.
@@ -466,10 +503,10 @@ rm -f /usr/bin/npc /usr/local/bin/npc
 echo "NPC uninstalled successfully."
 """
 
-    return ssh_execute(ssh_host, uninstall_script, timeout)
+    return ssh_execute(ssh_host, uninstall_script, timeout, ssh_user=ssh_user)
 
 
-def check_npc_status(ssh_host: str) -> DeployResult:
+def check_npc_status(ssh_host: str, ssh_user: str = "") -> DeployResult:
     """Check NPC status on a remote server.
 
     Args:
@@ -487,10 +524,10 @@ echo "=== Service Status ==="
 npc status 2>/dev/null || echo "Not running or not installed"
 """
 
-    return ssh_execute(ssh_host, check_script, timeout=30)
+    return ssh_execute(ssh_host, check_script, timeout=30, ssh_user=ssh_user)
 
 
-def restart_npc(ssh_host: str) -> DeployResult:
+def restart_npc(ssh_host: str, ssh_user: str = "") -> DeployResult:
     """Restart NPC service on a remote server.
 
     Args:
@@ -511,4 +548,4 @@ echo "Checking service status..."
 npc status 2>/dev/null || echo "Status check failed"
 """
 
-    return ssh_execute(ssh_host, restart_script, timeout=30)
+    return ssh_execute(ssh_host, restart_script, timeout=30, ssh_user=ssh_user)

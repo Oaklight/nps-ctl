@@ -92,6 +92,8 @@ class NPCClientConfig:
     vkey: str = ""
     remark: str = ""
     conn_type: str = "tls"
+    ssh_user: str = ""
+    http_proxy: str = ""
 
     def __post_init__(self) -> None:
         """Set default remark to name if not provided."""

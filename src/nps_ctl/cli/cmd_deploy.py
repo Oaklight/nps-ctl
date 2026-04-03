@@ -34,7 +34,7 @@ def cmd_install(args: argparse.Namespace) -> int:
     web_username = web_config.get("username", "admin")
     web_password = web_config.get("password", "")
     auth_crypt_key = full_config.get("auth_crypt_key", "")
-    public_vkey = full_config.get("public_vkey", "2*u@unrNdzyv6E!iB@fT")
+    public_vkey = full_config.get("public_vkey", "")
 
     # Port configuration with defaults
     ports_config = full_config.get("ports", {})
