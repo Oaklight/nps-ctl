@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nps-ctl"
-version = "0.2.0"
+version = "0.3.0"
 authors = [{ name = "Oaklight", email = "oaklight@gmx.com" }]
 description = "A Python library and CLI tool for managing NPS (djylb/nps) proxy servers"
 readme = "README.md"
