@@ -32,7 +32,7 @@ def _notice(self: logging.Logger, message: str, *args: Any, **kwargs: Any) -> No
 
 
 # Add notice method to Logger class
-logging.Logger.notice = _notice  # type: ignore[attr-defined]
+logging.Logger.notice = _notice  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
 
 
 class LogLevel(Enum):
