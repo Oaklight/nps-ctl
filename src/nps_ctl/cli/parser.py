@@ -217,7 +217,7 @@ def _add_client_commands(subparsers) -> None:
     install_parser.add_argument(
         "--force-reinstall",
         action="store_true",
-        help="Force reinstall even if already installed",
+        help="(Deprecated: use 'client upgrade') Force reinstall",
     )
     install_parser.add_argument(
         "-y",
@@ -233,6 +233,73 @@ def _add_client_commands(subparsers) -> None:
         help="Show detailed deployment output",
     )
     install_parser.set_defaults(requires_config=True)
+
+    # client upgrade
+    upgrade_parser = client_sub.add_parser(
+        "upgrade",
+        help="Upgrade NPC binary and reconfigure on client machines",
+        description=(
+            "Download a new NPC binary, uninstall the existing one, and "
+            "reinstall with current configuration from edges.toml/clients.toml."
+        ),
+    )
+    upgrade_parser.add_argument(
+        "-c",
+        "--client",
+        help="Client name to upgrade (default: all clients)",
+    )
+    upgrade_parser.add_argument(
+        "--version",
+        help="NPC version to install",
+    )
+    upgrade_parser.add_argument(
+        "--release-url",
+        help="Custom release URL for NPC binary",
+    )
+    upgrade_parser.add_argument(
+        "-y",
+        "--yes",
+        action="store_true",
+        help="Skip confirmation prompts",
+    )
+    upgrade_parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        dest="deploy_verbose",
+        help="Show detailed deployment output",
+    )
+    upgrade_parser.set_defaults(requires_config=True)
+
+    # client reconfig
+    reconfig_parser = client_sub.add_parser(
+        "reconfig",
+        help="Reconfigure NPC with updated server addresses (no binary download)",
+        description=(
+            "Update NPC configuration (server addresses, vkey) from "
+            "edges.toml/clients.toml without re-downloading the binary. "
+            "Much faster than reinstall when only config changes."
+        ),
+    )
+    reconfig_parser.add_argument(
+        "-c",
+        "--client",
+        help="Client name to reconfigure (default: all clients)",
+    )
+    reconfig_parser.add_argument(
+        "-y",
+        "--yes",
+        action="store_true",
+        help="Skip confirmation prompts",
+    )
+    reconfig_parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        dest="deploy_verbose",
+        help="Show detailed output",
+    )
+    reconfig_parser.set_defaults(requires_config=True)
 
     # client uninstall (原 npc-uninstall)
     uninstall_parser = client_sub.add_parser(
@@ -347,7 +414,7 @@ def _add_edge_commands(subparsers) -> None:
     install_parser.add_argument(
         "--force-reinstall",
         action="store_true",
-        help="Force reinstall even if already installed",
+        help="(Deprecated: use 'edge upgrade') Force reinstall",
     )
     install_parser.add_argument(
         "-y",
@@ -363,6 +430,82 @@ def _add_edge_commands(subparsers) -> None:
         help="Show detailed deployment output",
     )
     install_parser.set_defaults(requires_config=True)
+
+    # edge upgrade
+    edge_upgrade_parser = edge_sub.add_parser(
+        "upgrade",
+        help="Upgrade NPS binary and reconfigure on edge nodes",
+        description=(
+            "Download a new NPS binary, uninstall the existing one, and "
+            "reinstall with current configuration from edges.toml."
+        ),
+    )
+    edge_upgrade_parser.add_argument(
+        "-e",
+        "--edge",
+        help="Edge name to upgrade (default: all edges)",
+    )
+    edge_upgrade_parser.add_argument(
+        "-t",
+        "--template",
+        help="Path to NPS config template",
+    )
+    edge_upgrade_parser.add_argument(
+        "--version",
+        help="NPS version to install",
+    )
+    edge_upgrade_parser.add_argument(
+        "--release-url",
+        help="Custom release URL for NPS binary",
+    )
+    edge_upgrade_parser.add_argument(
+        "-y",
+        "--yes",
+        action="store_true",
+        help="Skip confirmation prompts",
+    )
+    edge_upgrade_parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        dest="deploy_verbose",
+        help="Show detailed deployment output",
+    )
+    edge_upgrade_parser.set_defaults(requires_config=True)
+
+    # edge reconfig
+    edge_reconfig_parser = edge_sub.add_parser(
+        "reconfig",
+        help="Reconfigure NPS with updated config (no binary download)",
+        description=(
+            "Update NPS configuration from template and edges.toml "
+            "without re-downloading the binary. Restarts the service."
+        ),
+    )
+    edge_reconfig_parser.add_argument(
+        "-e",
+        "--edge",
+        help="Edge name to reconfigure (default: all edges)",
+    )
+    edge_reconfig_parser.add_argument(
+        "-t",
+        "--template",
+        help="Path to NPS config template",
+    )
+    edge_reconfig_parser.add_argument(
+        "-y",
+        "--yes",
+        action="store_true",
+        help="Skip confirmation prompts",
+    )
+    edge_reconfig_parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        dest="deploy_verbose",
+        help="Show detailed deployment output",
+    )
+    edge_reconfig_parser.set_defaults(requires_config=True)
 
     # edge uninstall (原 uninstall)
     uninstall_parser = edge_sub.add_parser(

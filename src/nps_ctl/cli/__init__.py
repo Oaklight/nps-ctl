@@ -162,14 +162,16 @@ def _dispatch(args) -> int:
     Returns:
         Exit code.
     """
-    from .cmd_deploy import cmd_install, cmd_uninstall
+    from .cmd_deploy import cmd_install, cmd_reconfig, cmd_uninstall, cmd_upgrade
     from .cmd_hosts import cmd_add_host, cmd_hosts
     from .cmd_npc import (
         cmd_client_add,
         cmd_npc_install,
+        cmd_npc_reconfig,
         cmd_npc_restart,
         cmd_npc_status,
         cmd_npc_uninstall,
+        cmd_npc_upgrade,
     )
     from .cmd_status import cmd_status
     from .cmd_sync import cmd_export, cmd_sync
@@ -183,12 +185,16 @@ def _dispatch(args) -> int:
         ("client", "add"): cmd_client_add,
         ("client", "push"): _dispatch_client_push,
         ("client", "install"): cmd_npc_install,
+        ("client", "upgrade"): cmd_npc_upgrade,
+        ("client", "reconfig"): cmd_npc_reconfig,
         ("client", "uninstall"): cmd_npc_uninstall,
         ("client", "status"): cmd_npc_status,
         ("client", "restart"): cmd_npc_restart,
         # edge commands
         ("edge", "status"): cmd_status,
         ("edge", "install"): cmd_install,
+        ("edge", "upgrade"): cmd_upgrade,
+        ("edge", "reconfig"): cmd_reconfig,
         ("edge", "uninstall"): cmd_uninstall,
         ("edge", "sync"): cmd_sync,
         ("edge", "export"): cmd_export,

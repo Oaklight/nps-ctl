@@ -527,6 +527,114 @@ npc status 2>/dev/null || echo "Not running or not installed"
     return ssh_execute(ssh_host, check_script, timeout=30, ssh_user=ssh_user)
 
 
+def reconfig_npc(
+    ssh_host: str,
+    server_addrs: str,
+    vkey: str,
+    tls_enable: bool = True,
+    ssh_user: str = "",
+    timeout: int = 60,
+) -> DeployResult:
+    """Reconfigure NPC on a remote server without re-downloading the binary.
+
+    Stops the existing NPC, uninstalls it, re-runs `npc install` with updated
+    server addresses and vkey, then starts the service. The existing binary at
+    /usr/local/bin/npc is reused.
+
+    Args:
+        ssh_host: SSH host to reconfigure.
+        server_addrs: Comma-separated server addresses.
+        vkey: Client verification key.
+        tls_enable: Whether to enable TLS connection.
+        ssh_user: SSH login user.
+        timeout: Command timeout in seconds.
+
+    Returns:
+        DeployResult with reconfiguration status.
+    """
+    tls_arg = "-tls_enable=true" if tls_enable else ""
+
+    reconfig_script = f"""
+set -e
+
+# Verify NPC binary exists
+if ! command -v npc &>/dev/null && [ ! -f /usr/local/bin/npc ]; then
+    echo "Error: NPC binary not found. Use 'client install' first."
+    exit 1
+fi
+
+echo "Stopping NPC service..."
+npc stop 2>/dev/null || true
+
+echo "Uninstalling existing NPC config..."
+npc uninstall 2>/dev/null || true
+
+echo "Reinstalling NPC with new configuration..."
+npc install -server="{server_addrs}" -vkey="{vkey}" {tls_arg} || {{ echo "Error: npc install failed"; exit 1; }}
+
+echo "Starting NPC service..."
+npc start || {{ echo "Error: npc start failed"; exit 1; }}
+
+echo "Checking service status..."
+sleep 2
+if npc status 2>/dev/null | grep -q "running"; then
+    echo "NPC reconfigured and running successfully."
+else
+    echo "Warning: NPC service may not be running properly."
+    npc status || true
+fi
+"""
+
+    return ssh_execute(ssh_host, reconfig_script, timeout, ssh_user=ssh_user)
+
+
+def reconfig_nps(
+    ssh_host: str,
+    nps_conf: str,
+    timeout: int = 60,
+) -> DeployResult:
+    """Reconfigure NPS on a remote server without re-downloading the binary.
+
+    Overwrites the NPS configuration file and restarts the service.
+
+    Args:
+        ssh_host: SSH host to reconfigure.
+        nps_conf: New NPS configuration file content.
+        timeout: Command timeout in seconds.
+
+    Returns:
+        DeployResult with reconfiguration status.
+    """
+    reconfig_script = f"""
+set -e
+
+# Verify NPS is installed
+if [ ! -f /etc/nps/conf/nps.conf ]; then
+    echo "Error: NPS not installed (/etc/nps/conf/nps.conf not found). Use 'edge install' first."
+    exit 1
+fi
+
+echo "Writing new configuration..."
+cat > /etc/nps/conf/nps.conf << 'EOFCONF'
+{nps_conf}
+EOFCONF
+
+echo "Restarting NPS service..."
+systemctl restart Nps || {{ echo "Error: Failed to restart NPS"; exit 1; }}
+
+echo "Checking service status..."
+sleep 2
+if systemctl is-active --quiet Nps; then
+    echo "NPS reconfigured and running successfully."
+else
+    echo "Warning: NPS service may not be running properly."
+    systemctl status Nps --no-pager || true
+fi
+"""
+
+    return ssh_execute(ssh_host, reconfig_script, timeout)
+
+
 def restart_npc(ssh_host: str, ssh_user: str = "") -> DeployResult:
     """Restart NPC service on a remote server.
 

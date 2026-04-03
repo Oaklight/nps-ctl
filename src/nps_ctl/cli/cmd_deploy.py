@@ -9,6 +9,7 @@ from ..deploy import (
     DEFAULT_NPS_VERSION,
     install_nps,
     load_template,
+    reconfig_nps,
     render_template,
     uninstall_nps,
 )
@@ -39,7 +40,8 @@ def cmd_install(args: argparse.Namespace) -> int:
     # Port configuration with defaults
     ports_config = full_config.get("ports", {})
     http_proxy_port = ports_config.get("http_proxy", 30080)
-    bridge_port = ports_config.get("bridge", 51234)
+    bridge_tcp_port = ports_config.get("bridge_tcp", ports_config.get("bridge", 51234))
+    bridge_tls_port = ports_config.get("bridge_tls", 51235)
     web_port = ports_config.get("web", 25412)
 
     # Load template
@@ -69,6 +71,11 @@ def cmd_install(args: argparse.Namespace) -> int:
 
     # Check for force reinstall
     force_reinstall = getattr(args, "force_reinstall", False)
+    if force_reinstall:
+        print(
+            "Warning: --force-reinstall is deprecated, use 'edge upgrade' instead.",
+            file=sys.stderr,
+        )
 
     # Confirm
     if not args.yes:
@@ -122,7 +129,8 @@ def cmd_install(args: argparse.Namespace) -> int:
             "auth_crypt_key": auth_crypt_key,
             "public_vkey": public_vkey,
             "http_proxy_port": http_proxy_port,
-            "bridge_port": bridge_port,
+            "bridge_tcp_port": bridge_tcp_port,
+            "bridge_tls_port": bridge_tls_port,
             "web_port": web_port,
         }
 
@@ -152,6 +160,126 @@ def cmd_install(args: argparse.Namespace) -> int:
                     print(f"  {line}")
             if result.stdout:
                 for line in result.stdout.strip().split("\n"):
+                    print(f"  {line}")
+            fail_count += 1
+
+    print(f"\nSummary: {success_count} succeeded, {fail_count} failed")
+    return 0 if fail_count == 0 else 1
+
+
+def cmd_upgrade(args: argparse.Namespace) -> int:
+    """Upgrade NPS binary and reconfigure on edge nodes.
+
+    Downloads a new NPS binary, uninstalls the existing one, and reinstalls
+    with current configuration. Equivalent to install --force-reinstall.
+    """
+    args.force_reinstall = True
+    if not hasattr(args, "release_url"):
+        args.release_url = None
+    return cmd_install(args)
+
+
+def cmd_reconfig(args: argparse.Namespace) -> int:
+    """Reconfigure NPS with updated config (no binary download)."""
+    import tomllib
+
+    try:
+        cluster = NPSCluster(args.config)
+    except FileNotFoundError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+    # Load full config
+    config_path = Path(args.config)
+    with open(config_path, "rb") as f:
+        full_config = tomllib.load(f)
+
+    web_config = full_config.get("web", {})
+    web_username = web_config.get("username", "admin")
+    web_password = web_config.get("password", "")
+    auth_crypt_key = full_config.get("auth_crypt_key", "")
+    public_vkey = full_config.get("public_vkey", "")
+
+    ports_config = full_config.get("ports", {})
+    http_proxy_port = ports_config.get("http_proxy", 30080)
+    bridge_tcp_port = ports_config.get("bridge_tcp", ports_config.get("bridge", 51234))
+    bridge_tls_port = ports_config.get("bridge_tls", 51235)
+    web_port = ports_config.get("web", 25412)
+
+    # Load template
+    template_path = args.template
+    if template_path:
+        template_path = Path(template_path)
+    else:
+        template_path = get_template_path() / "nps.conf.template"
+
+    try:
+        template = load_template(template_path)
+    except FileNotFoundError:
+        print(f"Warning: Template not found at {template_path}, using default")
+        template = None
+
+    # Determine target edges
+    if args.edge:
+        if args.edge not in cluster.edge_names:
+            print(f"Error: Edge '{args.edge}' not found", file=sys.stderr)
+            return 1
+        target_edges = [args.edge]
+    else:
+        target_edges = cluster.edge_names
+
+    # Confirm
+    if not args.yes:
+        print(f"Will reconfigure NPS on: {', '.join(target_edges)}")
+        print("This will (without re-downloading binary):")
+        print("  - Write new nps.conf from template")
+        print("  - Restart NPS service")
+        response = input("Continue? [y/N] ")
+        if response.lower() != "y":
+            print("Aborted.")
+            return 0
+
+    success_count = 0
+    fail_count = 0
+
+    for edge_name in target_edges:
+        edge = cluster.get_edge(edge_name)
+        if not edge or not edge.ssh_host:
+            print(f"✗ {edge_name}: No SSH host configured")
+            fail_count += 1
+            continue
+
+        print(f"\nReconfiguring NPS on {edge_name} ({edge.ssh_host})...")
+
+        variables = {
+            "web_username": web_username,
+            "web_password": web_password,
+            "auth_key": edge.auth_key,
+            "auth_crypt_key": auth_crypt_key,
+            "public_vkey": public_vkey,
+            "http_proxy_port": http_proxy_port,
+            "bridge_tcp_port": bridge_tcp_port,
+            "bridge_tls_port": bridge_tls_port,
+            "web_port": web_port,
+        }
+
+        if template:
+            nps_conf = render_template(template, variables)
+        else:
+            nps_conf = _get_default_template().format(**variables)
+
+        result = reconfig_nps(ssh_host=edge.ssh_host, nps_conf=nps_conf)
+
+        if result.success:
+            print(f"✓ {edge_name}: Reconfigured successfully")
+            if args.verbose and result.stdout:
+                for line in result.stdout.strip().split("\n"):
+                    print(f"  {line}")
+            success_count += 1
+        else:
+            print(f"✗ {edge_name}: {result.message}")
+            if result.stderr:
+                for line in result.stderr.strip().split("\n"):
                     print(f"  {line}")
             fail_count += 1
 
@@ -243,7 +371,8 @@ trusted_proxy_ips=127.0.0.1
 # Client Connection Settings
 #############################################
 bridge_ip=0.0.0.0
-bridge_port={bridge_port}
+bridge_tcp_port={bridge_tcp_port}
+bridge_tls_port={bridge_tls_port}
 
 public_vkey={public_vkey}
 disconnect_timeout=60

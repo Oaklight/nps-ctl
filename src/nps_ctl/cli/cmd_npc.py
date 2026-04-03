@@ -23,6 +23,7 @@ from ..deploy import (
     DEFAULT_NPC_VERSION,
     check_npc_status,
     install_npc,
+    reconfig_npc,
     restart_npc,
     uninstall_npc,
 )
@@ -56,6 +57,11 @@ def cmd_npc_install(args: argparse.Namespace) -> int:
 
     # Check for force reinstall
     force_reinstall = getattr(args, "force_reinstall", False)
+    if force_reinstall and args.subcommand == "install":
+        print(
+            "Warning: --force-reinstall is deprecated, use 'client upgrade' instead.",
+            file=sys.stderr,
+        )
 
     # Confirm
     if not args.yes:
@@ -137,6 +143,113 @@ def cmd_npc_install(args: argparse.Namespace) -> int:
 
         if result.success:
             print(f"✓ {client_name}: Installed successfully")
+            if args.verbose and result.stdout:
+                for line in result.stdout.strip().split("\n"):
+                    print(f"  {line}")
+            success_count += 1
+        else:
+            print(f"✗ {client_name}: {result.message}")
+            if result.stderr:
+                for line in result.stderr.strip().split("\n"):
+                    print(f"  {line}")
+            if result.stdout:
+                for line in result.stdout.strip().split("\n"):
+                    print(f"  {line}")
+            fail_count += 1
+
+    print(f"\nSummary: {success_count} succeeded, {fail_count} failed")
+    return 0 if fail_count == 0 else 1
+
+
+def cmd_npc_upgrade(args: argparse.Namespace) -> int:
+    """Upgrade NPC binary and reconfigure on client machines.
+
+    Downloads a new NPC binary, uninstalls the existing one, and reinstalls
+    with current configuration. Equivalent to install --force-reinstall.
+    """
+    # Set force_reinstall=True and delegate to install
+    args.force_reinstall = True
+    if not hasattr(args, "release_url"):
+        args.release_url = None
+    return cmd_npc_install(args)
+
+
+def cmd_npc_reconfig(args: argparse.Namespace) -> int:
+    """Reconfigure NPC with updated server addresses (no binary download)."""
+    try:
+        cluster = NPSCluster(args.config)
+    except FileNotFoundError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+    # Determine target clients
+    if args.client:
+        if args.client not in cluster.npc_client_names:
+            print(f"Error: NPC client '{args.client}' not found", file=sys.stderr)
+            return 1
+        target_clients = [args.client]
+    else:
+        target_clients = cluster.npc_client_names
+
+    if not target_clients:
+        print("Error: No NPC clients configured", file=sys.stderr)
+        return 1
+
+    # Confirm
+    if not args.yes:
+        print(f"Will reconfigure NPC on: {', '.join(target_clients)}")
+        print("This will (without re-downloading binary):")
+        print("  - Stop NPC service")
+        print("  - Re-run npc install with updated server addresses/vkey")
+        print("  - Start NPC service")
+        response = input("Continue? [y/N] ")
+        if response.lower() != "y":
+            print("Aborted.")
+            return 0
+
+    success_count = 0
+    fail_count = 0
+
+    for client_name in target_clients:
+        npc_config = cluster.get_npc_client(client_name)
+        if not npc_config:
+            print(f"✗ {client_name}: Configuration not found")
+            fail_count += 1
+            continue
+
+        ssh_target = (
+            f"{npc_config.ssh_user}@{npc_config.ssh_host}"
+            if npc_config.ssh_user
+            else npc_config.ssh_host
+        )
+        print(f"\nReconfiguring {client_name} ({ssh_target})...")
+
+        # Get vkey
+        vkey = cluster.get_vkey_for_npc(npc_config)
+        if not vkey:
+            print(f"✗ {client_name}: Could not obtain vkey")
+            fail_count += 1
+            continue
+
+        # Get server addresses
+        server_addrs = cluster.get_server_addrs_for_npc(npc_config)
+        if not server_addrs:
+            print(f"✗ {client_name}: No valid server addresses")
+            fail_count += 1
+            continue
+
+        print(f"  Server addresses: {server_addrs}")
+
+        result = reconfig_npc(
+            ssh_host=npc_config.ssh_host,
+            server_addrs=server_addrs,
+            vkey=vkey,
+            tls_enable=(npc_config.conn_type == "tls"),
+            ssh_user=npc_config.ssh_user,
+        )
+
+        if result.success:
+            print(f"✓ {client_name}: Reconfigured successfully")
             if args.verbose and result.stdout:
                 for line in result.stdout.strip().split("\n"):
                     print(f"  {line}")
