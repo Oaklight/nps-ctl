@@ -365,6 +365,35 @@ def _add_client_commands(subparsers) -> None:
     )
     restart_parser.set_defaults(requires_config=True)
 
+    # client del
+    del_parser = client_sub.add_parser(
+        "del",
+        help="Delete a client from edge(s)",
+        description="Delete a client from one or all edge nodes via NPS API.",
+    )
+    del_id_group = del_parser.add_mutually_exclusive_group(required=True)
+    del_id_group.add_argument(
+        "--id",
+        type=int,
+        help="Client ID (edge-specific, requires -e)",
+    )
+    del_id_group.add_argument(
+        "--name",
+        help="Client remark name (can operate across all edges)",
+    )
+    del_parser.add_argument(
+        "-e",
+        "--edge",
+        help="Edge name (required when using --id, default: all edges for --name)",
+    )
+    del_parser.add_argument(
+        "-y",
+        "--yes",
+        action="store_true",
+        help="Skip confirmation prompts",
+    )
+    del_parser.set_defaults(requires_config=True)
+
 
 def _add_edge_commands(subparsers) -> None:
     """Add edge subcommands (NPS server management).
@@ -617,7 +646,7 @@ def _add_tunnel_commands(subparsers) -> None:
     tunnel_parser = subparsers.add_parser(
         "tunnel",
         help="Tunnel management",
-        description="Manage tunnels: list, add.",
+        description="Manage tunnels: list, add, edit, del, start, stop.",
     )
     tunnel_sub = tunnel_parser.add_subparsers(dest="subcommand", help="Tunnel action")
 
@@ -693,6 +722,113 @@ def _add_tunnel_commands(subparsers) -> None:
     )
     add_parser.set_defaults(requires_config=True)
 
+    # tunnel del
+    tunnel_del_parser = tunnel_sub.add_parser(
+        "del",
+        help="Delete a tunnel",
+        description="Delete a tunnel from an edge node via NPS API.",
+    )
+    tunnel_del_parser.add_argument(
+        "--id",
+        type=int,
+        required=True,
+        help="Tunnel ID (edge-specific, requires -e)",
+    )
+    tunnel_del_parser.add_argument(
+        "-e",
+        "--edge",
+        required=True,
+        help="Edge name (required, IDs are edge-specific)",
+    )
+    tunnel_del_parser.add_argument(
+        "-y",
+        "--yes",
+        action="store_true",
+        help="Skip confirmation prompts",
+    )
+    tunnel_del_parser.set_defaults(requires_config=True)
+
+    # tunnel edit
+    tunnel_edit_parser = tunnel_sub.add_parser(
+        "edit",
+        help="Edit a tunnel",
+        description="Edit an existing tunnel on an edge node.",
+    )
+    tunnel_edit_parser.add_argument(
+        "--id",
+        type=int,
+        required=True,
+        help="Tunnel ID to edit",
+    )
+    tunnel_edit_parser.add_argument(
+        "-e",
+        "--edge",
+        required=True,
+        help="Edge name (required, IDs are edge-specific)",
+    )
+    tunnel_edit_parser.add_argument(
+        "--target",
+        help="New target address (host:port)",
+    )
+    tunnel_edit_parser.add_argument(
+        "-p",
+        "--port",
+        type=int,
+        help="New server port",
+    )
+    tunnel_edit_parser.add_argument(
+        "-r",
+        "--remark",
+        help="New tunnel remark",
+    )
+    tunnel_edit_parser.add_argument(
+        "-y",
+        "--yes",
+        action="store_true",
+        help="Skip confirmation prompts",
+    )
+    tunnel_edit_parser.set_defaults(requires_config=True)
+
+    # tunnel start
+    tunnel_start_parser = tunnel_sub.add_parser(
+        "start",
+        help="Start a tunnel",
+        description="Start a stopped tunnel on an edge node.",
+    )
+    tunnel_start_parser.add_argument(
+        "--id",
+        type=int,
+        required=True,
+        help="Tunnel ID to start",
+    )
+    tunnel_start_parser.add_argument(
+        "-e",
+        "--edge",
+        required=True,
+        help="Edge name (required, IDs are edge-specific)",
+    )
+    tunnel_start_parser.set_defaults(requires_config=True)
+
+    # tunnel stop
+    tunnel_stop_parser = tunnel_sub.add_parser(
+        "stop",
+        help="Stop a tunnel",
+        description="Stop a running tunnel on an edge node.",
+    )
+    tunnel_stop_parser.add_argument(
+        "--id",
+        type=int,
+        required=True,
+        help="Tunnel ID to stop",
+    )
+    tunnel_stop_parser.add_argument(
+        "-e",
+        "--edge",
+        required=True,
+        help="Edge name (required, IDs are edge-specific)",
+    )
+    tunnel_stop_parser.set_defaults(requires_config=True)
+
 
 def _add_host_commands(subparsers) -> None:
     """Add host subcommands.
@@ -703,7 +839,7 @@ def _add_host_commands(subparsers) -> None:
     host_parser = subparsers.add_parser(
         "host",
         help="Host mapping management",
-        description="Manage host mappings: list, add.",
+        description="Manage host mappings: list, add, edit, del.",
     )
     host_sub = host_parser.add_subparsers(dest="subcommand", help="Host action")
 
@@ -767,6 +903,75 @@ def _add_host_commands(subparsers) -> None:
         help="Skip confirmation prompts",
     )
     add_parser.set_defaults(requires_config=True)
+
+    # host del
+    host_del_parser = host_sub.add_parser(
+        "del",
+        help="Delete a host mapping",
+        description="Delete a host mapping from one or all edge nodes via NPS API.",
+    )
+    host_del_id_group = host_del_parser.add_mutually_exclusive_group(required=True)
+    host_del_id_group.add_argument(
+        "--id",
+        type=int,
+        help="Host ID (edge-specific, requires -e)",
+    )
+    host_del_id_group.add_argument(
+        "--host",
+        help="Host domain name (can operate across all edges)",
+    )
+    host_del_parser.add_argument(
+        "-e",
+        "--edge",
+        help="Edge name (required when using --id, default: all edges for --host)",
+    )
+    host_del_parser.add_argument(
+        "-y",
+        "--yes",
+        action="store_true",
+        help="Skip confirmation prompts",
+    )
+    host_del_parser.set_defaults(requires_config=True)
+
+    # host edit
+    host_edit_parser = host_sub.add_parser(
+        "edit",
+        help="Edit a host mapping",
+        description="Edit an existing host mapping on an edge node.",
+    )
+    host_edit_parser.add_argument(
+        "--id",
+        type=int,
+        required=True,
+        help="Host ID to edit",
+    )
+    host_edit_parser.add_argument(
+        "-e",
+        "--edge",
+        required=True,
+        help="Edge name (required, IDs are edge-specific)",
+    )
+    host_edit_parser.add_argument(
+        "--host",
+        dest="new_host",
+        help="New domain name",
+    )
+    host_edit_parser.add_argument(
+        "--target",
+        help="New target address (host:port)",
+    )
+    host_edit_parser.add_argument(
+        "-r",
+        "--remark",
+        help="New host remark",
+    )
+    host_edit_parser.add_argument(
+        "-y",
+        "--yes",
+        action="store_true",
+        help="Skip confirmation prompts",
+    )
+    host_edit_parser.set_defaults(requires_config=True)
 
 
 def _add_util_commands(subparsers) -> None:

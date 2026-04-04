@@ -163,7 +163,8 @@ def _dispatch(args) -> int:
         Exit code.
     """
     from .cmd_deploy import cmd_install, cmd_reconfig, cmd_uninstall, cmd_upgrade
-    from .cmd_hosts import cmd_add_host, cmd_hosts
+    from .cmd_clients import cmd_client_del
+    from .cmd_hosts import cmd_add_host, cmd_host_del, cmd_host_edit, cmd_hosts
     from .cmd_npc import (
         cmd_client_add,
         cmd_npc_install,
@@ -175,7 +176,14 @@ def _dispatch(args) -> int:
     )
     from .cmd_status import cmd_status
     from .cmd_sync import cmd_export, cmd_sync
-    from .cmd_tunnels import cmd_add_tunnel, cmd_tunnels
+    from .cmd_tunnels import (
+        cmd_add_tunnel,
+        cmd_tunnel_del,
+        cmd_tunnel_edit,
+        cmd_tunnel_start,
+        cmd_tunnel_stop,
+        cmd_tunnels,
+    )
     from .cmd_utils import cmd_generate_auth_key
 
     # Command dispatch table: (command, subcommand) -> handler
@@ -184,6 +192,7 @@ def _dispatch(args) -> int:
         ("client", "list"): _dispatch_client_list,
         ("client", "add"): cmd_client_add,
         ("client", "push"): _dispatch_client_push,
+        ("client", "del"): cmd_client_del,
         ("client", "install"): cmd_npc_install,
         ("client", "upgrade"): cmd_npc_upgrade,
         ("client", "reconfig"): cmd_npc_reconfig,
@@ -201,9 +210,15 @@ def _dispatch(args) -> int:
         # tunnel commands
         ("tunnel", "list"): cmd_tunnels,
         ("tunnel", "add"): cmd_add_tunnel,
+        ("tunnel", "del"): cmd_tunnel_del,
+        ("tunnel", "edit"): cmd_tunnel_edit,
+        ("tunnel", "start"): cmd_tunnel_start,
+        ("tunnel", "stop"): cmd_tunnel_stop,
         # host commands
         ("host", "list"): cmd_hosts,
         ("host", "add"): cmd_add_host,
+        ("host", "del"): cmd_host_del,
+        ("host", "edit"): cmd_host_edit,
         # util commands
         ("util", "generate-auth-key"): cmd_generate_auth_key,
     }
