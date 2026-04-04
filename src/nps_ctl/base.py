@@ -74,6 +74,14 @@ class NPSClient:
         """Initialize SSL context and proxy handler."""
         self.base_url = self.base_url.rstrip("/")
 
+        # Validate timeout type (catches misuse like passing auth_crypt_key positionally)
+        if not isinstance(self.timeout, (int, float)):
+            raise TypeError(
+                f"timeout must be a number, got {type(self.timeout).__name__}: "
+                f"{self.timeout!r}"
+            )
+        self.timeout = int(self.timeout)
+
         # Setup SSL context
         if not self.verify_ssl:
             self._ssl_context = ssl.create_default_context()
@@ -131,6 +139,31 @@ class NPSClient:
             )
 
         logger.info(f"NPSClient initialized for {self.base_url}")
+
+    def cleanup(self) -> None:
+        """Restore original socket class if SOCKS proxy was used.
+
+        Call this when done with the client to undo the global socket
+        monkey-patch. Also called automatically via context manager.
+        """
+        if self._original_socket is not None:
+            socket.socket = self._original_socket  # type: ignore[assignment]  # ty: ignore[invalid-assignment]  # restoring original socket
+            self._original_socket = None
+            if HAS_SOCKS:
+                socks.set_default_proxy()
+            logger.debug(f"SOCKS proxy cleaned up for {self.base_url}")
+
+    def __enter__(self) -> "NPSClient":
+        """Enter context manager."""
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        """Exit context manager, restoring original socket."""
+        self.cleanup()
+
+    def __del__(self) -> None:
+        """Restore original socket on garbage collection."""
+        self.cleanup()
 
     def _request_with_retry(
         self,
