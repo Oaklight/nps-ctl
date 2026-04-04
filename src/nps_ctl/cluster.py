@@ -111,6 +111,23 @@ class NPSCluster:
         """Load configuration and initialize clients."""
         self._load_config()
 
+    def cleanup(self) -> None:
+        """Clean up all NPSClient instances (restore socket if SOCKS was used)."""
+        for nps_client in self._clients.values():
+            nps_client.cleanup()
+
+    def __enter__(self) -> "NPSCluster":
+        """Enter context manager."""
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        """Exit context manager, cleaning up all clients."""
+        self.cleanup()
+
+    def __del__(self) -> None:
+        """Clean up on garbage collection."""
+        self.cleanup()
+
     def _load_config(self) -> None:
         """Load edge configuration from TOML file."""
         path = Path(self.config_path)
