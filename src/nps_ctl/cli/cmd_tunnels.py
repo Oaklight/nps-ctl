@@ -140,3 +140,224 @@ def _print_tunnels(tunnels: list[TunnelInfo]) -> None:
         )
 
     console.print(table)
+
+
+def cmd_tunnel_del(args: argparse.Namespace) -> int:
+    """Delete a tunnel from an edge node.
+
+    Args:
+        args: Parsed command line arguments.
+
+    Returns:
+        Exit code.
+    """
+    try:
+        cluster = NPSCluster(args.config)
+    except FileNotFoundError as e:
+        print_error(str(e))
+        return 1
+
+    nps = cluster.get_client(args.edge)
+    if not nps:
+        print_error(f"Edge '{args.edge}' not found")
+        return 1
+
+    tunnel_id = args.id
+
+    if not args.yes:
+        # Try to fetch tunnel info for confirmation display
+        try:
+            t = tunnel.get_tunnel(nps, tunnel_id)
+            if t:
+                target_obj = t.get("Target", {})
+                target_str = target_obj.get("TargetStr", "") if target_obj else ""
+                console.print(
+                    f"Will delete tunnel ID [bold]{tunnel_id}[/bold] "
+                    f"({t.get('Mode', '')} port {t.get('Port', '')} "
+                    f"-> {target_str}) from [bold]{args.edge}[/bold]"
+                )
+            else:
+                console.print(
+                    f"Will delete tunnel ID [bold]{tunnel_id}[/bold] "
+                    f"from [bold]{args.edge}[/bold]"
+                )
+        except NPSError:
+            console.print(
+                f"Will delete tunnel ID [bold]{tunnel_id}[/bold] "
+                f"from [bold]{args.edge}[/bold]"
+            )
+        response = input("Continue? [y/N] ")
+        if response.lower() != "y":
+            console.print("Aborted.")
+            return 0
+
+    try:
+        if tunnel.del_tunnel(nps, tunnel_id):
+            console.print(
+                f"[green]✓ Deleted tunnel {tunnel_id} from {args.edge}[/green]"
+            )
+        else:
+            console.print(
+                f"[red]✗ Failed to delete tunnel {tunnel_id} from {args.edge}[/red]"
+            )
+            return 1
+    except NPSError as e:
+        print_error(str(e))
+        return 1
+
+    return 0
+
+
+def cmd_tunnel_edit(args: argparse.Namespace) -> int:
+    """Edit a tunnel on an edge node.
+
+    Fetches the current tunnel config, merges with provided overrides,
+    and submits the edit.
+
+    Args:
+        args: Parsed command line arguments.
+
+    Returns:
+        Exit code.
+    """
+    try:
+        cluster = NPSCluster(args.config)
+    except FileNotFoundError as e:
+        print_error(str(e))
+        return 1
+
+    nps = cluster.get_client(args.edge)
+    if not nps:
+        print_error(f"Edge '{args.edge}' not found")
+        return 1
+
+    tunnel_id = args.id
+    new_target = getattr(args, "target", None)
+    new_port = getattr(args, "port", None)
+    new_remark = getattr(args, "remark", None)
+
+    if not any([new_target, new_port is not None, new_remark]):
+        print_error("No changes specified (use --target, -p/--port, or -r)")
+        return 1
+
+    try:
+        current = tunnel.get_tunnel(nps, tunnel_id)
+        if not current:
+            print_error(f"Tunnel ID {tunnel_id} not found on {args.edge}")
+            return 1
+
+        target_obj = current.get("Target", {})
+        client_obj = current.get("Client", {})
+        updated_target = new_target or (
+            target_obj.get("TargetStr", "") if target_obj else ""
+        )
+        updated_port = new_port if new_port is not None else current.get("Port", 0)
+        updated_remark = (
+            new_remark if new_remark is not None else current.get("Remark", "")
+        )
+        client_id = client_obj.get("Id", 0) if client_obj else 0
+        tunnel_type = current.get("Mode", "tcp")
+
+        if not args.yes:
+            console.print(f"Editing tunnel ID [bold]{tunnel_id}[/bold] on {args.edge}:")
+            if new_target:
+                old_target = target_obj.get("TargetStr", "") if target_obj else ""
+                console.print(f"  Target: {old_target} -> {new_target}")
+            if new_port is not None:
+                console.print(f"  Port: {current.get('Port', '')} -> {new_port}")
+            if new_remark is not None:
+                console.print(f"  Remark: {current.get('Remark', '')} -> {new_remark}")
+            response = input("Continue? [y/N] ")
+            if response.lower() != "y":
+                console.print("Aborted.")
+                return 0
+
+        success = tunnel.edit_tunnel(
+            nps,
+            tunnel_id=tunnel_id,
+            client_id=client_id,
+            tunnel_type=tunnel_type,
+            port=updated_port,
+            target=updated_target,
+            remark=updated_remark,
+        )
+        if success:
+            console.print(f"[green]✓ Updated tunnel {tunnel_id} on {args.edge}[/green]")
+        else:
+            console.print(f"[red]✗ Failed to update tunnel on {args.edge}[/red]")
+            return 1
+    except NPSError as e:
+        print_error(str(e))
+        return 1
+
+    return 0
+
+
+def cmd_tunnel_start(args: argparse.Namespace) -> int:
+    """Start a tunnel on an edge node.
+
+    Args:
+        args: Parsed command line arguments.
+
+    Returns:
+        Exit code.
+    """
+    try:
+        cluster = NPSCluster(args.config)
+    except FileNotFoundError as e:
+        print_error(str(e))
+        return 1
+
+    nps = cluster.get_client(args.edge)
+    if not nps:
+        print_error(f"Edge '{args.edge}' not found")
+        return 1
+
+    try:
+        if tunnel.start_tunnel(nps, args.id):
+            console.print(f"[green]✓ Started tunnel {args.id} on {args.edge}[/green]")
+        else:
+            console.print(
+                f"[red]✗ Failed to start tunnel {args.id} on {args.edge}[/red]"
+            )
+            return 1
+    except NPSError as e:
+        print_error(str(e))
+        return 1
+
+    return 0
+
+
+def cmd_tunnel_stop(args: argparse.Namespace) -> int:
+    """Stop a tunnel on an edge node.
+
+    Args:
+        args: Parsed command line arguments.
+
+    Returns:
+        Exit code.
+    """
+    try:
+        cluster = NPSCluster(args.config)
+    except FileNotFoundError as e:
+        print_error(str(e))
+        return 1
+
+    nps = cluster.get_client(args.edge)
+    if not nps:
+        print_error(f"Edge '{args.edge}' not found")
+        return 1
+
+    try:
+        if tunnel.stop_tunnel(nps, args.id):
+            console.print(f"[green]✓ Stopped tunnel {args.id} on {args.edge}[/green]")
+        else:
+            console.print(
+                f"[red]✗ Failed to stop tunnel {args.id} on {args.edge}[/red]"
+            )
+            return 1
+    except NPSError as e:
+        print_error(str(e))
+        return 1
+
+    return 0
