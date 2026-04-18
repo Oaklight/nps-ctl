@@ -55,6 +55,11 @@ def cmd_add_host(args: argparse.Namespace) -> int:
         print_error(str(e))
         return 1
 
+    # Normalize auth: comma-separated -> newline-separated for NPS API
+    auth_str = ""
+    if args.auth:
+        auth_str = args.auth.replace(",", "\n")
+
     # Confirm
     if not args.yes:
         if args.edge:
@@ -66,6 +71,8 @@ def cmd_add_host(args: argparse.Namespace) -> int:
             f"to: {', '.join(targets)}"
         )
         console.print(f"Client: [bold]{args.client}[/bold]")
+        if auth_str:
+            console.print("[bold yellow]Basic Auth: enabled[/bold yellow]")
         response = input("Continue? [y/N] ")
         if response.lower() != "y":
             console.print("Aborted.")
@@ -93,6 +100,7 @@ def cmd_add_host(args: argparse.Namespace) -> int:
                 host=args.domain,
                 target=args.target,
                 remark=args.remark or "",
+                auth=auth_str,
             )
             if success:
                 console.print(f"[green]✓ Added host to {args.edge}[/green]")
@@ -109,6 +117,7 @@ def cmd_add_host(args: argparse.Namespace) -> int:
             host_domain=args.domain,
             target=args.target,
             remark=args.remark or "",
+            auth=auth_str,
         )
         for edge, success in results.items():
             status = "[green]✓[/green]" if success else "[red]✗[/red]"
@@ -125,12 +134,16 @@ def _print_hosts(hosts: list[HostInfo]) -> None:
     table.add_column("Target", style="green")
     table.add_column("Client")
     table.add_column("Scheme", style="dim")
+    table.add_column("Auth", style="dim")
 
     for h in hosts:
         client_info = h.get("Client", {})
         client_name = client_info.get("Remark", "") if client_info else ""
         target = h.get("Target", {})
         target_addr = target.get("TargetStr", "") if target else ""
+        user_auth = h.get("UserAuth", {})
+        auth_content = user_auth.get("Content", "") if user_auth else ""
+        auth_display = "✓" if auth_content else ""
 
         table.add_row(
             str(h.get("Id", "")),
@@ -138,6 +151,7 @@ def _print_hosts(hosts: list[HostInfo]) -> None:
             target_addr,
             client_name,
             h.get("Scheme", "all"),
+            auth_display,
         )
 
     console.print(table)
@@ -271,9 +285,10 @@ def cmd_host_edit(args: argparse.Namespace) -> int:
     new_host = getattr(args, "new_host", None)
     new_target = getattr(args, "target", None)
     new_remark = getattr(args, "remark", None)
+    new_auth = getattr(args, "auth", None)
 
-    if not any([new_host, new_target, new_remark]):
-        print_error("No changes specified (use --host, --target, or -r)")
+    if not any([new_host, new_target, new_remark, new_auth is not None]):
+        print_error("No changes specified (use --host, --target, -r, or --auth)")
         return 1
 
     try:
@@ -294,6 +309,14 @@ def cmd_host_edit(args: argparse.Namespace) -> int:
         )
         client_id = client_obj.get("Id", 0) if client_obj else 0
 
+        # Resolve auth value
+        user_auth = current.get("UserAuth", {})
+        current_auth = user_auth.get("Content", "") if user_auth else ""
+        if new_auth is not None:
+            updated_auth = new_auth.replace(",", "\n")
+        else:
+            updated_auth = current_auth
+
         if not args.yes:
             console.print(f"Editing host ID [bold]{host_id}[/bold] on {args.edge}:")
             if new_host:
@@ -303,6 +326,11 @@ def cmd_host_edit(args: argparse.Namespace) -> int:
                 console.print(f"  Target: {old_target} -> {new_target}")
             if new_remark is not None:
                 console.print(f"  Remark: {current.get('Remark', '')} -> {new_remark}")
+            if new_auth is not None:
+                if updated_auth:
+                    console.print("[bold yellow]  Auth: enabled[/bold yellow]")
+                else:
+                    console.print("  Auth: [dim]cleared[/dim]")
             response = input("Continue? [y/N] ")
             if response.lower() != "y":
                 console.print("Aborted.")
@@ -317,8 +345,9 @@ def cmd_host_edit(args: argparse.Namespace) -> int:
             remark=updated_remark,
             location=current.get("Location", ""),
             scheme=current.get("Scheme", "all"),
-            header_change=current.get("Header", ""),
+            header_change=current.get("HeaderChange", ""),
             host_change=current.get("HostChange", ""),
+            auth=updated_auth,
         )
         if success:
             console.print(f"[green]✓ Updated host {host_id} on {args.edge}[/green]")
