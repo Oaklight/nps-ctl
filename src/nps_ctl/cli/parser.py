@@ -781,6 +781,10 @@ def _add_host_commands(subparsers) -> None:
         "--remark",
         help="Host mapping remark",
     )
+    add_parser.add_argument(
+        "--auth",
+        help='HTTP Basic Auth (format: "user=pass" or "user1=pass1,user2=pass2")',
+    )
     add_yes_argument(add_parser)
     add_parser.set_defaults(requires_config=True)
 
@@ -858,6 +862,10 @@ def _add_host_commands(subparsers) -> None:
     host_edit_parser.add_argument(
         "--new-remark",
         help="New host remark",
+    )
+    host_edit_parser.add_argument(
+        "--auth",
+        help='HTTP Basic Auth (format: "user=pass" or "user1=pass1,user2=pass2", empty string to clear)',
     )
     add_yes_argument(host_edit_parser)
     host_edit_parser.set_defaults(requires_config=True)

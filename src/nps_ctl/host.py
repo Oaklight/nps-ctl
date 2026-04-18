@@ -71,6 +71,7 @@ def add_host(
     scheme: str = "all",
     header_change: str = "",
     host_change: str = "",
+    auth: str = "",
 ) -> bool:
     """Add a new host (domain) mapping.
 
@@ -84,6 +85,7 @@ def add_host(
         scheme: URL scheme ("http", "https", "all").
         header_change: Header modification rules.
         host_change: Host header modification.
+        auth: HTTP Basic Auth credentials (format: "user1=pass1\\nuser2=pass2").
 
     Returns:
         True if successful.
@@ -97,6 +99,7 @@ def add_host(
         "scheme": scheme,
         "header": header_change,
         "hostchange": host_change,
+        "auth": auth,
     }
     result = nps.request("/index/addhost", method="POST", data=data)
     return result.get("status") == 1
@@ -113,6 +116,7 @@ def edit_host(
     scheme: str = "all",
     header_change: str = "",
     host_change: str = "",
+    auth: str = "",
 ) -> bool:
     """Edit an existing host mapping.
 
@@ -127,6 +131,7 @@ def edit_host(
         scheme: URL scheme.
         header_change: Header modification rules.
         host_change: Host header modification.
+        auth: HTTP Basic Auth credentials (format: "user1=pass1\\nuser2=pass2").
 
     Returns:
         True if successful.
@@ -141,6 +146,7 @@ def edit_host(
         "scheme": scheme,
         "header": header_change,
         "hostchange": host_change,
+        "auth": auth,
     }
     result = nps.request("/index/edithost", method="POST", data=data)
     return result.get("status") == 1
