@@ -58,6 +58,11 @@ def cmd_add_host(args: argparse.Namespace) -> int:
         print_error(str(e))
         return 1
 
+    # Normalize auth: comma-separated -> newline-separated for NPS API
+    auth_str = ""
+    if args.auth:
+        auth_str = args.auth.replace(",", "\n")
+
     # Confirm
     if not args.yes:
         if args.edge:
@@ -69,6 +74,8 @@ def cmd_add_host(args: argparse.Namespace) -> int:
             f"to: {', '.join(targets)}"
         )
         console.print(f"Client: [bold]{args.client}[/bold]")
+        if auth_str:
+            console.print("[bold yellow]Basic Auth: enabled[/bold yellow]")
         response = input("Continue? [y/N] ")
         if response.lower() != "y":
             console.print("Aborted.")
@@ -96,6 +103,7 @@ def cmd_add_host(args: argparse.Namespace) -> int:
                 host=args.domain,
                 target=args.target,
                 remark=args.remark or "",
+                auth=auth_str,
             )
             if success:
                 console.print(f"[green]✓ Added host to {args.edge}[/green]")
@@ -112,6 +120,7 @@ def cmd_add_host(args: argparse.Namespace) -> int:
             host_domain=args.domain,
             target=args.target,
             remark=args.remark or "",
+            auth=auth_str,
         )
         for edge, success in results.items():
             status = "[green]✓[/green]" if success else "[red]✗[/red]"
@@ -128,12 +137,16 @@ def _print_hosts(hosts: list[HostInfo]) -> None:
     table.add_column("Target", style="green")
     table.add_column("Client")
     table.add_column("Scheme", style="dim")
+    table.add_column("Auth", style="dim")
 
     for h in hosts:
         client_info = h.get("Client", {})
         client_name = client_info.get("Remark", "") if client_info else ""
         target = h.get("Target", {})
         target_addr = target.get("TargetStr", "") if target else ""
+        user_auth = h.get("UserAuth", {})
+        auth_content = user_auth.get("Content", "") if user_auth else ""
+        auth_display = "✓" if auth_content else ""
 
         table.add_row(
             str(h.get("Id", "")),
@@ -141,6 +154,7 @@ def _print_hosts(hosts: list[HostInfo]) -> None:
             target_addr,
             client_name,
             h.get("Scheme", "all"),
+            auth_display,
         )
 
     console.print(table)
@@ -290,21 +304,30 @@ def cmd_host_edit(args: argparse.Namespace) -> int:
         print_error("Must specify a locator: --id, -d/--domain, or -r/--remark")
         return 1
 
+    new_auth = getattr(args, "auth", None)
+
     # --id requires -e
     if host_id is not None and not args.edge:
         print_error("--id requires -e/--edge (IDs are edge-specific)")
         return 1
 
-    if not any([new_domain, new_target, new_remark is not None]):
+    if not any([new_domain, new_target, new_remark is not None, new_auth is not None]):
         print_error(
-            "No changes specified (use --new-domain, --new-target, or --new-remark)"
+            "No changes specified (use --new-domain, --new-target, --new-remark, or --auth)"
         )
         return 1
 
     if host_id is not None:
         # Edit by ID on a single edge
         return _edit_host_on_edge(
-            cluster, args.edge, host_id, args, new_domain, new_target, new_remark
+            cluster,
+            args.edge,
+            host_id,
+            args,
+            new_domain,
+            new_target,
+            new_remark,
+            new_auth,
         )
     else:
         # Edit by domain or remark across edge(s)
@@ -330,6 +353,8 @@ def cmd_host_edit(args: argparse.Namespace) -> int:
                 changes.append(f"target -> {new_target}")
             if new_remark is not None:
                 changes.append(f"remark -> {new_remark}")
+            if new_auth is not None:
+                changes.append("auth -> " + ("enabled" if new_auth else "cleared"))
             console.print(f"Will edit host ({label}) on: {', '.join(edges)}")
             console.print(f"Changes: {', '.join(changes)}")
             response = input("Continue? [y/N] ")
@@ -360,7 +385,7 @@ def cmd_host_edit(args: argparse.Namespace) -> int:
                     continue
                 hid = matching[0]["Id"]
                 result = _apply_host_edit(
-                    nps, hid, matching[0], new_domain, new_target, new_remark
+                    nps, hid, matching[0], new_domain, new_target, new_remark, new_auth
                 )
                 if result:
                     console.print(f"[green]✓ {edge_name}: updated (ID {hid})[/green]")
@@ -385,6 +410,7 @@ def _edit_host_on_edge(
     new_domain: str | None,
     new_target: str | None,
     new_remark: str | None,
+    new_auth: str | None = None,
 ) -> int:
     """Edit a host by ID on a single edge.
 
@@ -396,6 +422,7 @@ def _edit_host_on_edge(
         new_domain: New domain name or None.
         new_target: New target address or None.
         new_remark: New remark or None.
+        new_auth: New auth string or None.
 
     Returns:
         Exit code.
@@ -421,13 +448,18 @@ def _edit_host_on_edge(
                 console.print(f"  Target: {old_target} -> {new_target}")
             if new_remark is not None:
                 console.print(f"  Remark: {current.get('Remark', '')} -> {new_remark}")
+            if new_auth is not None:
+                if new_auth:
+                    console.print("[bold yellow]  Auth: enabled[/bold yellow]")
+                else:
+                    console.print("  Auth: [dim]cleared[/dim]")
             response = input("Continue? [y/N] ")
             if response.lower() != "y":
                 console.print("Aborted.")
                 return 0
 
         success = _apply_host_edit(
-            nps, host_id, current, new_domain, new_target, new_remark
+            nps, host_id, current, new_domain, new_target, new_remark, new_auth
         )
         if success:
             console.print(f"[green]✓ Updated host {host_id} on {edge_name}[/green]")
@@ -448,6 +480,7 @@ def _apply_host_edit(
     new_domain: str | None,
     new_target: str | None,
     new_remark: str | None,
+    new_auth: str | None = None,
 ) -> bool:
     """Apply a host edit operation.
 
@@ -458,6 +491,7 @@ def _apply_host_edit(
         new_domain: New domain name or None.
         new_target: New target address or None.
         new_remark: New remark or None.
+        new_auth: New auth string or None.
 
     Returns:
         True if successful.
@@ -472,6 +506,14 @@ def _apply_host_edit(
     updated_remark = new_remark if new_remark is not None else current.get("Remark", "")
     client_id = client_obj.get("Id", 0) if client_obj else 0
 
+    # Resolve auth value
+    user_auth = current.get("UserAuth", {})
+    current_auth = user_auth.get("Content", "") if user_auth else ""
+    if new_auth is not None:
+        updated_auth = new_auth.replace(",", "\n")
+    else:
+        updated_auth = current_auth
+
     return host.edit_host(
         nps,
         host_id=host_id,
@@ -481,6 +523,7 @@ def _apply_host_edit(
         remark=updated_remark,
         location=current.get("Location", ""),
         scheme=current.get("Scheme", "all"),
-        header_change=current.get("Header", ""),
+        header_change=current.get("HeaderChange", ""),
         host_change=current.get("HostChange", ""),
+        auth=updated_auth,
     )
