@@ -35,6 +35,21 @@ theme:
 plugins:
   - search:
       separator: '[\s\-,:!=\[\]()"`/]+|\.(?!\d)|&[lg]t;|(?!\b)(?=[A-Z][a-z])'
+  - llmstxt:
+      full_output: llms-full.txt
+      sections:
+        Home:
+          - index.md
+        Usage:
+          - usage/installation.md
+          - usage/configuration.md
+          - usage/cli.md
+          - usage/library.md
+        API Reference:
+          - api/client.md
+          - api/cluster.md
+        Changelog:
+          - changelog.md
 
 markdown_extensions:
   - admonition
