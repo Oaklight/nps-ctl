@@ -1,7 +1,7 @@
 site_name: nps-ctl
 site_description: 用于管理 NPS 代理服务器的 Python 库和命令行工具
 site_author: Peng Ding
-site_url: https://nps-ctl.readthedocs.io/zh-cn/
+site_url: https://nps-ctl.readthedocs.io/zh-cn/latest
 repo_name: Oaklight/nps-ctl
 repo_url: https://github.com/Oaklight/nps-ctl
 copyright: Copyright &copy; 2025 Peng Ding
