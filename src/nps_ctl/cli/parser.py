@@ -6,6 +6,8 @@ client, edge, tunnel, host, and util.
 
 import argparse
 
+from .. import __version__
+
 
 def create_parser() -> argparse.ArgumentParser:
     """Create the argument parser with nested subcommand groups.
@@ -19,6 +21,12 @@ def create_parser() -> argparse.ArgumentParser:
     )
 
     # Global options
+    parser.add_argument(
+        "--version",
+        "-V",
+        action="version",
+        version=f"%(prog)s {__version__}",
+    )
     parser.add_argument(
         "--config",
         "-c",
