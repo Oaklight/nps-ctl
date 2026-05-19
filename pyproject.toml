@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nps-ctl"
-version = "0.4.0"
+dynamic = ["version"]
 authors = [{ name = "Oaklight", email = "oaklight@gmx.com" }]
 description = "A Python library and CLI tool for managing NPS (djylb/nps) proxy servers"
 readme = "README.md"
@@ -32,6 +32,9 @@ nps-ctl = "nps_ctl.cli:main"
 [project.urls]
 Repository = "https://github.com/Oaklight/nps-ctl"
 Issues = "https://github.com/Oaklight/nps-ctl/issues"
+
+[tool.setuptools.dynamic]
+version = { attr = "nps_ctl.__version__" }
 
 [tool.setuptools.packages.find]
 where = ["src"]
