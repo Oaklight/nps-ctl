@@ -41,6 +41,9 @@ def cmd_clients(args: argparse.Namespace) -> int:
             return 1
 
         try:
+            edge = cluster.get_edge(edge_name)
+            region = edge.region if edge else ""
+            console.print(f"\n[bold cyan]=== {edge_name} ({region}) ===[/bold cyan]")
             clients = client_mgmt.list_clients(nps)
             _print_clients(clients)
         except NPSError as e:
