@@ -50,29 +50,21 @@ def cmd_tunnels(args: argparse.Namespace) -> int:
 
 
 def cmd_add_tunnel(args: argparse.Namespace) -> int:
-    """Add a tunnel to an edge."""
+    """Add a tunnel to one or all edges."""
     try:
         cluster = NPSCluster(args.config)
     except FileNotFoundError as e:
         print_error(str(e))
         return 1
 
-    edge_name = args.edge
-    if not edge_name:
-        edge_name = cluster.edge_names[0] if cluster.edge_names else None
-        if not edge_name:
-            print_error("No edges configured")
-            return 1
-
-    nps = cluster.get_client(edge_name)
-    if not nps:
-        print_error(f"Edge '{edge_name}' not found")
-        return 1
-
     # Confirm
     if not args.yes:
+        targets = [args.edge] if args.edge else cluster.edge_names
+        if not targets:
+            print_error("No edges configured")
+            return 1
         console.print(
-            f"Will add [bold]{args.type}[/bold] tunnel on [bold]{edge_name}[/bold]"
+            f"Will add [bold]{args.type}[/bold] tunnel to: {', '.join(targets)}"
         )
         console.print(
             f"Client: [bold]{args.client}[/bold], Port: [bold]{args.port}[/bold], "
@@ -83,31 +75,52 @@ def cmd_add_tunnel(args: argparse.Namespace) -> int:
             console.print("Aborted.")
             return 0
 
-    try:
-        # Find client
-        clients = client_mgmt.list_clients(nps, search=args.client)
-        matching = [c for c in clients if c.get("Remark") == args.client]
-        if not matching:
-            print_error(f"Client '{args.client}' not found")
+    if args.edge:
+        # Single edge
+        nps = cluster.get_client(args.edge)
+        if not nps:
+            print_error(f"Edge '{args.edge}' not found")
             return 1
 
-        client_id = matching[0]["Id"]
-        success = tunnel.add_tunnel(
-            nps,
-            client_id=client_id,
+        try:
+            clients = client_mgmt.list_clients(nps, search=args.client)
+            matching = [c for c in clients if c.get("Remark") == args.client]
+            if not matching:
+                print_error(f"Client '{args.client}' not found on {args.edge}")
+                return 1
+
+            client_id = matching[0]["Id"]
+            success = tunnel.add_tunnel(
+                nps,
+                client_id=client_id,
+                tunnel_type=args.type,
+                port=args.port,
+                target=args.target or "",
+                remark=args.remark or "",
+            )
+            if success:
+                console.print(f"[green]✓ Added tunnel to {args.edge}[/green]")
+            else:
+                console.print(f"[red]✗ Failed to add tunnel to {args.edge}[/red]")
+                return 1
+        except NPSError as e:
+            print_error(str(e))
+            return 1
+    else:
+        # All edges
+        if not cluster.edge_names:
+            print_error("No edges configured")
+            return 1
+        results = cluster.broadcast_tunnel(
+            client_remark=args.client,
             tunnel_type=args.type,
             port=args.port,
             target=args.target or "",
             remark=args.remark or "",
         )
-        if success:
-            console.print(f"[green]✓ Added tunnel to {edge_name}[/green]")
-        else:
-            console.print("[red]✗ Failed to add tunnel[/red]")
-            return 1
-    except NPSError as e:
-        print_error(str(e))
-        return 1
+        for edge, success in results.items():
+            status = "[green]✓[/green]" if success else "[red]✗[/red]"
+            console.print(f"{status} {edge}")
 
     return 0
 

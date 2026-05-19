@@ -595,6 +595,81 @@ class NPSCluster:
         )
         return results
 
+    def broadcast_tunnel(
+        self,
+        client_remark: str,
+        tunnel_type: str,
+        port: int = 0,
+        target: str = "",
+        remark: str = "",
+        **kwargs: Any,
+    ) -> dict[str, bool]:
+        """Add a tunnel to all edges.
+
+        This method finds the client by remark on each edge and adds the tunnel.
+
+        Args:
+            client_remark: Client remark to find.
+            tunnel_type: Tunnel type (e.g. "tcp", "udp", "socks5", "httpProxy").
+            port: Server-side port.
+            target: Target address (host:port).
+            remark: Tunnel remark.
+            **kwargs: Additional tunnel parameters.
+
+        Returns:
+            Dictionary mapping edge names to success status.
+        """
+        ctx = OperationContext(
+            "broadcast_tunnel",
+            "cluster",
+            details={"type": tunnel_type, "client": client_remark},
+        )
+        op_logger.operation_start(ctx)
+        start_time = time.perf_counter()
+
+        results: dict[str, bool] = {}
+        for name, nps in self._clients.items():
+            try:
+                clients = client_mgmt.list_clients(nps, search=client_remark)
+                matching = [c for c in clients if c.get("Remark") == client_remark]
+                if not matching:
+                    logger.warning(f"Client '{client_remark}' not found on {name}")
+                    op_logger.cluster_operation(
+                        "add_tunnel",
+                        name,
+                        False,
+                        f"client '{client_remark}' not found",
+                    )
+                    results[name] = False
+                    continue
+
+                client_id = matching[0]["Id"]
+                success = tunnel.add_tunnel(
+                    nps,
+                    client_id=client_id,
+                    tunnel_type=tunnel_type,
+                    port=port,
+                    target=target,
+                    remark=remark,
+                    **kwargs,
+                )
+                results[name] = success
+                op_logger.cluster_operation(
+                    "add_tunnel", name, success, f"type={tunnel_type} port={port}"
+                )
+            except NPSError as e:
+                op_logger.cluster_operation("add_tunnel", name, False, str(e))
+                results[name] = False
+
+        elapsed_ms = (time.perf_counter() - start_time) * 1000
+        success_count = sum(1 for v in results.values() if v)
+        op_logger.operation_success(
+            ctx,
+            result=f"{success_count}/{len(results)} edges",
+            duration_ms=elapsed_ms,
+        )
+        return results
+
     def _build_client_id_mapping(
         self,
         source_clients: list[ClientInfo],
