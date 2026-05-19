@@ -40,6 +40,9 @@ def cmd_tunnels(args: argparse.Namespace) -> int:
             return 1
 
         try:
+            edge = cluster.get_edge(edge_name)
+            region = edge.region if edge else ""
+            console.print(f"\n[bold cyan]=== {edge_name} ({region}) ===[/bold cyan]")
             tunnels = tunnel.list_tunnels(nps, tunnel_type=tunnel_type)
             _print_tunnels(tunnels)
         except NPSError as e:

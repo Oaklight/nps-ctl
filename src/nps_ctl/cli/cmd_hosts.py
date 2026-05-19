@@ -38,6 +38,9 @@ def cmd_hosts(args: argparse.Namespace) -> int:
             return 1
 
         try:
+            edge = cluster.get_edge(edge_name)
+            region = edge.region if edge else ""
+            console.print(f"\n[bold cyan]=== {edge_name} ({region}) ===[/bold cyan]")
             hosts = host.list_hosts(nps)
             _print_hosts(hosts)
         except NPSError as e:
