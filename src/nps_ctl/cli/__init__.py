@@ -62,6 +62,13 @@ def _dispatch_client_list(args) -> int:
     dry_run = getattr(args, "dry_run", False)
 
     if update or dry_run:
+        if not args.edge:
+            print(
+                "Error: -e/--edge is required when using --update or --dry-run",
+                file=sys.stderr,
+            )
+            return 1
+
         from ..cluster import NPSCluster
 
         from .cmd_npc import handle_npc_list
