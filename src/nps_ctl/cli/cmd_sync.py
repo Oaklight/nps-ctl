@@ -126,6 +126,7 @@ def cmd_export(args: argparse.Namespace) -> int:
         if not edge_name:
             print("Error: No edges configured", file=sys.stderr)
             return 1
+        console.print(f"[dim]No edge specified, defaulting to: {edge_name}[/dim]")
 
     nps = cluster.get_client(edge_name)
     if not nps:
