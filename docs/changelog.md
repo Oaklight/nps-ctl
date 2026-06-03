@@ -8,6 +8,20 @@ All notable changes to nps-ctl are documented here. This project follows [Keep a
 
 ---
 
+## v0.5.2 — 2026-06-03
+
+### Added
+
+- **Multi-architecture support**: Deploy scripts now auto-detect CPU architecture via `uname -m` and download the correct binary (amd64, arm64, arm). Previously hardcoded to amd64, which broke deployment on ARM hosts like armv7l.
+- `get_download_urls()` and `get_npc_download_urls()` accept an `arch` parameter for explicit architecture selection
+
+### Fixed
+
+- **Edge upgrade data preservation**: `edge upgrade` now backs up and restores data files (clients.json, hosts.json, tasks.json, global.json) instead of wiping them (closes #9)
+- **Edge upgrade template path**: Fixed template filename not being appended when resolving upgrade config path
+
+---
+
 ## v0.5.1 — 2026-06-03
 
 ### Fixed
