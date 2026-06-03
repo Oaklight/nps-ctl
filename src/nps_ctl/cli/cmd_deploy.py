@@ -184,12 +184,16 @@ def cmd_upgrade(args: argparse.Namespace) -> int:
 
     # Load template
     template = None
-    template_path = get_template_path()
+    template_path = args.template
     if template_path:
-        try:
-            template = load_template(template_path)
-        except FileNotFoundError:
-            pass
+        template_path = Path(template_path)
+    else:
+        template_path = get_template_path() / "nps.conf.template"
+
+    try:
+        template = load_template(template_path)
+    except FileNotFoundError:
+        pass
 
     # Confirm
     if not args.yes:
