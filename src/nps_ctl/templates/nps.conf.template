@@ -21,7 +21,8 @@ trusted_proxy_ips=127.0.0.1
 # Client Connection Settings
 #############################################
 bridge_ip=0.0.0.0
-bridge_port={bridge_port}
+bridge_tcp_port={bridge_tcp_port}
+bridge_tls_port={bridge_tls_port}
 
 public_vkey={public_vkey}
 disconnect_timeout=60
