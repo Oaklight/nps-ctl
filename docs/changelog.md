@@ -8,6 +8,62 @@ All notable changes to nps-ctl are documented here. This project follows [Keep a
 
 ---
 
+## v0.5.1 — 2026-06-03
+
+### Fixed
+
+- **Sudo support for NPC deploy**: All NPC operations (install, uninstall, reconfig, restart) now prepend `sudo` when the SSH user is non-root, fixing permission denied errors on homelab machines
+- **Reconfig parameter loss**: Added `systemctl daemon-reload` after `npc uninstall` in install/uninstall/reconfig scripts to ensure clean service file removal before reinstall
+- **NPS config template**: Split `bridge_port` into `bridge_tcp_port` and `bridge_tls_port` to match NPS v0.34.x config format
+
+### Changed
+
+- Bumped default NPS/NPC version from v0.34.1 to v0.34.7
+
+---
+
+## v0.5.0 — 2026-05-28
+
+### Fixed
+
+- Show which edge is used when `edge export` omits `-e`
+- Validate `--port` required for tcp/udp `tunnel add`
+- Require `-e` when `client list --update` or `--dry-run`
+- Show edge header in single-edge list output
+
+### Changed
+
+- Added pre-commit config and smoke-test CI job; switched to dynamic version
+
+---
+
+## v0.4.0 — 2026-05-15
+
+### Added
+
+- **Broadcast tunnel add**: `tunnel add` broadcasts to all edges when `-e` is omitted
+- **CLI version flag**: `--version` / `-V` flag
+- **CRUD commands**: `delete`, `edit`, `start`/`stop` for client, host, and tunnel
+
+### Fixed
+
+- SOCKS proxy cleanup and timeout type validation
+
+---
+
+## v0.3.0 — 2026-04-20
+
+### Added
+
+- **Reconfig and upgrade**: `client reconfig`, `client upgrade`, `edge reconfig`, `edge upgrade` subcommands
+- **SSH user and HTTP proxy**: `ssh_user` and `http_proxy` fields in client config for NPC deployment behind restricted networks
+
+### Fixed
+
+- ty 0.0.28 type checker compatibility
+
+---
+
 ## v0.2.0 — 2026-03-16
 
 ### Added
