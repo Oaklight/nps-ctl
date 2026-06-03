@@ -8,6 +8,62 @@ nps-ctl 的所有重要变更均记录于此。本项目遵循 [Keep a Changelog
 
 ---
 
+## v0.5.1 — 2026-06-03
+
+### 修复
+
+- **NPC 部署 sudo 支持**：所有 NPC 操作（安装、卸载、重新配置、重启）在 SSH 用户非 root 时自动添加 `sudo`，修复家庭实验室机器上的权限拒绝错误
+- **重新配置参数丢失**：在安装/卸载/重新配置脚本的 `npc uninstall` 后添加 `systemctl daemon-reload`，确保重新安装前彻底清除旧的服务文件
+- **NPS 配置模板**：将 `bridge_port` 拆分为 `bridge_tcp_port` 和 `bridge_tls_port`，匹配 NPS v0.34.x 配置格式
+
+### 变更
+
+- 默认 NPS/NPC 版本从 v0.34.1 升级至 v0.34.7
+
+---
+
+## v0.5.0 — 2026-05-28
+
+### 修复
+
+- `edge export` 省略 `-e` 时显示使用的 Edge 节点
+- `tunnel add` tcp/udp 类型时校验 `--port` 必填
+- `client list --update` 或 `--dry-run` 时要求 `-e` 参数
+- 单 Edge 列表输出时显示 Edge 标题
+
+### 变更
+
+- 添加 pre-commit 配置和冒烟测试 CI 任务；切换为动态版本
+
+---
+
+## v0.4.0 — 2026-05-15
+
+### 新增
+
+- **广播隧道添加**：`tunnel add` 省略 `-e` 时广播到所有 Edge 节点
+- **CLI 版本标志**：`--version` / `-V` 标志
+- **CRUD 命令**：为 client、host、tunnel 添加 `delete`、`edit`、`start`/`stop` 命令
+
+### 修复
+
+- SOCKS 代理清理和超时类型校验
+
+---
+
+## v0.3.0 — 2026-04-20
+
+### 新增
+
+- **重新配置与升级**：`client reconfig`、`client upgrade`、`edge reconfig`、`edge upgrade` 子命令
+- **SSH 用户和 HTTP 代理**：客户端配置支持 `ssh_user` 和 `http_proxy` 字段，用于受限网络下的 NPC 部署
+
+### 修复
+
+- ty 0.0.28 类型检查器兼容性
+
+---
+
 ## v0.2.0 — 2026-03-16
 
 ### 新增
