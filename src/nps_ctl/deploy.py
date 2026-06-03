@@ -9,10 +9,10 @@ from pathlib import Path
 from typing import Any
 
 # Default NPS version
-DEFAULT_NPS_VERSION = "v0.34.1"
+DEFAULT_NPS_VERSION = "v0.34.7"
 
 # Default NPC version (same as NPS)
-DEFAULT_NPC_VERSION = "v0.34.1"
+DEFAULT_NPC_VERSION = "v0.34.7"
 
 # Mirror sources for NPS releases (in priority order)
 # Uses jsdelivr CDN and ghfast.top proxy which are faster in China and other regions
@@ -33,7 +33,7 @@ NPC_MIRROR_SOURCES = [
 
 # Default NPS release URL (djylb/nps fork) - kept for backward compatibility
 DEFAULT_NPS_RELEASE_URL = (
-    "https://github.com/djylb/nps/releases/download/v0.34.1/linux_amd64_server.tar.gz"
+    "https://github.com/djylb/nps/releases/download/v0.34.7/linux_amd64_server.tar.gz"
 )
 
 
@@ -45,6 +45,21 @@ class DeployResult:
     message: str
     stdout: str = ""
     stderr: str = ""
+
+
+def _sudo_prefix(ssh_user: str) -> str:
+    """Return 'sudo ' for non-root SSH users, empty string otherwise.
+
+    Args:
+        ssh_user: SSH login user. Empty string means SSH config default
+            (typically root for server hosts).
+
+    Returns:
+        'sudo ' if the user is explicitly non-root, '' otherwise.
+    """
+    if ssh_user and ssh_user != "root":
+        return "sudo "
+    return ""
 
 
 def load_template(template_path: Path | str) -> str:
@@ -399,6 +414,9 @@ def install_npc(
         else ""
     )
 
+    # Sudo prefix for non-root SSH users
+    sudo = _sudo_prefix(ssh_user)
+
     install_script = f"""
 set -e
 
@@ -444,21 +462,22 @@ echo "Extracting..."
 tar -xzf npc.tar.gz || {{ echo "Error: Failed to extract tarball"; exit 1; }}
 
 echo "Stopping existing NPC service if running..."
-npc stop 2>/dev/null || true
+{sudo}npc stop 2>/dev/null || true
 
 echo "Uninstalling existing NPC if present..."
-/tmp/npc uninstall 2>/dev/null || true
+{sudo}/tmp/npc uninstall 2>/dev/null || true
+{sudo}systemctl daemon-reload 2>/dev/null || true
 
 echo "Installing NPC..."
 chmod +x /tmp/npc
-cp /tmp/npc /usr/local/bin/npc
-/usr/local/bin/npc install -server="{server_addrs}" -vkey="{vkey}" {tls_arg} || {{ echo "Error: npc install failed"; exit 1; }}
+{sudo}cp /tmp/npc /usr/local/bin/npc
+{sudo}/usr/local/bin/npc install -server="{server_addrs}" -vkey="{vkey}" {tls_arg} || {{ echo "Error: npc install failed"; exit 1; }}
 
 echo "Cleaning up..."
 rm -f /tmp/npc.tar.gz /tmp/npc
 
 echo "Starting NPC service..."
-npc start || {{ echo "Error: npc start failed"; exit 1; }}
+{sudo}npc start || {{ echo "Error: npc start failed"; exit 1; }}
 
 echo "Checking service status..."
 sleep 2
@@ -488,17 +507,20 @@ def uninstall_npc(
     Returns:
         DeployResult with uninstallation status.
     """
-    uninstall_script = """
+    sudo = _sudo_prefix(ssh_user)
+
+    uninstall_script = f"""
 set -e
 
 echo "Stopping NPC service..."
-npc stop 2>/dev/null || true
+{sudo}npc stop 2>/dev/null || true
 
 echo "Uninstalling NPC..."
-npc uninstall 2>/dev/null || true
+{sudo}npc uninstall 2>/dev/null || true
+{sudo}systemctl daemon-reload 2>/dev/null || true
 
 echo "Removing NPC files..."
-rm -f /usr/bin/npc /usr/local/bin/npc
+{sudo}rm -f /usr/bin/npc /usr/local/bin/npc
 
 echo "NPC uninstalled successfully."
 """
@@ -553,6 +575,7 @@ def reconfig_npc(
         DeployResult with reconfiguration status.
     """
     tls_arg = "-tls_enable=true" if tls_enable else ""
+    sudo = _sudo_prefix(ssh_user)
 
     reconfig_script = f"""
 set -e
@@ -564,16 +587,17 @@ if ! command -v npc &>/dev/null && [ ! -f /usr/local/bin/npc ]; then
 fi
 
 echo "Stopping NPC service..."
-npc stop 2>/dev/null || true
+{sudo}npc stop 2>/dev/null || true
 
 echo "Uninstalling existing NPC config..."
-npc uninstall 2>/dev/null || true
+{sudo}npc uninstall 2>/dev/null || true
+{sudo}systemctl daemon-reload 2>/dev/null || true
 
 echo "Reinstalling NPC with new configuration..."
-npc install -server="{server_addrs}" -vkey="{vkey}" {tls_arg} || {{ echo "Error: npc install failed"; exit 1; }}
+{sudo}npc install -server="{server_addrs}" -vkey="{vkey}" {tls_arg} || {{ echo "Error: npc install failed"; exit 1; }}
 
 echo "Starting NPC service..."
-npc start || {{ echo "Error: npc start failed"; exit 1; }}
+{sudo}npc start || {{ echo "Error: npc start failed"; exit 1; }}
 
 echo "Checking service status..."
 sleep 2
@@ -644,12 +668,14 @@ def restart_npc(ssh_host: str, ssh_user: str = "") -> DeployResult:
     Returns:
         DeployResult with restart status.
     """
-    restart_script = """
+    sudo = _sudo_prefix(ssh_user)
+
+    restart_script = f"""
 echo "Restarting NPC service..."
-npc restart 2>/dev/null || {
+{sudo}npc restart 2>/dev/null || {{
     echo "Failed to restart NPC"
     exit 1
-}
+}}
 
 sleep 2
 echo "Checking service status..."
