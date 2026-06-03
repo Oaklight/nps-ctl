@@ -340,6 +340,148 @@ echo "NPS uninstalled successfully."
     return ssh_execute(ssh_host, uninstall_script, timeout)
 
 
+def upgrade_nps(
+    ssh_host: str,
+    nps_conf: str | None = None,
+    version: str = DEFAULT_NPS_VERSION,
+    release_url: str | None = None,
+    timeout: int = 120,
+) -> DeployResult:
+    """Upgrade NPS binary on a remote server, preserving all data files.
+
+    Unlike uninstall+install, this only replaces the binary and optionally
+    updates nps.conf. Data files (clients.json, hosts.json, tasks.json,
+    global.json) are never touched.
+
+    Args:
+        ssh_host: SSH host to upgrade on.
+        nps_conf: New NPS configuration content. If None, keeps existing config.
+        version: NPS version to install (e.g., "v0.34.7").
+        release_url: Custom URL to download NPS release tarball (overrides mirrors).
+        timeout: Command timeout in seconds.
+
+    Returns:
+        DeployResult with upgrade status.
+    """
+    # Build download URLs
+    if release_url:
+        urls = [release_url]
+    else:
+        urls = get_download_urls(version)
+
+    urls_shell = " ".join(f'"{url}"' for url in urls)
+
+    # Build config update block
+    if nps_conf:
+        config_block = f"""
+echo "Updating nps.conf..."
+cat > /etc/nps/conf/nps.conf << 'EOFCONF'
+{nps_conf}
+EOFCONF
+"""
+    else:
+        config_block = 'echo "Keeping existing nps.conf"'
+
+    upgrade_script = f"""
+set -e
+
+# Verify NPS is installed
+if [ ! -d /etc/nps/conf ]; then
+    echo "Error: NPS is not installed (/etc/nps/conf not found)"
+    exit 1
+fi
+
+echo "Backing up data files..."
+mkdir -p /etc/nps/conf/backup
+for f in clients.json hosts.json tasks.json global.json; do
+    if [ -f /etc/nps/conf/$f ]; then
+        cp /etc/nps/conf/$f /etc/nps/conf/backup/$f
+        echo "  backed up $f"
+    fi
+done
+
+echo "Stopping NPS service..."
+systemctl stop Nps 2>/dev/null || systemctl stop nps 2>/dev/null || true
+
+cd /tmp
+
+# Download with fallback mirrors
+URLS=({urls_shell})
+DOWNLOADED=0
+
+for url in "${{URLS[@]}}"; do
+    echo "Trying $url ..."
+    if curl -sfSL --connect-timeout 10 -o nps.tar.gz "$url"; then
+        if [ -s nps.tar.gz ]; then
+            echo "Downloaded successfully from $url"
+            DOWNLOADED=1
+            break
+        fi
+    fi
+    echo "Failed, trying next mirror..."
+done
+
+if [ "$DOWNLOADED" -ne 1 ]; then
+    echo "Error: Failed to download NPS from all mirrors"
+    echo "Restarting NPS with old binary..."
+    systemctl start Nps 2>/dev/null || systemctl start nps 2>/dev/null || true
+    exit 1
+fi
+
+echo "Extracting..."
+tar -xzf nps.tar.gz
+
+echo "Replacing binary..."
+NPS_BIN=$(which nps 2>/dev/null || echo "/usr/bin/nps")
+chmod +x /tmp/nps
+cp /tmp/nps "$NPS_BIN"
+
+echo "Updating web assets..."
+if [ -d /tmp/web ] && [ -d /etc/nps/web ]; then
+    rm -rf /etc/nps/web
+    cp -r /tmp/web /etc/nps/web
+fi
+
+echo "Cleaning up download..."
+rm -f /tmp/nps.tar.gz /tmp/nps
+rm -rf /tmp/web /tmp/conf
+
+{config_block}
+
+echo "Verifying data files..."
+RESTORE_NEEDED=0
+for f in clients.json hosts.json tasks.json global.json; do
+    if [ -f /etc/nps/conf/backup/$f ] && [ ! -f /etc/nps/conf/$f ]; then
+        echo "  restoring $f from backup"
+        cp /etc/nps/conf/backup/$f /etc/nps/conf/$f
+        RESTORE_NEEDED=1
+    fi
+done
+
+if [ "$RESTORE_NEEDED" -eq 1 ]; then
+    echo "Warning: some data files were restored from backup"
+fi
+
+echo "Starting NPS service..."
+systemctl daemon-reload
+systemctl start Nps 2>/dev/null || systemctl start nps 2>/dev/null || true
+
+echo "Checking service status..."
+sleep 2
+if systemctl is-active --quiet Nps 2>/dev/null || systemctl is-active --quiet nps 2>/dev/null; then
+    echo "NPS upgraded and running successfully."
+else
+    echo "Warning: NPS service may not be running properly."
+    systemctl status Nps --no-pager 2>/dev/null || systemctl status nps --no-pager 2>/dev/null || true
+fi
+
+echo "Cleaning up backup..."
+rm -rf /etc/nps/conf/backup
+"""
+
+    return ssh_execute(ssh_host, upgrade_script, timeout)
+
+
 def check_nps_status(ssh_host: str) -> DeployResult:
     """Check NPS status on a remote server.
 

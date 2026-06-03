@@ -471,10 +471,10 @@ def _add_edge_commands(subparsers) -> None:
     # edge upgrade
     edge_upgrade_parser = edge_sub.add_parser(
         "upgrade",
-        help="Upgrade NPS binary and reconfigure on edge nodes",
+        help="Upgrade NPS binary on edge nodes (preserves data)",
         description=(
-            "Download a new NPS binary, uninstall the existing one, and "
-            "reinstall with current configuration from edges.toml."
+            "Download a new NPS binary and replace the existing one in-place. "
+            "Data files (clients, hosts, tunnels) are backed up and preserved."
         ),
     )
     edge_upgrade_parser.add_argument(

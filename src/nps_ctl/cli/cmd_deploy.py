@@ -12,6 +12,7 @@ from ..deploy import (
     reconfig_nps,
     render_template,
     uninstall_nps,
+    upgrade_nps,
 )
 from .helpers import get_template_path
 
@@ -69,22 +70,10 @@ def cmd_install(args: argparse.Namespace) -> int:
     # Get version
     version = args.version or DEFAULT_NPS_VERSION
 
-    # Check for force reinstall
-    force_reinstall = getattr(args, "force_reinstall", False)
-    if force_reinstall:
-        print(
-            "Warning: --force-reinstall is deprecated, use 'edge upgrade' instead.",
-            file=sys.stderr,
-        )
-
     # Confirm
     if not args.yes:
         print(f"Will install NPS {version} on: {', '.join(target_edges)}")
-        if force_reinstall:
-            print("This will (force reinstall):")
-            print("  - Uninstall existing NPS first")
-        else:
-            print("This will:")
+        print("This will:")
         print("  - Download NPS from mirrors (jsdelivr CDN, GitHub)")
         print("  - Install to /etc/nps/ using nps install")
         print("  - Configure and start NPS")
@@ -102,22 +91,6 @@ def cmd_install(args: argparse.Namespace) -> int:
             print(f"✗ {edge_name}: No SSH host configured")
             fail_count += 1
             continue
-
-        # Force reinstall: uninstall first
-        if force_reinstall:
-            print(f"\nUninstalling NPS from {edge_name} ({edge.ssh_host})...")
-            uninstall_result = uninstall_nps(ssh_host=edge.ssh_host)
-            if uninstall_result.success:
-                print("  ✓ Uninstalled successfully")
-                if args.verbose and uninstall_result.stdout:
-                    for line in uninstall_result.stdout.strip().split("\n"):
-                        print(f"    {line}")
-            else:
-                # Uninstall failure is not fatal - NPS might not be installed
-                print(f"  ⚠ Uninstall: {uninstall_result.message}")
-                if args.verbose and uninstall_result.stderr:
-                    for line in uninstall_result.stderr.strip().split("\n"):
-                        print(f"    {line}")
 
         print(f"\nInstalling NPS on {edge_name} ({edge.ssh_host})...")
 
@@ -168,15 +141,125 @@ def cmd_install(args: argparse.Namespace) -> int:
 
 
 def cmd_upgrade(args: argparse.Namespace) -> int:
-    """Upgrade NPS binary and reconfigure on edge nodes.
+    """Upgrade NPS binary on edge nodes, preserving all data.
 
-    Downloads a new NPS binary, uninstalls the existing one, and reinstalls
-    with current configuration. Equivalent to install --force-reinstall.
+    Downloads a new NPS binary and replaces the existing one in-place.
+    Data files (clients.json, hosts.json, tasks.json) are backed up
+    before the upgrade and verified afterwards. Configuration is
+    regenerated from the current edges.toml.
     """
-    args.force_reinstall = True
-    if not hasattr(args, "release_url"):
-        args.release_url = None
-    return cmd_install(args)
+    import tomllib
+
+    try:
+        cluster = NPSCluster(args.config)
+    except FileNotFoundError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+    # Determine target edges
+    if args.edge:
+        if args.edge not in cluster.edge_names:
+            print(f"Error: Edge '{args.edge}' not found", file=sys.stderr)
+            return 1
+        target_edges = [args.edge]
+    else:
+        target_edges = cluster.edge_names
+
+    version = args.version or DEFAULT_NPS_VERSION
+
+    # Load cluster config for generating nps.conf
+    config_path = Path(args.config).expanduser()
+    with open(config_path, "rb") as f:
+        config = tomllib.load(f)
+
+    auth_crypt_key = config.get("auth_crypt_key", "")
+    public_vkey = config.get("public_vkey", "")
+    web_username = config.get("web", {}).get("username", "admin")
+    web_password = config.get("web", {}).get("password", "admin")
+    ports = config.get("ports", {})
+    http_proxy_port = ports.get("http_proxy", 30080)
+    bridge_tcp_port = ports.get("bridge_tcp", 51234)
+    bridge_tls_port = ports.get("bridge_tls", 51235)
+    web_port = ports.get("web", 25412)
+
+    # Load template
+    template = None
+    template_path = get_template_path()
+    if template_path:
+        try:
+            template = load_template(template_path)
+        except FileNotFoundError:
+            pass
+
+    # Confirm
+    if not args.yes:
+        print(f"Will upgrade NPS to {version} on: {', '.join(target_edges)}")
+        print("This will:")
+        print("  - Back up data files (clients, hosts, tunnels)")
+        print("  - Download and replace NPS binary only")
+        print("  - Update nps.conf from current config")
+        print("  - Verify data files and restart NPS")
+        response = input("Continue? [y/N] ")
+        if response.lower() != "y":
+            print("Aborted.")
+            return 0
+
+    success_count = 0
+    fail_count = 0
+
+    for edge_name in target_edges:
+        edge = cluster.get_edge(edge_name)
+        if not edge or not edge.ssh_host:
+            print(f"✗ {edge_name}: No SSH host configured")
+            fail_count += 1
+            continue
+
+        print(f"\nUpgrading NPS on {edge_name} ({edge.ssh_host})...")
+
+        # Generate config for this edge
+        variables = {
+            "web_username": web_username,
+            "web_password": web_password,
+            "auth_key": edge.auth_key,
+            "auth_crypt_key": auth_crypt_key,
+            "public_vkey": public_vkey,
+            "http_proxy_port": http_proxy_port,
+            "bridge_tcp_port": bridge_tcp_port,
+            "bridge_tls_port": bridge_tls_port,
+            "web_port": web_port,
+        }
+
+        if template:
+            nps_conf = render_template(template, variables)
+        else:
+            # Fallback to inline template
+            nps_conf = _get_default_template().format(**variables)
+
+        result = upgrade_nps(
+            ssh_host=edge.ssh_host,
+            nps_conf=nps_conf,
+            version=version,
+            release_url=getattr(args, "release_url", None),
+        )
+
+        if result.success:
+            print(f"✓ {edge_name}: Upgraded successfully")
+            if args.verbose and result.stdout:
+                for line in result.stdout.strip().split("\n"):
+                    print(f"  {line}")
+            success_count += 1
+        else:
+            print(f"✗ {edge_name}: {result.message}")
+            if result.stderr:
+                for line in result.stderr.strip().split("\n"):
+                    print(f"  {line}")
+            if result.stdout:
+                for line in result.stdout.strip().split("\n"):
+                    print(f"  {line}")
+            fail_count += 1
+
+    print(f"\nSummary: {success_count} succeeded, {fail_count} failed")
+    return 0 if fail_count == 0 else 1
 
 
 def cmd_reconfig(args: argparse.Namespace) -> int:
