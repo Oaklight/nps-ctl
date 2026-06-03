@@ -17,21 +17,22 @@ DEFAULT_NPC_VERSION = "v0.34.7"
 # Mirror sources for NPS releases (in priority order)
 # Uses jsdelivr CDN and ghfast.top proxy which are faster in China and other regions
 NPS_MIRROR_SOURCES = [
-    "https://fastly.jsdelivr.net/gh/djylb/nps-mirror@{version}/linux_amd64_server.tar.gz",
-    "https://cdn.jsdelivr.net/gh/djylb/nps-mirror@{version}/linux_amd64_server.tar.gz",
-    "https://ghfast.top/https://github.com/djylb/nps/releases/download/{version}/linux_amd64_server.tar.gz",
-    "https://github.com/djylb/nps/releases/download/{version}/linux_amd64_server.tar.gz",
+    "https://fastly.jsdelivr.net/gh/djylb/nps-mirror@{version}/linux_{arch}_server.tar.gz",
+    "https://cdn.jsdelivr.net/gh/djylb/nps-mirror@{version}/linux_{arch}_server.tar.gz",
+    "https://ghfast.top/https://github.com/djylb/nps/releases/download/{version}/linux_{arch}_server.tar.gz",
+    "https://github.com/djylb/nps/releases/download/{version}/linux_{arch}_server.tar.gz",
 ]
 
 # Mirror sources for NPC releases (in priority order)
 NPC_MIRROR_SOURCES = [
-    "https://fastly.jsdelivr.net/gh/djylb/nps-mirror@{version}/linux_amd64_client.tar.gz",
-    "https://cdn.jsdelivr.net/gh/djylb/nps-mirror@{version}/linux_amd64_client.tar.gz",
-    "https://ghfast.top/https://github.com/djylb/nps/releases/download/{version}/linux_amd64_client.tar.gz",
-    "https://github.com/djylb/nps/releases/download/{version}/linux_amd64_client.tar.gz",
+    "https://fastly.jsdelivr.net/gh/djylb/nps-mirror@{version}/linux_{arch}_client.tar.gz",
+    "https://cdn.jsdelivr.net/gh/djylb/nps-mirror@{version}/linux_{arch}_client.tar.gz",
+    "https://ghfast.top/https://github.com/djylb/nps/releases/download/{version}/linux_{arch}_client.tar.gz",
+    "https://github.com/djylb/nps/releases/download/{version}/linux_{arch}_client.tar.gz",
 ]
 
 # Default NPS release URL (djylb/nps fork) - kept for backward compatibility
+# Note: hardcoded to amd64; prefer get_download_urls() with arch detection
 DEFAULT_NPS_RELEASE_URL = (
     "https://github.com/djylb/nps/releases/download/v0.34.7/linux_amd64_server.tar.gz"
 )
@@ -155,28 +156,36 @@ def ssh_execute(
         )
 
 
-def get_download_urls(version: str = DEFAULT_NPS_VERSION) -> list[str]:
+def get_download_urls(
+    version: str = DEFAULT_NPS_VERSION, arch: str = "amd64"
+) -> list[str]:
     """Get list of download URLs for NPS release.
 
     Args:
         version: NPS version tag (e.g., "v0.34.1").
+        arch: Target architecture (e.g., "amd64", "arm64", "arm", or
+            "${ARCH}" for shell-side expansion).
 
     Returns:
         List of URLs to try in order.
     """
-    return [url.format(version=version) for url in NPS_MIRROR_SOURCES]
+    return [url.format(version=version, arch=arch) for url in NPS_MIRROR_SOURCES]
 
 
-def get_npc_download_urls(version: str = DEFAULT_NPC_VERSION) -> list[str]:
+def get_npc_download_urls(
+    version: str = DEFAULT_NPC_VERSION, arch: str = "amd64"
+) -> list[str]:
     """Get list of download URLs for NPC release.
 
     Args:
         version: NPC version tag (e.g., "v0.34.1").
+        arch: Target architecture (e.g., "amd64", "arm64", "arm", or
+            "${ARCH}" for shell-side expansion).
 
     Returns:
         List of URLs to try in order.
     """
-    return [url.format(version=version) for url in NPC_MIRROR_SOURCES]
+    return [url.format(version=version, arch=arch) for url in NPC_MIRROR_SOURCES]
 
 
 def install_nps(
@@ -203,13 +212,13 @@ def install_nps(
     Returns:
         DeployResult with installation status.
     """
-    # Build download URLs
+    # Build download URLs — use ${ARCH} shell variable for runtime expansion
     if release_url:
         # Use custom URL only
         urls = [release_url]
     else:
-        # Use mirror sources
-        urls = get_download_urls(version)
+        # Use mirror sources with shell variable for arch
+        urls = get_download_urls(version, arch="${ARCH}")
 
     # Build URL list for shell script
     urls_shell = " ".join(f'"{url}"' for url in urls)
@@ -218,6 +227,16 @@ def install_nps(
 set -e
 
 cd /tmp
+
+# Detect architecture
+UNAME_ARCH=$(uname -m)
+case "$UNAME_ARCH" in
+    x86_64)        ARCH="amd64" ;;
+    aarch64)       ARCH="arm64" ;;
+    armv7l|armv6l) ARCH="arm" ;;
+    *)  echo "Error: Unsupported architecture: $UNAME_ARCH"; exit 1 ;;
+esac
+echo "Detected arch: $UNAME_ARCH -> $ARCH"
 
 # Download with fallback mirrors
 URLS=({urls_shell})
@@ -363,11 +382,11 @@ def upgrade_nps(
     Returns:
         DeployResult with upgrade status.
     """
-    # Build download URLs
+    # Build download URLs — use ${ARCH} shell variable for runtime expansion
     if release_url:
         urls = [release_url]
     else:
-        urls = get_download_urls(version)
+        urls = get_download_urls(version, arch="${ARCH}")
 
     urls_shell = " ".join(f'"{url}"' for url in urls)
 
@@ -384,6 +403,16 @@ EOFCONF
 
     upgrade_script = f"""
 set -e
+
+# Detect architecture
+UNAME_ARCH=$(uname -m)
+case "$UNAME_ARCH" in
+    x86_64)        ARCH="amd64" ;;
+    aarch64)       ARCH="arm64" ;;
+    armv7l|armv6l) ARCH="arm" ;;
+    *)  echo "Error: Unsupported architecture: $UNAME_ARCH"; exit 1 ;;
+esac
+echo "Detected arch: $UNAME_ARCH -> $ARCH"
 
 # Verify NPS is installed
 if [ ! -d /etc/nps/conf ]; then
@@ -537,11 +566,11 @@ def install_npc(
     Returns:
         DeployResult with installation status.
     """
-    # Build download URLs
+    # Build download URLs — use ${ARCH} shell variable for runtime expansion
     if release_url:
         urls = [release_url]
     else:
-        urls = get_npc_download_urls(version)
+        urls = get_npc_download_urls(version, arch="${ARCH}")
 
     # Build URL list for shell script
     urls_shell = " ".join(f'"{url}"' for url in urls)
@@ -567,8 +596,17 @@ cd /tmp
 # Pre-flight checks
 echo "=== Pre-flight ==="
 echo "User: $(whoami)"
-echo "Arch: $(uname -m)"
 echo "Disk /tmp: $(df -h /tmp 2>/dev/null | tail -1)"
+
+# Detect architecture
+UNAME_ARCH=$(uname -m)
+case "$UNAME_ARCH" in
+    x86_64)        ARCH="amd64" ;;
+    aarch64)       ARCH="arm64" ;;
+    armv7l|armv6l) ARCH="arm" ;;
+    *)  echo "Error: Unsupported architecture: $UNAME_ARCH"; exit 1 ;;
+esac
+echo "Detected arch: $UNAME_ARCH -> $ARCH"
 
 # Set proxy if configured
 {proxy_env}
