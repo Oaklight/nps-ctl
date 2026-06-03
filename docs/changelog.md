@@ -8,6 +8,20 @@ nps-ctl 的所有重要变更均记录于此。本项目遵循 [Keep a Changelog
 
 ---
 
+## v0.5.2 — 2026-06-03
+
+### 新增
+
+- **多架构支持**：部署脚本现在通过 `uname -m` 自动检测 CPU 架构并下载正确的二进制文件（amd64、arm64、arm）。此前硬编码为 amd64，导致 ARM 主机（如 armv7l）部署失败
+- `get_download_urls()` 和 `get_npc_download_urls()` 新增 `arch` 参数，支持显式指定目标架构
+
+### 修复
+
+- **Edge 升级数据保留**：`edge upgrade` 现在备份并恢复数据文件（clients.json、hosts.json、tasks.json、global.json），不再清空数据（closes #9）
+- **Edge 升级模板路径**：修复升级配置路径未拼接模板文件名的问题
+
+---
+
 ## v0.5.1 — 2026-06-03
 
 ### 修复
