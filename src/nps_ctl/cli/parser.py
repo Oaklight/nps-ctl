@@ -582,6 +582,7 @@ def _add_tunnel_commands(subparsers) -> None:
         help="Server port",
     )
     add_parser.add_argument(
+        "-T",
         "--target",
         help="Target address (host:port)",
     )
@@ -766,6 +767,7 @@ def _add_host_commands(subparsers) -> None:
     )
     add_client_argument(add_parser, required=True)
     add_parser.add_argument(
+        "-T",
         "--target",
         required=True,
         help="Target address (host:port)",
