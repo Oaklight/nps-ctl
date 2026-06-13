@@ -76,6 +76,22 @@ nps-ctl client add                                        # Fully interactive
 nps-ctl client add --name my-server --ssh-host 10.0.0.5   # Partially pre-filled
 ```
 
+### `client del`
+
+Delete a client from edge(s). Requires one of `--id` or `-r/--remark` (mutually exclusive).
+
+| Option | Description |
+| --- | --- |
+| `--id` ID | Client ID (edge-specific, requires `-e`) |
+| `-r`, `--remark` NAME | Client remark name (can operate across all edges) |
+| `-e`, `--edge` EDGE | Edge name (required for `--id`, default: all edges for `--remark`) |
+| `-y`, `--yes` | Skip confirmation prompts |
+
+```bash
+nps-ctl client del --id 3 -e nps-us -y          # Delete by edge-specific ID
+nps-ctl client del -r my-server                  # Delete by remark across all edges
+```
+
 ### `client install`
 
 Install NPC on client machines via SSH.
@@ -168,22 +184,6 @@ Restart NPC service on client machines.
 ```bash
 nps-ctl client restart
 nps-ctl client restart -c my-server
-```
-
-### `client del`
-
-Delete a client from edge(s). Requires one of `--id` or `-r/--remark` (mutually exclusive).
-
-| Option | Description |
-| --- | --- |
-| `--id` ID | Client ID (edge-specific, requires `-e`) |
-| `-r`, `--remark` NAME | Client remark name (can operate across all edges) |
-| `-e`, `--edge` EDGE | Edge name (required for `--id`, default: all edges for `--remark`) |
-| `-y`, `--yes` | Skip confirmation prompts |
-
-```bash
-nps-ctl client del --id 3 -e nps-us -y          # Delete by edge-specific ID
-nps-ctl client del -r my-server                  # Delete by remark across all edges
 ```
 
 ---
