@@ -309,6 +309,7 @@ def cmd_host_edit(args: argparse.Namespace) -> int:
     else:
         # Edit by domain or remark across edge(s)
         search_key = locate_domain or locate_remark
+        assert search_key is not None  # guaranteed by locator validation above
         search_field = "Host" if locate_domain else "Remark"
 
         edges = [args.edge] if args.edge else cluster.edge_names

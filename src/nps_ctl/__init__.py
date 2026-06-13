@@ -20,7 +20,7 @@ Modules:
     logging: Logging configuration and utilities
 """
 
-__version__ = "0.5.2"
+__version__ = "0.6.0"
 
 from .base import NPSClient
 from .cluster import NPSCluster
