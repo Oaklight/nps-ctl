@@ -54,9 +54,12 @@ def cmd_tunnels(args: argparse.Namespace) -> int:
 
 def cmd_add_tunnel(args: argparse.Namespace) -> int:
     """Add a tunnel to one or all edges."""
-    # Port is required for tcp/udp tunnels
+    # Port and target are required for tcp/udp tunnels
     if args.type in ("tcp", "udp") and not args.port:
         print_error(f"--port / -p is required for {args.type} tunnels")
+        return 1
+    if args.type in ("tcp", "udp") and not args.target:
+        print_error(f"--target / -T is required for {args.type} tunnels")
         return 1
 
     try:
