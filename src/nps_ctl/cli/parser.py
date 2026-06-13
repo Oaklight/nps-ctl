@@ -7,6 +7,12 @@ client, edge, tunnel, host, and util.
 import argparse
 
 from .. import __version__
+from .helpers import (
+    add_client_argument,
+    add_edge_argument,
+    add_verbose_argument,
+    add_yes_argument,
+)
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -29,7 +35,7 @@ def create_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--config",
-        "-c",
+        "-cc",
         help="Path to edges.toml config file",
     )
     parser.add_argument(
@@ -95,7 +101,7 @@ def _add_client_commands(subparsers) -> None:
     )
     client_sub = client_parser.add_subparsers(dest="subcommand", help="Client action")
 
-    # client list (原 npc-list + clients)
+    # client list
     list_parser = client_sub.add_parser(
         "list",
         help="List clients from NPS API and optionally update clients.toml",
@@ -104,10 +110,9 @@ def _add_client_commands(subparsers) -> None:
             "update the clients.toml configuration file."
         ),
     )
-    list_parser.add_argument(
-        "-e",
-        "--edge",
-        help="Edge name to query clients from (required for updating clients.toml)",
+    add_edge_argument(
+        list_parser,
+        help_text="Edge name to query clients from (required for updating clients.toml)",
     )
     list_parser.add_argument(
         "-a",
@@ -127,7 +132,7 @@ def _add_client_commands(subparsers) -> None:
     )
     list_parser.set_defaults(requires_config=True)
 
-    # client push (新功能)
+    # client push
     push_parser = client_sub.add_parser(
         "push",
         help="Push client configs from clients.toml to edges",
@@ -136,15 +141,13 @@ def _add_client_commands(subparsers) -> None:
             "exist on the corresponding edges via NPS API."
         ),
     )
-    push_parser.add_argument(
-        "-c",
-        "--client",
-        help="Specific client name to push (default: all clients)",
+    add_client_argument(
+        push_parser,
+        help_text="Specific client name to push (default: all clients)",
     )
-    push_parser.add_argument(
-        "-e",
-        "--edge",
-        help="Specific edge to push to (default: all edges in client config)",
+    add_edge_argument(
+        push_parser,
+        help_text="Specific edge to push to (default: all edges in client config)",
     )
     push_parser.add_argument(
         "--dry-run",
@@ -156,15 +159,10 @@ def _add_client_commands(subparsers) -> None:
         action="store_true",
         help="Update existing clients on edges (sync vkey from clients.toml)",
     )
-    push_parser.add_argument(
-        "-y",
-        "--yes",
-        action="store_true",
-        help="Skip confirmation prompts",
-    )
+    add_yes_argument(push_parser)
     push_parser.set_defaults(requires_config=True)
 
-    # client add (新功能 - interactive add)
+    # client add (interactive)
     add_parser = client_sub.add_parser(
         "add",
         help="Interactively add a new client entry to clients.toml",
@@ -195,24 +193,18 @@ def _add_client_commands(subparsers) -> None:
         choices=["tls", "tcp", "kcp"],
         help="Connection type (default: tls)",
     )
-    add_parser.add_argument(
-        "-y",
-        "--yes",
-        action="store_true",
-        help="Skip confirmation prompts",
-    )
+    add_yes_argument(add_parser)
     add_parser.set_defaults(requires_config=True)
 
-    # client install (原 npc-install)
+    # client install
     install_parser = client_sub.add_parser(
         "install",
         help="Install NPC on client machines via SSH",
         description="Install NPC (NPS client) on remote machines via SSH.",
     )
-    install_parser.add_argument(
-        "-c",
-        "--client",
-        help="Client name to install (default: all clients)",
+    add_client_argument(
+        install_parser,
+        help_text="Client name to install (default: all clients)",
     )
     install_parser.add_argument(
         "--version",
@@ -227,19 +219,8 @@ def _add_client_commands(subparsers) -> None:
         action="store_true",
         help="(Deprecated: use 'client upgrade') Force reinstall",
     )
-    install_parser.add_argument(
-        "-y",
-        "--yes",
-        action="store_true",
-        help="Skip confirmation prompts",
-    )
-    install_parser.add_argument(
-        "-v",
-        "--verbose",
-        action="store_true",
-        dest="deploy_verbose",
-        help="Show detailed deployment output",
-    )
+    add_yes_argument(install_parser)
+    add_verbose_argument(install_parser)
     install_parser.set_defaults(requires_config=True)
 
     # client upgrade
@@ -251,10 +232,9 @@ def _add_client_commands(subparsers) -> None:
             "reinstall with current configuration from edges.toml/clients.toml."
         ),
     )
-    upgrade_parser.add_argument(
-        "-c",
-        "--client",
-        help="Client name to upgrade (default: all clients)",
+    add_client_argument(
+        upgrade_parser,
+        help_text="Client name to upgrade (default: all clients)",
     )
     upgrade_parser.add_argument(
         "--version",
@@ -264,19 +244,8 @@ def _add_client_commands(subparsers) -> None:
         "--release-url",
         help="Custom release URL for NPC binary",
     )
-    upgrade_parser.add_argument(
-        "-y",
-        "--yes",
-        action="store_true",
-        help="Skip confirmation prompts",
-    )
-    upgrade_parser.add_argument(
-        "-v",
-        "--verbose",
-        action="store_true",
-        dest="deploy_verbose",
-        help="Show detailed deployment output",
-    )
+    add_yes_argument(upgrade_parser)
+    add_verbose_argument(upgrade_parser)
     upgrade_parser.set_defaults(requires_config=True)
 
     # client reconfig
@@ -289,62 +258,37 @@ def _add_client_commands(subparsers) -> None:
             "Much faster than reinstall when only config changes."
         ),
     )
-    reconfig_parser.add_argument(
-        "-c",
-        "--client",
-        help="Client name to reconfigure (default: all clients)",
+    add_client_argument(
+        reconfig_parser,
+        help_text="Client name to reconfigure (default: all clients)",
     )
-    reconfig_parser.add_argument(
-        "-y",
-        "--yes",
-        action="store_true",
-        help="Skip confirmation prompts",
-    )
-    reconfig_parser.add_argument(
-        "-v",
-        "--verbose",
-        action="store_true",
-        dest="deploy_verbose",
-        help="Show detailed output",
-    )
+    add_yes_argument(reconfig_parser)
+    add_verbose_argument(reconfig_parser)
     reconfig_parser.set_defaults(requires_config=True)
 
-    # client uninstall (原 npc-uninstall)
+    # client uninstall
     uninstall_parser = client_sub.add_parser(
         "uninstall",
         help="Uninstall NPC from client machines via SSH",
         description="Uninstall NPC from remote machines via SSH.",
     )
-    uninstall_parser.add_argument(
-        "-c",
-        "--client",
-        help="Client name to uninstall (default: all clients)",
+    add_client_argument(
+        uninstall_parser,
+        help_text="Client name to uninstall (default: all clients)",
     )
-    uninstall_parser.add_argument(
-        "-y",
-        "--yes",
-        action="store_true",
-        help="Skip confirmation prompts",
-    )
-    uninstall_parser.add_argument(
-        "-v",
-        "--verbose",
-        action="store_true",
-        dest="deploy_verbose",
-        help="Show detailed deployment output",
-    )
+    add_yes_argument(uninstall_parser)
+    add_verbose_argument(uninstall_parser)
     uninstall_parser.set_defaults(requires_config=True)
 
-    # client status (原 npc-status)
+    # client status
     status_parser = client_sub.add_parser(
         "status",
         help="Check NPC status on client machines",
         description="Check the status of NPC service on remote machines via SSH.",
     )
-    status_parser.add_argument(
-        "-c",
-        "--client",
-        help="Client name to check (default: all clients)",
+    add_client_argument(
+        status_parser,
+        help_text="Client name to check (default: all clients)",
     )
     status_parser.add_argument(
         "--parallel",
@@ -353,24 +297,17 @@ def _add_client_commands(subparsers) -> None:
     )
     status_parser.set_defaults(requires_config=True)
 
-    # client restart (原 npc-restart)
+    # client restart
     restart_parser = client_sub.add_parser(
         "restart",
         help="Restart NPC service on client machines",
         description="Restart the NPC service on remote machines via SSH.",
     )
-    restart_parser.add_argument(
-        "-c",
-        "--client",
-        help="Client name to restart (default: all clients)",
+    add_client_argument(
+        restart_parser,
+        help_text="Client name to restart (default: all clients)",
     )
-    restart_parser.add_argument(
-        "-v",
-        "--verbose",
-        action="store_true",
-        dest="deploy_verbose",
-        help="Show detailed output",
-    )
+    add_verbose_argument(restart_parser)
     restart_parser.set_defaults(requires_config=True)
 
     # client del
@@ -386,20 +323,20 @@ def _add_client_commands(subparsers) -> None:
         help="Client ID (edge-specific, requires -e)",
     )
     del_id_group.add_argument(
-        "--name",
+        "-r",
+        "--remark",
         help="Client remark name (can operate across all edges)",
     )
-    del_parser.add_argument(
-        "-e",
-        "--edge",
-        help="Edge name (required when using --id, default: all edges for --name)",
+    del_id_group.add_argument(
+        "--name",
+        dest="remark",
+        help=argparse.SUPPRESS,  # hidden backward-compat alias
     )
-    del_parser.add_argument(
-        "-y",
-        "--yes",
-        action="store_true",
-        help="Skip confirmation prompts",
+    add_edge_argument(
+        del_parser,
+        help_text="Edge name (required when using --id, default: all edges for --remark)",
     )
+    add_yes_argument(del_parser)
     del_parser.set_defaults(requires_config=True)
 
 
@@ -416,7 +353,7 @@ def _add_edge_commands(subparsers) -> None:
     )
     edge_sub = edge_parser.add_subparsers(dest="subcommand", help="Edge action")
 
-    # edge status (原 status)
+    # edge status
     status_parser = edge_sub.add_parser(
         "status",
         help="Show status of all edge nodes",
@@ -424,19 +361,18 @@ def _add_edge_commands(subparsers) -> None:
     )
     status_parser.set_defaults(requires_config=True)
 
-    # edge install (原 install)
+    # edge install
     install_parser = edge_sub.add_parser(
         "install",
         help="Install NPS on edge nodes via SSH",
         description="Install NPS server on remote edge nodes via SSH.",
     )
-    install_parser.add_argument(
-        "-e",
-        "--edge",
-        help="Edge name to install (default: all edges)",
+    add_edge_argument(
+        install_parser,
+        help_text="Edge name to install (default: all edges)",
     )
     install_parser.add_argument(
-        "-t",
+        "-tp",
         "--template",
         help="Path to NPS config template",
     )
@@ -453,19 +389,8 @@ def _add_edge_commands(subparsers) -> None:
         action="store_true",
         help="(Deprecated: use 'edge upgrade') Force reinstall",
     )
-    install_parser.add_argument(
-        "-y",
-        "--yes",
-        action="store_true",
-        help="Skip confirmation prompts",
-    )
-    install_parser.add_argument(
-        "-v",
-        "--verbose",
-        action="store_true",
-        dest="deploy_verbose",
-        help="Show detailed deployment output",
-    )
+    add_yes_argument(install_parser)
+    add_verbose_argument(install_parser)
     install_parser.set_defaults(requires_config=True)
 
     # edge upgrade
@@ -477,13 +402,12 @@ def _add_edge_commands(subparsers) -> None:
             "Data files (clients, hosts, tunnels) are backed up and preserved."
         ),
     )
-    edge_upgrade_parser.add_argument(
-        "-e",
-        "--edge",
-        help="Edge name to upgrade (default: all edges)",
+    add_edge_argument(
+        edge_upgrade_parser,
+        help_text="Edge name to upgrade (default: all edges)",
     )
     edge_upgrade_parser.add_argument(
-        "-t",
+        "-tp",
         "--template",
         help="Path to NPS config template",
     )
@@ -495,19 +419,8 @@ def _add_edge_commands(subparsers) -> None:
         "--release-url",
         help="Custom release URL for NPS binary",
     )
-    edge_upgrade_parser.add_argument(
-        "-y",
-        "--yes",
-        action="store_true",
-        help="Skip confirmation prompts",
-    )
-    edge_upgrade_parser.add_argument(
-        "-v",
-        "--verbose",
-        action="store_true",
-        dest="deploy_verbose",
-        help="Show detailed deployment output",
-    )
+    add_yes_argument(edge_upgrade_parser)
+    add_verbose_argument(edge_upgrade_parser)
     edge_upgrade_parser.set_defaults(requires_config=True)
 
     # edge reconfig
@@ -519,58 +432,34 @@ def _add_edge_commands(subparsers) -> None:
             "without re-downloading the binary. Restarts the service."
         ),
     )
-    edge_reconfig_parser.add_argument(
-        "-e",
-        "--edge",
-        help="Edge name to reconfigure (default: all edges)",
+    add_edge_argument(
+        edge_reconfig_parser,
+        help_text="Edge name to reconfigure (default: all edges)",
     )
     edge_reconfig_parser.add_argument(
-        "-t",
+        "-tp",
         "--template",
         help="Path to NPS config template",
     )
-    edge_reconfig_parser.add_argument(
-        "-y",
-        "--yes",
-        action="store_true",
-        help="Skip confirmation prompts",
-    )
-    edge_reconfig_parser.add_argument(
-        "-v",
-        "--verbose",
-        action="store_true",
-        dest="deploy_verbose",
-        help="Show detailed deployment output",
-    )
+    add_yes_argument(edge_reconfig_parser)
+    add_verbose_argument(edge_reconfig_parser)
     edge_reconfig_parser.set_defaults(requires_config=True)
 
-    # edge uninstall (原 uninstall)
+    # edge uninstall
     uninstall_parser = edge_sub.add_parser(
         "uninstall",
         help="Uninstall NPS from edge nodes via SSH",
         description="Uninstall NPS server from remote edge nodes via SSH.",
     )
-    uninstall_parser.add_argument(
-        "-e",
-        "--edge",
-        help="Edge name to uninstall (default: all edges)",
+    add_edge_argument(
+        uninstall_parser,
+        help_text="Edge name to uninstall (default: all edges)",
     )
-    uninstall_parser.add_argument(
-        "-y",
-        "--yes",
-        action="store_true",
-        help="Skip confirmation prompts",
-    )
-    uninstall_parser.add_argument(
-        "-v",
-        "--verbose",
-        action="store_true",
-        dest="deploy_verbose",
-        help="Show detailed deployment output",
-    )
+    add_yes_argument(uninstall_parser)
+    add_verbose_argument(uninstall_parser)
     uninstall_parser.set_defaults(requires_config=True)
 
-    # edge sync (原 sync)
+    # edge sync
     sync_parser = edge_sub.add_parser(
         "sync",
         help="Sync configuration from one edge to others",
@@ -586,11 +475,11 @@ def _add_edge_commands(subparsers) -> None:
         dest="source",
         help="Source edge name to sync from",
     )
+    # edge sync uses --to as an alias alongside -e/--edge
     sync_parser.add_argument(
-        "--to",
         "-e",
         "--edge",
-        dest="target",
+        "--to",
         nargs="+",
         help="Target edge name(s) to sync to (default: all other edges)",
     )
@@ -601,12 +490,7 @@ def _add_edge_commands(subparsers) -> None:
         default="all",
         help="Type of configuration to sync (default: all)",
     )
-    sync_parser.add_argument(
-        "-y",
-        "--yes",
-        action="store_true",
-        help="Skip confirmation prompts",
-    )
+    add_yes_argument(sync_parser)
     sync_parser.add_argument(
         "--parallel",
         action="store_true",
@@ -626,16 +510,15 @@ def _add_edge_commands(subparsers) -> None:
     )
     sync_parser.set_defaults(requires_config=True)
 
-    # edge export (原 export)
+    # edge export
     export_parser = edge_sub.add_parser(
         "export",
         help="Export configuration",
         description="Export edge configuration to a file.",
     )
-    export_parser.add_argument(
-        "-e",
-        "--edge",
-        help="Edge name to export (default: all edges)",
+    add_edge_argument(
+        export_parser,
+        help_text="Edge name to export (default: all edges)",
     )
     export_parser.add_argument(
         "-o",
@@ -658,16 +541,15 @@ def _add_tunnel_commands(subparsers) -> None:
     )
     tunnel_sub = tunnel_parser.add_subparsers(dest="subcommand", help="Tunnel action")
 
-    # tunnel list (原 tunnels)
+    # tunnel list
     list_parser = tunnel_sub.add_parser(
         "list",
         help="List tunnels",
         description="List all tunnels on edge nodes.",
     )
-    list_parser.add_argument(
-        "-e",
-        "--edge",
-        help="Edge name to query (default: first edge)",
+    add_edge_argument(
+        list_parser,
+        help_text="Edge name to query (default: first edge)",
     )
     list_parser.add_argument(
         "-t",
@@ -683,18 +565,13 @@ def _add_tunnel_commands(subparsers) -> None:
     )
     list_parser.set_defaults(requires_config=True)
 
-    # tunnel add (原 add-tunnel)
+    # tunnel add
     add_parser = tunnel_sub.add_parser(
         "add",
         help="Add a tunnel",
         description="Add a new tunnel to edge nodes.",
     )
-    add_parser.add_argument(
-        "-c",
-        "--client",
-        required=True,
-        help="Client remark or ID",
-    )
+    add_client_argument(add_parser, required=True)
     add_parser.add_argument(
         "-t",
         "--type",
@@ -709,92 +586,113 @@ def _add_tunnel_commands(subparsers) -> None:
         help="Server port",
     )
     add_parser.add_argument(
+        "-tt",
         "--target",
         help="Target address (host:port)",
     )
-    add_parser.add_argument(
-        "-e",
-        "--edge",
-        help="Edge name to add tunnel to (default: all edges)",
+    add_edge_argument(
+        add_parser,
+        help_text="Edge name to add tunnel to (default: all edges)",
     )
     add_parser.add_argument(
         "-r",
         "--remark",
         help="Tunnel remark",
     )
-    add_parser.add_argument(
-        "-y",
-        "--yes",
-        action="store_true",
-        help="Skip confirmation prompts",
-    )
+    add_yes_argument(add_parser)
     add_parser.set_defaults(requires_config=True)
 
     # tunnel del
     tunnel_del_parser = tunnel_sub.add_parser(
         "del",
         help="Delete a tunnel",
-        description="Delete a tunnel from an edge node via NPS API.",
+        description=(
+            "Delete a tunnel from edge node(s) via NPS API. "
+            "Locate by --id (single edge), -r/--remark, or -p/--port + -t/--type."
+        ),
     )
-    tunnel_del_parser.add_argument(
+    tunnel_del_id_group = tunnel_del_parser.add_mutually_exclusive_group()
+    tunnel_del_id_group.add_argument(
         "--id",
         type=int,
-        required=True,
         help="Tunnel ID (edge-specific, requires -e)",
     )
-    tunnel_del_parser.add_argument(
-        "-e",
-        "--edge",
-        required=True,
-        help="Edge name (required, IDs are edge-specific)",
+    tunnel_del_id_group.add_argument(
+        "-r",
+        "--remark",
+        help="Tunnel remark (can operate across all edges)",
     )
     tunnel_del_parser.add_argument(
-        "-y",
-        "--yes",
-        action="store_true",
-        help="Skip confirmation prompts",
+        "-p",
+        "--port",
+        type=int,
+        help="Server port (use with -t/--type to locate tunnel across edges)",
     )
+    tunnel_del_parser.add_argument(
+        "-t",
+        "--type",
+        choices=["tcp", "udp", "socks5", "httpProxy"],
+        help="Tunnel type (use with -p/--port to locate tunnel across edges)",
+    )
+    add_edge_argument(
+        tunnel_del_parser,
+        help_text="Edge name (required for --id, optional for --remark/--port+--type)",
+    )
+    add_yes_argument(tunnel_del_parser)
     tunnel_del_parser.set_defaults(requires_config=True)
 
     # tunnel edit
     tunnel_edit_parser = tunnel_sub.add_parser(
         "edit",
         help="Edit a tunnel",
-        description="Edit an existing tunnel on an edge node.",
+        description=(
+            "Edit an existing tunnel on edge node(s). "
+            "Locate by --id (single edge), -r/--remark, or -p/--port + -t/--type."
+        ),
     )
-    tunnel_edit_parser.add_argument(
+    # -- Locator arguments (mutually exclusive) --
+    tunnel_edit_id_group = tunnel_edit_parser.add_mutually_exclusive_group()
+    tunnel_edit_id_group.add_argument(
         "--id",
         type=int,
-        required=True,
-        help="Tunnel ID to edit",
+        help="Tunnel ID to edit (edge-specific, requires -e)",
     )
-    tunnel_edit_parser.add_argument(
-        "-e",
-        "--edge",
-        required=True,
-        help="Edge name (required, IDs are edge-specific)",
-    )
-    tunnel_edit_parser.add_argument(
-        "--target",
-        help="New target address (host:port)",
+    tunnel_edit_id_group.add_argument(
+        "-r",
+        "--remark",
+        help="Tunnel remark to locate (can operate across all edges)",
     )
     tunnel_edit_parser.add_argument(
         "-p",
         "--port",
         type=int,
+        help="Server port to locate (use with -t/--type across edges)",
+    )
+    tunnel_edit_parser.add_argument(
+        "-t",
+        "--type",
+        choices=["tcp", "udp", "socks5", "httpProxy"],
+        help="Tunnel type to locate (use with -p/--port across edges)",
+    )
+    add_edge_argument(
+        tunnel_edit_parser,
+        help_text="Edge name (required for --id, optional for --remark/--port+--type)",
+    )
+    # -- Value arguments (what to change) --
+    tunnel_edit_parser.add_argument(
+        "--new-target",
+        help="New target address (host:port)",
+    )
+    tunnel_edit_parser.add_argument(
+        "--new-port",
+        type=int,
         help="New server port",
     )
     tunnel_edit_parser.add_argument(
-        "-r",
-        "--remark",
+        "--new-remark",
         help="New tunnel remark",
     )
-    tunnel_edit_parser.add_argument(
-        "-y",
-        "--yes",
-        action="store_true",
-        help="Skip confirmation prompts",
-    )
+    add_yes_argument(tunnel_edit_parser)
     tunnel_edit_parser.set_defaults(requires_config=True)
 
     # tunnel start
@@ -809,12 +707,7 @@ def _add_tunnel_commands(subparsers) -> None:
         required=True,
         help="Tunnel ID to start",
     )
-    tunnel_start_parser.add_argument(
-        "-e",
-        "--edge",
-        required=True,
-        help="Edge name (required, IDs are edge-specific)",
-    )
+    add_edge_argument(tunnel_start_parser, required=True)
     tunnel_start_parser.set_defaults(requires_config=True)
 
     # tunnel stop
@@ -829,12 +722,7 @@ def _add_tunnel_commands(subparsers) -> None:
         required=True,
         help="Tunnel ID to stop",
     )
-    tunnel_stop_parser.add_argument(
-        "-e",
-        "--edge",
-        required=True,
-        help="Edge name (required, IDs are edge-specific)",
-    )
+    add_edge_argument(tunnel_stop_parser, required=True)
     tunnel_stop_parser.set_defaults(requires_config=True)
 
 
@@ -851,16 +739,15 @@ def _add_host_commands(subparsers) -> None:
     )
     host_sub = host_parser.add_subparsers(dest="subcommand", help="Host action")
 
-    # host list (原 hosts)
+    # host list
     list_parser = host_sub.add_parser(
         "list",
         help="List host mappings",
         description="List all host mappings on edge nodes.",
     )
-    list_parser.add_argument(
-        "-e",
-        "--edge",
-        help="Edge name to query (default: first edge)",
+    add_edge_argument(
+        list_parser,
+        help_text="Edge name to query (default: first edge)",
     )
     list_parser.add_argument(
         "-a",
@@ -870,7 +757,7 @@ def _add_host_commands(subparsers) -> None:
     )
     list_parser.set_defaults(requires_config=True)
 
-    # host add (原 add-host)
+    # host add
     add_parser = host_sub.add_parser(
         "add",
         help="Add a host mapping",
@@ -882,41 +769,33 @@ def _add_host_commands(subparsers) -> None:
         required=True,
         help="Domain name",
     )
+    add_client_argument(add_parser, required=True)
     add_parser.add_argument(
-        "-c",
-        "--client",
-        required=True,
-        help="Client remark or ID",
-    )
-    add_parser.add_argument(
-        "-t",
+        "-tt",
         "--target",
         required=True,
         help="Target address (host:port)",
     )
-    add_parser.add_argument(
-        "-e",
-        "--edge",
-        help="Edge name to add host mapping to (default: all edges)",
+    add_edge_argument(
+        add_parser,
+        help_text="Edge name to add host mapping to (default: all edges)",
     )
     add_parser.add_argument(
         "-r",
         "--remark",
         help="Host mapping remark",
     )
-    add_parser.add_argument(
-        "-y",
-        "--yes",
-        action="store_true",
-        help="Skip confirmation prompts",
-    )
+    add_yes_argument(add_parser)
     add_parser.set_defaults(requires_config=True)
 
     # host del
     host_del_parser = host_sub.add_parser(
         "del",
         help="Delete a host mapping",
-        description="Delete a host mapping from one or all edge nodes via NPS API.",
+        description=(
+            "Delete a host mapping from edge node(s) via NPS API. "
+            "Locate by --id (single edge), -d/--domain, or -r/--remark."
+        ),
     )
     host_del_id_group = host_del_parser.add_mutually_exclusive_group(required=True)
     host_del_id_group.add_argument(
@@ -925,60 +804,66 @@ def _add_host_commands(subparsers) -> None:
         help="Host ID (edge-specific, requires -e)",
     )
     host_del_id_group.add_argument(
-        "--host",
+        "-d",
+        "--domain",
         help="Host domain name (can operate across all edges)",
     )
-    host_del_parser.add_argument(
-        "-e",
-        "--edge",
-        help="Edge name (required when using --id, default: all edges for --host)",
+    host_del_id_group.add_argument(
+        "-r",
+        "--remark",
+        help="Host remark (can operate across all edges)",
     )
-    host_del_parser.add_argument(
-        "-y",
-        "--yes",
-        action="store_true",
-        help="Skip confirmation prompts",
+    add_edge_argument(
+        host_del_parser,
+        help_text="Edge name (required for --id, optional for --domain/--remark)",
     )
+    add_yes_argument(host_del_parser)
     host_del_parser.set_defaults(requires_config=True)
 
     # host edit
     host_edit_parser = host_sub.add_parser(
         "edit",
         help="Edit a host mapping",
-        description="Edit an existing host mapping on an edge node.",
+        description=(
+            "Edit an existing host mapping on edge node(s). "
+            "Locate by --id (single edge), -d/--domain, or -r/--remark."
+        ),
     )
-    host_edit_parser.add_argument(
+    # -- Locator arguments (mutually exclusive) --
+    host_edit_id_group = host_edit_parser.add_mutually_exclusive_group()
+    host_edit_id_group.add_argument(
         "--id",
         type=int,
-        required=True,
-        help="Host ID to edit",
+        help="Host ID to edit (edge-specific, requires -e)",
     )
-    host_edit_parser.add_argument(
-        "-e",
-        "--edge",
-        required=True,
-        help="Edge name (required, IDs are edge-specific)",
+    host_edit_id_group.add_argument(
+        "-d",
+        "--domain",
+        help="Host domain to locate (can operate across all edges)",
     )
+    host_edit_id_group.add_argument(
+        "-r",
+        "--remark",
+        help="Host remark to locate (can operate across all edges)",
+    )
+    add_edge_argument(
+        host_edit_parser,
+        help_text="Edge name (required for --id, optional for --domain/--remark)",
+    )
+    # -- Value arguments (what to change) --
     host_edit_parser.add_argument(
-        "--host",
-        dest="new_host",
+        "--new-domain",
         help="New domain name",
     )
     host_edit_parser.add_argument(
-        "--target",
+        "--new-target",
         help="New target address (host:port)",
     )
     host_edit_parser.add_argument(
-        "-r",
-        "--remark",
+        "--new-remark",
         help="New host remark",
     )
-    host_edit_parser.add_argument(
-        "-y",
-        "--yes",
-        action="store_true",
-        help="Skip confirmation prompts",
-    )
+    add_yes_argument(host_edit_parser)
     host_edit_parser.set_defaults(requires_config=True)
 
 
@@ -995,7 +880,7 @@ def _add_util_commands(subparsers) -> None:
     )
     util_sub = util_parser.add_subparsers(dest="subcommand", help="Utility action")
 
-    # util generate-auth-key (原 generate-auth-key)
+    # util generate-auth-key
     gen_key_parser = util_sub.add_parser(
         "generate-auth-key",
         help="Generate a random auth key",

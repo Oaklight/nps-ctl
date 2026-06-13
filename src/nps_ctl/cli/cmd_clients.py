@@ -84,7 +84,7 @@ def _print_clients(clients: list[ClientInfo]) -> None:
 def cmd_client_del(args: argparse.Namespace) -> int:
     """Delete a client from edge node(s).
 
-    Supports deletion by --id (single edge) or --name (multi-edge).
+    Supports deletion by --id (single edge) or -r/--remark (multi-edge).
 
     Args:
         args: Parsed command line arguments.
@@ -99,7 +99,7 @@ def cmd_client_del(args: argparse.Namespace) -> int:
         return 1
 
     client_id = getattr(args, "id", None)
-    client_name = getattr(args, "name", None)
+    client_name = getattr(args, "remark", None)
 
     # --id requires -e
     if client_id is not None and not args.edge:
