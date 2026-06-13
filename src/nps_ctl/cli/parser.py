@@ -35,7 +35,6 @@ def create_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--config",
-        "-cc",
         help="Path to edges.toml config file",
     )
     parser.add_argument(
@@ -372,7 +371,6 @@ def _add_edge_commands(subparsers) -> None:
         help_text="Edge name to install (default: all edges)",
     )
     install_parser.add_argument(
-        "-tp",
         "--template",
         help="Path to NPS config template",
     )
@@ -407,7 +405,6 @@ def _add_edge_commands(subparsers) -> None:
         help_text="Edge name to upgrade (default: all edges)",
     )
     edge_upgrade_parser.add_argument(
-        "-tp",
         "--template",
         help="Path to NPS config template",
     )
@@ -437,7 +434,6 @@ def _add_edge_commands(subparsers) -> None:
         help_text="Edge name to reconfigure (default: all edges)",
     )
     edge_reconfig_parser.add_argument(
-        "-tp",
         "--template",
         help="Path to NPS config template",
     )
@@ -586,7 +582,6 @@ def _add_tunnel_commands(subparsers) -> None:
         help="Server port",
     )
     add_parser.add_argument(
-        "-tt",
         "--target",
         help="Target address (host:port)",
     )
@@ -771,7 +766,6 @@ def _add_host_commands(subparsers) -> None:
     )
     add_client_argument(add_parser, required=True)
     add_parser.add_argument(
-        "-tt",
         "--target",
         required=True,
         help="Target address (host:port)",
