@@ -203,6 +203,11 @@ def cmd_tunnel_del(args: argparse.Namespace) -> int:
         print_error("-p/--port requires -t/--type for reliable matching")
         return 1
 
+    # remark and port+type are mutually exclusive locators
+    if tunnel_remark and tunnel_port is not None:
+        print_error("Cannot use -r/--remark and -p/--port together, pick one locator")
+        return 1
+
     if tunnel_id is not None:
         # Delete by ID on a single edge
         nps = cluster.get_client(args.edge)
@@ -278,6 +283,14 @@ def cmd_tunnel_del(args: argparse.Namespace) -> int:
                 matching = _find_tunnels(nps, tunnel_remark, tunnel_port, tunnel_type)
                 if not matching:
                     console.print(f"[dim]- {edge_name}: not found, skipping[/dim]")
+                    continue
+                if len(matching) > 1:
+                    ids = [str(m["Id"]) for m in matching]
+                    console.print(
+                        f"[red]✗ {edge_name}: {len(matching)} matches "
+                        f"(IDs: {', '.join(ids)}), use --id to be specific[/red]"
+                    )
+                    has_error = True
                     continue
                 tid = matching[0]["Id"]
                 if tunnel.del_tunnel(nps, tid):
@@ -369,6 +382,11 @@ def cmd_tunnel_edit(args: argparse.Namespace) -> int:
         print_error("-p/--port requires -t/--type for reliable matching")
         return 1
 
+    # remark and port+type are mutually exclusive locators
+    if locate_remark and locate_port is not None:
+        print_error("Cannot use -r/--remark and -p/--port together, pick one locator")
+        return 1
+
     if not any([new_target, new_port is not None, new_remark is not None]):
         print_error(
             "No changes specified (use --new-target, --new-port, or --new-remark)"
@@ -417,6 +435,14 @@ def cmd_tunnel_edit(args: argparse.Namespace) -> int:
                 matching = _find_tunnels(nps, locate_remark, locate_port, locate_type)
                 if not matching:
                     console.print(f"[dim]- {edge_name}: not found, skipping[/dim]")
+                    continue
+                if len(matching) > 1:
+                    ids = [str(m["Id"]) for m in matching]
+                    console.print(
+                        f"[red]✗ {edge_name}: {len(matching)} matches "
+                        f"(IDs: {', '.join(ids)}), use --id to be specific[/red]"
+                    )
+                    has_error = True
                     continue
                 current = matching[0]
                 tid = current["Id"]

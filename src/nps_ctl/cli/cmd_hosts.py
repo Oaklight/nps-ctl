@@ -235,6 +235,14 @@ def cmd_host_del(args: argparse.Namespace) -> int:
                 if not matching:
                     console.print(f"[dim]- {edge_name}: not found, skipping[/dim]")
                     continue
+                if len(matching) > 1:
+                    ids = [str(m["Id"]) for m in matching]
+                    console.print(
+                        f"[red]✗ {edge_name}: {len(matching)} matches "
+                        f"(IDs: {', '.join(ids)}), use --id to be specific[/red]"
+                    )
+                    has_error = True
+                    continue
                 hid = matching[0]["Id"]
                 if host.del_host(nps, hid):
                     console.print(f"[green]✓ {edge_name}: deleted (ID {hid})[/green]")
@@ -340,6 +348,14 @@ def cmd_host_edit(args: argparse.Namespace) -> int:
                 matching = [h for h in hosts if h.get(search_field) == search_key]
                 if not matching:
                     console.print(f"[dim]- {edge_name}: not found, skipping[/dim]")
+                    continue
+                if len(matching) > 1:
+                    ids = [str(m["Id"]) for m in matching]
+                    console.print(
+                        f"[red]✗ {edge_name}: {len(matching)} matches "
+                        f"(IDs: {', '.join(ids)}), use --id to be specific[/red]"
+                    )
+                    has_error = True
                     continue
                 hid = matching[0]["Id"]
                 result = _apply_host_edit(
