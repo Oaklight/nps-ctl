@@ -35,8 +35,8 @@ def cmd_sync(args: argparse.Namespace) -> int:
     sync_hosts = args.type in ("all", "hosts")
 
     # Determine target edges
-    if args.target:
-        target_edges = args.target
+    if args.edge:
+        target_edges = args.edge
         # Validate target edges
         invalid = [t for t in target_edges if t not in cluster.edge_names]
         if invalid:

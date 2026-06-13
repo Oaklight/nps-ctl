@@ -1,9 +1,11 @@
 """CLI helper utilities.
 
 This module provides shared helper functions used across CLI commands,
-such as table formatting and configuration path resolution.
+such as table formatting, configuration path resolution, and shared
+argument definitions for the CLI parser.
 """
 
+import argparse
 from pathlib import Path
 from typing import Any
 
@@ -159,6 +161,88 @@ def format_status(success: bool) -> str:
         Formatted status string with color.
     """
     return "[green]✓[/green]" if success else "[red]✗[/red]"
+
+
+# ---- Shared argument factory functions ----
+
+
+def add_edge_argument(
+    parser: argparse.ArgumentParser,
+    *,
+    required: bool = False,
+    nargs: str | int | None = None,
+    help_text: str | None = None,
+) -> None:
+    """Add the standard -e/--edge argument to a parser.
+
+    Args:
+        parser: The argument parser to add the argument to.
+        required: Whether the argument is required.
+        nargs: Number of arguments (e.g., "+" for one or more).
+        help_text: Custom help text. Defaults based on required.
+    """
+    default_help = (
+        "Edge name (required, IDs are edge-specific)"
+        if required
+        else "Edge name (default: all edges)"
+    )
+    kwargs: dict[str, Any] = {
+        "help": help_text or default_help,
+    }
+    if required:
+        kwargs["required"] = True
+    if nargs is not None:
+        kwargs["nargs"] = nargs
+    parser.add_argument("-e", "--edge", **kwargs)
+
+
+def add_client_argument(
+    parser: argparse.ArgumentParser,
+    *,
+    required: bool = False,
+    help_text: str | None = None,
+) -> None:
+    """Add the standard -c/--client argument to a parser.
+
+    Args:
+        parser: The argument parser to add the argument to.
+        required: Whether the argument is required.
+        help_text: Custom help text.
+    """
+    kwargs: dict[str, Any] = {
+        "help": help_text or "Client name (remark) or numeric ID",
+    }
+    if required:
+        kwargs["required"] = True
+    parser.add_argument("-c", "--client", **kwargs)
+
+
+def add_yes_argument(parser: argparse.ArgumentParser) -> None:
+    """Add the standard -y/--yes argument to a parser.
+
+    Args:
+        parser: The argument parser to add the argument to.
+    """
+    parser.add_argument(
+        "-y",
+        "--yes",
+        action="store_true",
+        help="Skip confirmation prompts",
+    )
+
+
+def add_verbose_argument(parser: argparse.ArgumentParser) -> None:
+    """Add the standard -v/--verbose argument to a parser.
+
+    Args:
+        parser: The argument parser to add the argument to.
+    """
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Show detailed output",
+    )
 
 
 def get_template_path() -> Path:
