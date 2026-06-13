@@ -8,6 +8,31 @@ nps-ctl 的所有重要变更均记录于此。本项目遵循 [Keep a Changelog
 
 ---
 
+## v0.6.0 — 2026-06-13
+
+### 新增
+
+- **跨 Edge 定位器**：tunnel/host 的 del/edit 命令支持按 remark、域名或 port+type 跨所有 Edge 操作，无需指定 Edge 特定的 ID
+- `--target` 新增 `-T` 短标志（用于 host add 和 tunnel add）
+- `--target` / `-T` 校验：tcp/udp 类型的 tunnel add 现在要求必须提供 target 地址
+- helpers.py 中新增共享参数工厂函数，确保参数定义的一致性
+
+### 修复
+
+- **`-v/--verbose` 失效 (P0)**：子命令级别的 `-v` 因 `dest="deploy_verbose"` 与代码中 `args.verbose` 不匹配而完全无效——影响 9 个子命令
+- 移除 base.py 中多余的 `ty: ignore` 抑制注释
+
+### 变更
+
+- **短标志清理**：`-c` 保留给 `--client`（全局 `--config` 不再有短标志），`-t` 保留给 `--type`（`--template` 和 `--target` 使用长标志或 `-T`）
+- **edge sync dest 统一**：`dest="target"` → `dest="edge"`，保持跨子命令一致性
+- `client del --name` 改为 `-r/--remark`（`--name` 保留为隐藏别名向后兼容）
+- edit 命令修改值参数统一加 `--new-` 前缀，区分定位参数和修改值
+- 多匹配安全：del/edit 命令在匹配到多个结果时报错，要求使用 `--id` 精确定位
+- `--client` 帮助文本跨子命令统一
+
+---
+
 ## v0.5.2 — 2026-06-03
 
 ### 新增
