@@ -8,6 +8,31 @@ All notable changes to nps-ctl are documented here. This project follows [Keep a
 
 ---
 
+## v0.6.0 — 2026-06-13
+
+### Added
+
+- **Cross-edge locators** for `tunnel`/`host` del/edit: locate by remark, domain, or port+type across all edges instead of requiring edge-specific IDs
+- `-T` short flag for `--target` (used in `host add` and `tunnel add`)
+- `--target` / `-T` validation: tcp/udp `tunnel add` now requires target address
+- Shared argument factory functions in `helpers.py` for consistent parameter definitions
+
+### Fixed
+
+- **`-v/--verbose` bug (P0)**: subcommand-level `-v` was silently ignored due to `dest="deploy_verbose"` mismatch — affected 9 subcommands
+- Unused `ty: ignore` suppression comment in `base.py`
+
+### Changed
+
+- **Short flag cleanup**: `-c` reserved for `--client` (global `--config` no longer has short flag), `-t` reserved for `--type` (`--template` and `--target` use long flags or `-T`)
+- **edge sync dest unified**: `dest="target"` → `dest="edge"` for consistency
+- `client del --name` renamed to `-r/--remark` (`--name` kept as hidden alias)
+- Edit commands use `--new-*` prefixed args to separate locator from value semantics
+- Multi-match safety: del/edit commands error when multiple matches found, requiring `--id` for precision
+- `--client` help text unified across subcommands
+
+---
+
 ## v0.5.2 — 2026-06-03
 
 ### Added
