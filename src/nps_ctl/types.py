@@ -73,13 +73,23 @@ class HostInfo(TypedDict, total=False):
 
 @dataclass
 class EdgeConfig:
-    """Configuration for a single NPS edge node."""
+    """Configuration for a single NPS edge node.
+
+    Supports both legacy auth (auth_key) and modern auth (username/password
+    or platform_token). When api_mode is "auto" (default), the client probes
+    the server to determine which API is available.
+    """
 
     name: str
     api_url: str
-    auth_key: str
+    auth_key: str = ""
     region: str = ""
     ssh_host: str = ""
+    # Modern API credentials (v0.35.0+)
+    username: str = ""
+    password: str = ""
+    platform_token: str = ""
+    api_mode: str = "auto"  # "legacy" | "modern" | "auto"
 
 
 @dataclass

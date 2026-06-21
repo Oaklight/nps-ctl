@@ -144,9 +144,13 @@ class NPSCluster:
             edge_config = EdgeConfig(
                 name=edge["name"],
                 api_url=edge["api_url"],
-                auth_key=edge["auth_key"],
+                auth_key=edge.get("auth_key", ""),
                 region=edge.get("region", ""),
                 ssh_host=edge.get("ssh_host", ""),
+                username=edge.get("username", ""),
+                password=edge.get("password", ""),
+                platform_token=edge.get("platform_token", ""),
+                api_mode=edge.get("api_mode", "auto"),
             )
             self._edges[edge_config.name] = edge_config
             self._clients[edge_config.name] = NPSClient(
@@ -154,6 +158,10 @@ class NPSCluster:
                 auth_key=edge_config.auth_key,
                 proxy=self.proxy,
                 socks_proxy=self.socks_proxy,
+                username=edge_config.username,
+                password=edge_config.password,
+                platform_token=edge_config.platform_token,
+                api_mode=edge_config.api_mode,
             )
             logger.debug(
                 f"Registered edge: {edge_config.name} ({edge_config.region}) "

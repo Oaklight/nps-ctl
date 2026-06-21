@@ -41,11 +41,15 @@ class NPSClient:
 
     Args:
         base_url: The base URL of the NPS server (e.g., "https://nps.example.com").
-        auth_key: The authentication key configured in nps.conf.
+        auth_key: The authentication key for legacy API (configured in nps.conf).
         timeout: Request timeout in seconds.
         verify_ssl: Whether to verify SSL certificates.
         proxy: HTTP/HTTPS proxy URL (e.g., "http://127.0.0.1:7890").
         socks_proxy: SOCKS5 proxy address (e.g., "localhost:1080" for SSH tunnel).
+        username: Username for modern API auth (v0.35.0+).
+        password: Password for modern API auth (v0.35.0+).
+        platform_token: Static platform token for modern API (v0.35.0+).
+        api_mode: API mode selection ("legacy", "modern", or "auto").
 
     Example:
         >>> from nps_ctl.base import NPSClient
@@ -57,18 +61,26 @@ class NPSClient:
     """
 
     base_url: str
-    auth_key: str
+    auth_key: str = ""
     timeout: int = 30
     verify_ssl: bool = True
     max_retries: int = 3
     retry_backoff: float = 1.0
     proxy: str | None = None
     socks_proxy: str | None = None
+    # Modern API credentials (v0.35.0+)
+    username: str = ""
+    password: str = ""
+    platform_token: str = ""
+    api_mode: str = "auto"  # "legacy" | "modern" | "auto"
+    # Private fields
     _ssl_context: ssl.SSLContext | None = field(default=None, init=False, repr=False)
     _opener: urllib.request.OpenerDirector | None = field(
         default=None, init=False, repr=False
     )
     _original_socket: type | None = field(default=None, init=False, repr=False)
+    _bearer_token: str | None = field(default=None, init=False, repr=False)
+    _api_mode_detected: bool | None = field(default=None, init=False, repr=False)
 
     def __post_init__(self) -> None:
         """Initialize SSL context and proxy handler."""
