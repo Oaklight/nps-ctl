@@ -9,6 +9,7 @@ import json
 import logging
 import socket
 import ssl
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -81,6 +82,9 @@ class NPSClient:
     _original_socket: type | None = field(default=None, init=False, repr=False)
     _bearer_token: str | None = field(default=None, init=False, repr=False)
     _api_mode_detected: bool | None = field(default=None, init=False, repr=False)
+    _auth_lock: threading.Lock = field(
+        default_factory=threading.Lock, init=False, repr=False
+    )
 
     def __post_init__(self) -> None:
         """Initialize SSL context and proxy handler."""
@@ -363,6 +367,209 @@ class NPSClient:
             elapsed_ms = (time.perf_counter() - start_time) * 1000
             op_logger.request_failed(
                 method, endpoint, str(e), status_code=getattr(e, "status_code", None)
+            )
+            raise
+        except json.JSONDecodeError as e:
+            elapsed_ms = (time.perf_counter() - start_time) * 1000
+            op_logger.request_failed(method, endpoint, f"Invalid JSON: {e}")
+            raise NPSAPIError(f"Invalid JSON response: {e}") from e
+
+    # --- Modern API support (v0.35.0+) ---
+
+    @property
+    def is_modern(self) -> bool:
+        """Check if this server supports the modern /api/* management API.
+
+        Returns:
+            True if the server supports modern API and credentials are configured.
+        """
+        if self.api_mode == "legacy":
+            return False
+        # No modern credentials → can't use modern API
+        if not self.username and not self.platform_token:
+            return False
+        if self.api_mode == "modern":
+            return True
+        # auto: probe once with double-checked locking
+        if self._api_mode_detected is not None:
+            return self._api_mode_detected
+        with self._auth_lock:
+            if self._api_mode_detected is None:
+                self._api_mode_detected = self._detect_modern()
+        return self._api_mode_detected
+
+    def _detect_modern(self) -> bool:
+        """Probe the server to check if the modern API is available.
+
+        Sends a GET request to /api/system/health with a short timeout
+        and no retry. Returns True on HTTP 200, False otherwise.
+
+        Returns:
+            True if the modern API is available.
+        """
+        url = f"{self.base_url}/api/system/health"
+        req = urllib.request.Request(url, method="GET")
+        detect_timeout = min(5, self.timeout)
+        try:
+            if self._opener:
+                with self._opener.open(req, timeout=detect_timeout) as response:
+                    is_modern = response.status == 200
+            else:
+                with urllib.request.urlopen(
+                    req, timeout=detect_timeout, context=self._ssl_context
+                ) as response:
+                    is_modern = response.status == 200
+            logger.info(
+                f"Modern API detection for {self.base_url}: "
+                f"{'available' if is_modern else 'not available'}"
+            )
+            return is_modern
+        except Exception:
+            logger.debug(f"Modern API not available at {self.base_url}")
+            return False
+
+    def _get_bearer_token(self) -> str:
+        """Get or refresh the Bearer token for modern API authentication.
+
+        Uses platform_token directly if configured, otherwise authenticates
+        via POST /api/auth/token with username/password.
+
+        Returns:
+            Bearer token string.
+
+        Raises:
+            NPSAuthError: If token acquisition fails.
+        """
+        if self.platform_token:
+            return self.platform_token
+
+        with self._auth_lock:
+            if self._bearer_token:
+                return self._bearer_token
+
+            url = f"{self.base_url}/api/auth/token"
+            payload = json.dumps(
+                {"username": self.username, "password": self.password}
+            ).encode("utf-8")
+            req = urllib.request.Request(url, data=payload, method="POST")
+            req.add_header("Content-Type", "application/json")
+
+            try:
+                raw = self._request_with_retry(
+                    req,
+                    error_prefix="Failed to acquire Bearer token",
+                    error_cls=NPSAuthError,
+                )
+                data = json.loads(raw.decode("utf-8"))
+                # Extract token from response — try common locations
+                token = (
+                    data.get("token")
+                    or data.get("data", {}).get("token")
+                    or data.get("access_token")
+                )
+                if not token:
+                    raise NPSAuthError(
+                        f"No token in auth response: {list(data.keys())}"
+                    )
+                self._bearer_token = token
+                logger.info(f"Bearer token acquired for {self.base_url}")
+                return token
+            except NPSAuthError:
+                raise
+            except (json.JSONDecodeError, ValueError) as e:
+                raise NPSAuthError(f"Invalid auth response: {e}") from e
+
+    def _invalidate_token(self) -> None:
+        """Clear the cached Bearer token to force re-authentication."""
+        with self._auth_lock:
+            self._bearer_token = None
+
+    def api_request(
+        self,
+        method: str,
+        endpoint: str,
+        data: dict[str, Any] | None = None,
+        params: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Make an authenticated modern API request with JSON body.
+
+        Args:
+            method: HTTP method (GET, POST, etc.).
+            endpoint: API endpoint (e.g., "/api/hosts").
+            data: JSON body for POST requests.
+            params: Query parameters for GET requests.
+
+        Returns:
+            JSON response as dictionary.
+
+        Raises:
+            NPSAPIError: If the request fails.
+        """
+        start_time = time.perf_counter()
+        op_logger.request_start(method, endpoint, data)
+
+        token = self._get_bearer_token()
+
+        # Build URL with query params
+        url = f"{self.base_url}{endpoint}"
+        if params:
+            filtered = {k: str(v) for k, v in params.items() if v is not None}
+            if filtered:
+                url = f"{url}?{urllib.parse.urlencode(filtered)}"
+
+        # Build request
+        if data is not None and method != "GET":
+            body = json.dumps(data).encode("utf-8")
+            req = urllib.request.Request(url, data=body, method=method)
+            req.add_header("Content-Type", "application/json")
+        else:
+            req = urllib.request.Request(url, method=method)
+
+        # Set auth header
+        if self.platform_token:
+            req.add_header("X-Node-Token", token)
+        else:
+            req.add_header("Authorization", f"Bearer {token}")
+
+        try:
+            raw = self._request_with_retry(
+                req, error_prefix=f"API request {endpoint} failed"
+            )
+            result = json.loads(raw.decode("utf-8"))
+            elapsed_ms = (time.perf_counter() - start_time) * 1000
+            op_logger.request_success(method, endpoint, response_time_ms=elapsed_ms)
+            return result
+
+        except NPSAPIError as e:
+            # On 401, invalidate token and retry once
+            if "401" in str(e):
+                logger.info("Got 401, refreshing token and retrying...")
+                self._invalidate_token()
+                token = self._get_bearer_token()
+                if self.platform_token:
+                    req.remove_header("X-Node-Token")
+                    req.add_header("X-Node-Token", token)
+                else:
+                    req.remove_header("Authorization")
+                    req.add_header("Authorization", f"Bearer {token}")
+                try:
+                    raw = self._request_with_retry(
+                        req, error_prefix=f"API request {endpoint} failed (retry)"
+                    )
+                    result = json.loads(raw.decode("utf-8"))
+                    elapsed_ms = (time.perf_counter() - start_time) * 1000
+                    op_logger.request_success(
+                        method, endpoint, response_time_ms=elapsed_ms
+                    )
+                    return result
+                except Exception:
+                    pass  # Fall through to original error
+            elapsed_ms = (time.perf_counter() - start_time) * 1000
+            op_logger.request_failed(
+                method,
+                endpoint,
+                str(e),
+                status_code=getattr(e, "status_code", None),
             )
             raise
         except json.JSONDecodeError as e:
