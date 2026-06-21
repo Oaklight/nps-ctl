@@ -105,6 +105,7 @@ class HostInfo(TypedDict, total=False):
     Client: ClientInfo
     Target: dict[str, Any]
     AutoHttps: bool
+    UserAuth: dict[str, Any]
 
 
 @dataclass

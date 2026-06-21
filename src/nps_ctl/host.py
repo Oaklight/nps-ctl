@@ -2,6 +2,8 @@
 
 This module provides functions for managing host (domain) mappings on an
 NPS server, including listing, adding, editing, and deleting hosts.
+
+Supports both legacy (/index/*) and modern (/api/*) API endpoints.
 """
 
 from __future__ import annotations
@@ -9,10 +11,13 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, cast
 
 from .types import HostInfo
-from .utils import fetch_all_pages
+from .utils import extract_api_items, fetch_all_api_pages, fetch_all_pages
 
 if TYPE_CHECKING:
     from .base import NPSClient
+
+
+# --- Public API (dispatch to v1/v2) ---
 
 
 def list_hosts(
@@ -36,20 +41,9 @@ def list_hosts(
     Returns:
         List of host information dictionaries.
     """
-    data: dict[str, Any] = {
-        "search": search,
-        "offset": offset,
-        "limit": limit,
-    }
-    if client_id is not None:
-        data["client_id"] = client_id
-
-    if not paginate:
-        result = nps.request("/index/hostlist", method="POST", data=data)
-        return result.get("rows", [])
-
-    rows = fetch_all_pages(nps, "/index/hostlist", data, limit=limit)
-    return cast(list[HostInfo], rows)
+    if nps.is_modern:
+        return _list_hosts_v2(nps, client_id, search, offset, limit, paginate)
+    return _list_hosts_v1(nps, client_id, search, offset, limit, paginate)
 
 
 def get_host(nps: NPSClient, host_id: int) -> HostInfo | None:
@@ -62,10 +56,9 @@ def get_host(nps: NPSClient, host_id: int) -> HostInfo | None:
     Returns:
         Host information or None if not found.
     """
-    result = nps.request("/index/gethost", method="POST", data={"id": host_id})
-    if result.get("status") == 1:
-        return result.get("data")
-    return None
+    if nps.is_modern:
+        return _get_host_v2(nps, host_id)
+    return _get_host_v1(nps, host_id)
 
 
 def add_host(
@@ -97,19 +90,31 @@ def add_host(
     Returns:
         True if successful.
     """
-    data = {
-        "client_id": client_id,
-        "host": host,
-        "target": target,
-        "remark": remark,
-        "location": location,
-        "scheme": scheme,
-        "header": header_change,
-        "hostchange": host_change,
-        "auth": auth,
-    }
-    result = nps.request("/index/addhost", method="POST", data=data)
-    return result.get("status") == 1
+    if nps.is_modern:
+        return _add_host_v2(
+            nps,
+            client_id,
+            host,
+            target,
+            remark,
+            location,
+            scheme,
+            header_change,
+            host_change,
+            auth,
+        )
+    return _add_host_v1(
+        nps,
+        client_id,
+        host,
+        target,
+        remark,
+        location,
+        scheme,
+        header_change,
+        host_change,
+        auth,
+    )
 
 
 def edit_host(
@@ -143,6 +148,122 @@ def edit_host(
     Returns:
         True if successful.
     """
+    if nps.is_modern:
+        return _edit_host_v2(
+            nps,
+            host_id,
+            client_id,
+            host,
+            target,
+            remark,
+            location,
+            scheme,
+            header_change,
+            host_change,
+            auth,
+        )
+    return _edit_host_v1(
+        nps,
+        host_id,
+        client_id,
+        host,
+        target,
+        remark,
+        location,
+        scheme,
+        header_change,
+        host_change,
+        auth,
+    )
+
+
+def del_host(nps: NPSClient, host_id: int) -> bool:
+    """Delete a host mapping.
+
+    Args:
+        nps: NPSClient instance.
+        host_id: The host ID to delete.
+
+    Returns:
+        True if successful.
+    """
+    if nps.is_modern:
+        return _del_host_v2(nps, host_id)
+    return _del_host_v1(nps, host_id)
+
+
+# --- Legacy API (v1) ---
+
+
+def _list_hosts_v1(
+    nps: NPSClient,
+    client_id: int | None,
+    search: str,
+    offset: int,
+    limit: int,
+    paginate: bool,
+) -> list[HostInfo]:
+    data: dict[str, Any] = {
+        "search": search,
+        "offset": offset,
+        "limit": limit,
+    }
+    if client_id is not None:
+        data["client_id"] = client_id
+    if not paginate:
+        result = nps.request("/index/hostlist", method="POST", data=data)
+        return result.get("rows", [])
+    rows = fetch_all_pages(nps, "/index/hostlist", data, limit=limit)
+    return cast(list[HostInfo], rows)
+
+
+def _get_host_v1(nps: NPSClient, host_id: int) -> HostInfo | None:
+    result = nps.request("/index/gethost", method="POST", data={"id": host_id})
+    if result.get("status") == 1:
+        return result.get("data")
+    return None
+
+
+def _add_host_v1(
+    nps: NPSClient,
+    client_id: int,
+    host: str,
+    target: str,
+    remark: str,
+    location: str,
+    scheme: str,
+    header_change: str,
+    host_change: str,
+    auth: str,
+) -> bool:
+    data = {
+        "client_id": client_id,
+        "host": host,
+        "target": target,
+        "remark": remark,
+        "location": location,
+        "scheme": scheme,
+        "header": header_change,
+        "hostchange": host_change,
+        "auth": auth,
+    }
+    result = nps.request("/index/addhost", method="POST", data=data)
+    return result.get("status") == 1
+
+
+def _edit_host_v1(
+    nps: NPSClient,
+    host_id: int,
+    client_id: int,
+    host: str,
+    target: str,
+    remark: str,
+    location: str,
+    scheme: str,
+    header_change: str,
+    host_change: str,
+    auth: str,
+) -> bool:
     data = {
         "id": host_id,
         "client_id": client_id,
@@ -159,15 +280,134 @@ def edit_host(
     return result.get("status") == 1
 
 
-def del_host(nps: NPSClient, host_id: int) -> bool:
-    """Delete a host mapping.
-
-    Args:
-        nps: NPSClient instance.
-        host_id: The host ID to delete.
-
-    Returns:
-        True if successful.
-    """
+def _del_host_v1(nps: NPSClient, host_id: int) -> bool:
     result = nps.request("/index/delhost", method="POST", data={"id": host_id})
     return result.get("status") == 1
+
+
+# --- Modern API (v2) ---
+
+
+def _normalize_host(item: dict[str, Any]) -> HostInfo:
+    """Normalize modern API host response to legacy HostInfo format.
+
+    Args:
+        item: Host data from modern API response.
+
+    Returns:
+        HostInfo dict with PascalCase keys matching legacy format.
+    """
+    client_data = item.get("client") or {}
+    target_str = item.get("target", "")
+
+    return {
+        "Id": item.get("id", 0),
+        "Host": item.get("host", ""),
+        "HeaderChange": item.get("header", ""),
+        "HostChange": item.get("host_change", ""),
+        "Location": item.get("location", ""),
+        "Remark": item.get("remark", ""),
+        "Scheme": item.get("scheme", "all"),
+        "CertFilePath": item.get("cert_file", ""),
+        "KeyFilePath": item.get("key_file", ""),
+        "NoStore": item.get("no_store", False),
+        "IsClose": item.get("is_close", False),
+        "AutoHttps": item.get("auto_https", False),
+        "Client": {
+            "Id": client_data.get("id", 0),
+            "Remark": client_data.get("remark", ""),
+            "VerifyKey": client_data.get("verify_key", ""),
+            "Status": client_data.get("status", False),
+            "IsConnect": client_data.get("is_connect", False),
+        },
+        "Target": {"TargetStr": target_str},
+        "UserAuth": {"Content": item.get("auth", "")},
+    }
+
+
+def _list_hosts_v2(
+    nps: NPSClient,
+    client_id: int | None,
+    search: str,
+    offset: int,
+    limit: int,
+    paginate: bool,
+) -> list[HostInfo]:
+    params: dict[str, Any] = {"offset": offset, "limit": limit}
+    if search:
+        params["search"] = search
+    if client_id is not None:
+        params["client_id"] = client_id
+    if not paginate:
+        resp = nps.api_request("GET", "/api/hosts", params=params)
+        return [_normalize_host(i) for i in extract_api_items(resp)]
+    rows = fetch_all_api_pages(nps, "/api/hosts", params, limit=limit)
+    return [_normalize_host(i) for i in rows]
+
+
+def _get_host_v2(nps: NPSClient, host_id: int) -> HostInfo | None:
+    resp = nps.api_request("GET", f"/api/hosts/{host_id}")
+    item = resp.get("data")
+    if not isinstance(item, dict):
+        return None
+    return _normalize_host(item)
+
+
+def _add_host_v2(
+    nps: NPSClient,
+    client_id: int,
+    host: str,
+    target: str,
+    remark: str,
+    location: str,
+    scheme: str,
+    header_change: str,
+    host_change: str,
+    auth: str,
+) -> bool:
+    data: dict[str, Any] = {
+        "client_id": client_id,
+        "host": host,
+        "target": target,
+        "remark": remark,
+        "location": location,
+        "scheme": scheme,
+        "header": header_change,
+        "host_change": host_change,
+        "auth": auth,
+    }
+    resp = nps.api_request("POST", "/api/hosts", data=data)
+    return resp.get("data") is not None
+
+
+def _edit_host_v2(
+    nps: NPSClient,
+    host_id: int,
+    client_id: int,
+    host: str,
+    target: str,
+    remark: str,
+    location: str,
+    scheme: str,
+    header_change: str,
+    host_change: str,
+    auth: str,
+) -> bool:
+    data: dict[str, Any] = {
+        "client_id": client_id,
+        "host": host,
+        "target": target,
+        "remark": remark,
+        "location": location,
+        "scheme": scheme,
+        "header": header_change,
+        "host_change": host_change,
+        "auth": auth,
+    }
+    resp = nps.api_request("POST", f"/api/hosts/{host_id}/actions/update", data=data)
+    return resp.get("data") is not None
+
+
+def _del_host_v2(nps: NPSClient, host_id: int) -> bool:
+    resp = nps.api_request("POST", f"/api/hosts/{host_id}/actions/delete")
+    return resp.get("data") is not None

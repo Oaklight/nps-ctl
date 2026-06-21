@@ -8,6 +8,8 @@ from nps_ctl import client_mgmt, host, tunnel
 class FakeNPS:
     """Serve a paginated list endpoint from an in-memory row set."""
 
+    is_modern = False
+
     def __init__(self, rows, total=None, page_cap=None):
         self.rows = rows
         self.total = len(rows) if total is None else total
@@ -103,3 +105,67 @@ def test_list_tunnels_fetches_all_pages_for_type():
 
     assert len(rows) == 150
     assert len(nps.requests) == 2
+
+
+class FakeModernNPS:
+    """Serve a paginated modern /api/* list endpoint."""
+
+    is_modern = True
+
+    def __init__(self, rows, total=None, page_cap=None):
+        self.rows = rows
+        self.total = len(rows) if total is None else total
+        self.page_cap = page_cap
+        self.requests = []
+
+    def api_request(self, method, path, params=None, data=None):
+        params = params or {}
+        offset = int(params.get("offset", 0))
+        limit = int(params.get("limit", 100))
+        if self.page_cap is not None:
+            limit = min(limit, self.page_cap)
+        self.requests.append((path, offset, limit))
+        return {
+            "data": self.rows[offset : offset + limit],
+            "meta": {"pagination": {"total": self.total}},
+        }
+
+
+def test_modern_list_hosts_fetches_all_pages():
+    nps = FakeModernNPS(_rows(151))
+
+    rows = host.list_hosts(nps)
+
+    assert len(rows) == 151
+    assert nps.requests == [("/api/hosts", 0, 100), ("/api/hosts", 100, 100)]
+
+
+def test_modern_list_clients_fetches_all_pages():
+    nps = FakeModernNPS(_rows(250))
+
+    rows = client_mgmt.list_clients(nps)
+
+    assert len(rows) == 250
+    assert [request[1] for request in nps.requests] == [0, 100, 200]
+
+
+def test_modern_list_tunnels_uses_single_endpoint_and_pages():
+    nps = FakeModernNPS(_rows(250))
+
+    rows = tunnel.list_tunnels(nps)
+
+    assert len(rows) == 250
+    assert nps.requests == [
+        ("/api/tunnels", 0, 100),
+        ("/api/tunnels", 100, 100),
+        ("/api/tunnels", 200, 100),
+    ]
+
+
+def test_modern_list_hosts_paginate_false_single_request():
+    nps = FakeModernNPS(_rows(151))
+
+    rows = host.list_hosts(nps, paginate=False)
+
+    assert len(rows) == 100
+    assert nps.requests == [("/api/hosts", 0, 100)]
