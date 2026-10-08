@@ -262,9 +262,17 @@ fi
 echo "Extracting..."
 tar -xzf nps.tar.gz
 
-echo "Running NPS install..."
+# Pre-copy binary to ensure it's deployed even if nps install's internal copy fails
+echo "Deploying NPS binary..."
 chmod +x /tmp/nps
-/tmp/nps install
+cp /tmp/nps /usr/bin/nps
+
+echo "Running NPS install..."
+NPS_INSTALL_OUTPUT=$(/tmp/nps install 2>&1) || true
+echo "$NPS_INSTALL_OUTPUT"
+if echo "$NPS_INSTALL_OUTPUT" | grep -qi "failed"; then
+    echo "Warning: nps install reported issues, will verify and apply fallback if needed"
+fi
 
 echo "Cleaning up..."
 rm -f /tmp/nps.tar.gz /tmp/nps
@@ -281,20 +289,55 @@ echo "Initializing data files..."
 [ -f /etc/nps/conf/tasks.json ] || echo '[]' > /etc/nps/conf/tasks.json
 [ -f /etc/nps/conf/global.json ] || echo '{{}}' > /etc/nps/conf/global.json
 
+# Fallback: create systemd service file if nps install failed to create it
+if [ ! -f /etc/systemd/system/Nps.service ]; then
+    echo "Service file missing after nps install, creating fallback Nps.service..."
+    NPS_BIN=$(which nps 2>/dev/null || echo "/usr/bin/nps")
+    cat > /etc/systemd/system/Nps.service << EOFSVC
+[Unit]
+Description=NPS Server
+ConditionFileIsExecutable=$NPS_BIN
+Requires=network.target
+After=network-online.target syslog.target
+[Service]
+LimitNOFILE=65536
+StartLimitInterval=5
+StartLimitBurst=10
+ExecStart=$NPS_BIN service
+Restart=always
+RestartSec=120
+[Install]
+WantedBy=multi-user.target
+EOFSVC
+fi
+
 echo "Starting NPS service..."
-# NPS install creates Nps.service (capital N)
 systemctl daemon-reload
 systemctl enable Nps
 systemctl start Nps
 
-echo "Checking service status..."
+echo "Verifying deployment..."
 sleep 2
-if systemctl is-active --quiet Nps; then
-    echo "NPS installed and running successfully."
-else
-    echo "Warning: NPS service may not be running properly."
-    systemctl status Nps --no-pager || true
+
+# Hard verification — fail deploy if critical checks fail
+NPS_BIN=$(which nps 2>/dev/null || echo "")
+if [ -z "$NPS_BIN" ] || [ ! -f "$NPS_BIN" ]; then
+    echo "Error: NPS binary not found after install"
+    exit 1
 fi
+
+if [ ! -f /etc/systemd/system/Nps.service ]; then
+    echo "Error: Nps.service not found after install"
+    exit 1
+fi
+
+if ! systemctl is-active --quiet Nps; then
+    echo "Error: NPS service failed to start"
+    systemctl status Nps --no-pager || true
+    exit 1
+fi
+
+echo "NPS installed and running successfully."
 """
 
     return ssh_execute(ssh_host, install_script, timeout)
@@ -491,18 +534,48 @@ if [ "$RESTORE_NEEDED" -eq 1 ]; then
     echo "Warning: some data files were restored from backup"
 fi
 
+# Fallback: create systemd service file if missing (e.g. after VPS reimage)
+if [ ! -f /etc/systemd/system/Nps.service ]; then
+    echo "Service file missing, creating fallback Nps.service..."
+    NPS_BIN=$(which nps 2>/dev/null || echo "/usr/bin/nps")
+    cat > /etc/systemd/system/Nps.service << EOFSVC
+[Unit]
+Description=NPS Server
+ConditionFileIsExecutable=$NPS_BIN
+Requires=network.target
+After=network-online.target syslog.target
+[Service]
+LimitNOFILE=65536
+StartLimitInterval=5
+StartLimitBurst=10
+ExecStart=$NPS_BIN service
+Restart=always
+RestartSec=120
+[Install]
+WantedBy=multi-user.target
+EOFSVC
+fi
+
 echo "Starting NPS service..."
 systemctl daemon-reload
-systemctl start Nps 2>/dev/null || systemctl start nps 2>/dev/null || true
+systemctl start Nps 2>/dev/null || systemctl start nps 2>/dev/null
 
-echo "Checking service status..."
+echo "Verifying deployment..."
 sleep 2
-if systemctl is-active --quiet Nps 2>/dev/null || systemctl is-active --quiet nps 2>/dev/null; then
-    echo "NPS upgraded and running successfully."
-else
-    echo "Warning: NPS service may not be running properly."
-    systemctl status Nps --no-pager 2>/dev/null || systemctl status nps --no-pager 2>/dev/null || true
+
+NPS_BIN=$(which nps 2>/dev/null || echo "")
+if [ -z "$NPS_BIN" ] || [ ! -f "$NPS_BIN" ]; then
+    echo "Error: NPS binary not found after upgrade"
+    exit 1
 fi
+
+if ! systemctl is-active --quiet Nps 2>/dev/null && ! systemctl is-active --quiet nps 2>/dev/null; then
+    echo "Error: NPS service failed to start after upgrade"
+    systemctl status Nps --no-pager 2>/dev/null || systemctl status nps --no-pager 2>/dev/null || true
+    exit 1
+fi
+
+echo "NPS upgraded and running successfully."
 
 echo "Cleaning up backup..."
 rm -rf /etc/nps/conf/backup
