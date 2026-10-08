@@ -37,6 +37,37 @@ DEFAULT_NPS_RELEASE_URL = (
     "https://github.com/djylb/nps/releases/download/v0.34.7/linux_amd64_server.tar.gz"
 )
 
+# Fallback systemd service template matching upstream's Nps.service.
+# Used when `nps install` silently fails to create the service file.
+# NPS_BIN is expanded at shell runtime.
+_NPS_SERVICE_TEMPLATE = """\
+[Unit]
+Description=NPS Server
+ConditionFileIsExecutable=$NPS_BIN
+Requires=network.target
+After=network-online.target syslog.target
+[Service]
+LimitNOFILE=65536
+StartLimitInterval=5
+StartLimitBurst=10
+ExecStart=$NPS_BIN service
+Restart=always
+RestartSec=120
+[Install]
+WantedBy=multi-user.target
+"""
+
+
+def _nps_service_fallback_block() -> str:
+    """Generate shell script block that creates Nps.service if missing."""
+    return f"""\
+if [ ! -f /etc/systemd/system/Nps.service ]; then
+    echo "Service file missing, creating fallback Nps.service..."
+    NPS_BIN=$(command -v nps 2>/dev/null || echo "/usr/bin/nps")
+    cat > /etc/systemd/system/Nps.service << EOFSVC
+{_NPS_SERVICE_TEMPLATE}EOFSVC
+fi"""
+
 
 @dataclass
 class DeployResult:
@@ -290,37 +321,18 @@ echo "Initializing data files..."
 [ -f /etc/nps/conf/global.json ] || echo '{{}}' > /etc/nps/conf/global.json
 
 # Fallback: create systemd service file if nps install failed to create it
-if [ ! -f /etc/systemd/system/Nps.service ]; then
-    echo "Service file missing after nps install, creating fallback Nps.service..."
-    NPS_BIN=$(which nps 2>/dev/null || echo "/usr/bin/nps")
-    cat > /etc/systemd/system/Nps.service << EOFSVC
-[Unit]
-Description=NPS Server
-ConditionFileIsExecutable=$NPS_BIN
-Requires=network.target
-After=network-online.target syslog.target
-[Service]
-LimitNOFILE=65536
-StartLimitInterval=5
-StartLimitBurst=10
-ExecStart=$NPS_BIN service
-Restart=always
-RestartSec=120
-[Install]
-WantedBy=multi-user.target
-EOFSVC
-fi
+{_nps_service_fallback_block()}
 
 echo "Starting NPS service..."
 systemctl daemon-reload
 systemctl enable Nps
-systemctl start Nps
+systemctl start Nps || true
 
 echo "Verifying deployment..."
 sleep 2
 
 # Hard verification — fail deploy if critical checks fail
-NPS_BIN=$(which nps 2>/dev/null || echo "")
+NPS_BIN=$(command -v nps 2>/dev/null || echo "")
 if [ -z "$NPS_BIN" ] || [ ! -f "$NPS_BIN" ]; then
     echo "Error: NPS binary not found after install"
     exit 1
@@ -504,7 +516,7 @@ echo "Extracting..."
 tar -xzf nps.tar.gz
 
 echo "Replacing binary..."
-NPS_BIN=$(which nps 2>/dev/null || echo "/usr/bin/nps")
+NPS_BIN=$(command -v nps 2>/dev/null || echo "/usr/bin/nps")
 chmod +x /tmp/nps
 cp /tmp/nps "$NPS_BIN"
 
@@ -535,35 +547,16 @@ if [ "$RESTORE_NEEDED" -eq 1 ]; then
 fi
 
 # Fallback: create systemd service file if missing (e.g. after VPS reimage)
-if [ ! -f /etc/systemd/system/Nps.service ]; then
-    echo "Service file missing, creating fallback Nps.service..."
-    NPS_BIN=$(which nps 2>/dev/null || echo "/usr/bin/nps")
-    cat > /etc/systemd/system/Nps.service << EOFSVC
-[Unit]
-Description=NPS Server
-ConditionFileIsExecutable=$NPS_BIN
-Requires=network.target
-After=network-online.target syslog.target
-[Service]
-LimitNOFILE=65536
-StartLimitInterval=5
-StartLimitBurst=10
-ExecStart=$NPS_BIN service
-Restart=always
-RestartSec=120
-[Install]
-WantedBy=multi-user.target
-EOFSVC
-fi
+{_nps_service_fallback_block()}
 
 echo "Starting NPS service..."
 systemctl daemon-reload
-systemctl start Nps 2>/dev/null || systemctl start nps 2>/dev/null
+systemctl start Nps 2>/dev/null || systemctl start nps 2>/dev/null || true
 
 echo "Verifying deployment..."
 sleep 2
 
-NPS_BIN=$(which nps 2>/dev/null || echo "")
+NPS_BIN=$(command -v nps 2>/dev/null || echo "")
 if [ -z "$NPS_BIN" ] || [ ! -f "$NPS_BIN" ]; then
     echo "Error: NPS binary not found after upgrade"
     exit 1
