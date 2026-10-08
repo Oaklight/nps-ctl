@@ -43,11 +43,7 @@ nps-ctl client list
 nps-ctl host list
 ```
 
-<div class="grid cards" markdown>
-
-- :material-download: **[Installation](get-started/installation.md)** — install nps-ctl and set up your environment
-- :material-rocket-launch: **[Quick Start](get-started/quickstart.md)** — configure your first edge and run basic commands
-- :material-console: **[CLI Reference](cli/index.md)** — complete reference for all command groups
-- :material-language-python: **[Python Library](api/index.md)** — use nps-ctl as a library in your own scripts
-
-</div>
+- **[Installation](get-started/installation.md)** — install nps-ctl and set up your environment
+- **[Quick Start](get-started/quickstart.md)** — configure your first edge and run basic commands
+- **[CLI Reference](guides/cli.md)** — complete reference for all command groups
+- **[Python Library](guides/library.md)** — use nps-ctl as a library in your own scripts
