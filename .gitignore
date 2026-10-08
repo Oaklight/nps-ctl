@@ -9,6 +9,7 @@ __pycache__/
 # Distribution / packaging
 .Python
 build/
+_nuitka_entry.py
 develop-eggs/
 dist/
 downloads/
