@@ -91,11 +91,26 @@ NUITKA_ENTRY := _nuitka_entry.py
 NUITKA_JOBS := $(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)
 NUITKA_EXTRA_FLAGS ?=
 
+# Aggressively exclude stdlib modules not used by nps-ctl or rich.
+# nps-ctl uses: argparse, base64, dataclasses, enum, hashlib, json, logging,
+#   os, pathlib, random, secrets, signal, socket, ssl, subprocess, sys,
+#   threading, time, tomllib, typing, urllib, concurrent.futures, atexit
+# rich uses: html.parser, inspect, os, re, sys, threading, typing, shutil
 NUITKA_NOFOLLOW := \
 	pytest setuptools pip _pytest \
 	tkinter unittest pydoc doctest test \
 	distutils ensurepip idlelib lib2to3 \
-	turtle turtledemo xmlrpc curses
+	turtle turtledemo xmlrpc curses \
+	asyncio email sqlite3 csv ctypes \
+	pdb cProfile profile trace \
+	ftplib imaplib poplib smtplib nntplib telnetlib \
+	xml.sax xml.dom xml.etree \
+	multiprocessing \
+	http.server http.cookiejar xmlrpc \
+	zipapp compileall py_compile \
+	webbrowser antigravity this \
+	gettext optparse \
+	cgitb tabnanny symtable
 
 NUITKA_NOFOLLOW_FLAGS := $(foreach m,$(NUITKA_NOFOLLOW),--nofollow-import-to=$m)
 
@@ -108,6 +123,7 @@ NUITKA_FLAGS = \
 	--python-flag=no_docstrings \
 	--python-flag=-O \
 	--python-flag=no_warnings \
+	--python-flag=no_site \
 	--include-package=nps_ctl \
 	$(NUITKA_NOFOLLOW_FLAGS) \
 	--assume-yes-for-downloads \
@@ -146,6 +162,7 @@ build-binary-musl:
 				--python-flag=no_docstrings \
 				--python-flag=-O \
 				--python-flag=no_warnings \
+				--python-flag=no_site \
 				--include-package=nps_ctl \
 				$(NUITKA_NOFOLLOW_FLAGS) \
 				--assume-yes-for-downloads \
