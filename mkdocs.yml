@@ -68,12 +68,16 @@ extra:
 
 nav:
   - 首页: index.md
-  - 使用指南:
-      - 安装: usage/installation.md
-      - 配置: usage/configuration.md
-      - 命令行参考: usage/cli.md
-      - 库的使用: usage/library.md
-  - API 参考:
-      - NPSClient: api/client.md
-      - NPSCluster: api/cluster.md
+  - 快速入门:
+      - 安装: get-started/installation.md
+      - 快速开始: get-started/quickstart.md
+      - 配置: get-started/configuration.md
+  - 指南:
+      - 核心概念: guides/concepts.md
+      - 命令行参考: guides/cli.md
+      - Python 库: guides/library.md
+  - 参考:
+      - API 参考: reference/api.md
+      - 命令行速查: reference/cli-flags.md
+  - 故障排除: troubleshooting.md
   - 更新日志: changelog.md
