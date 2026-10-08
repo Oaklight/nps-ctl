@@ -8,6 +8,27 @@ nps-ctl 的所有重要变更均记录于此。本项目遵循 [Keep a Changelog
 
 ---
 
+## v0.7.0 — 2026-10-08
+
+### 新增
+
+- **Host 映射 HTTP Basic Auth**：`host add` 和 `host edit` 新增 `--auth` 参数，设置 NPS 原生 Basic Auth（格式：`"user=pass"` 或 `"user1=pass1,user2=pass2"`；空字符串清除）
+- `host list` 输出新增 Auth 状态列
+- 现代 API 传输层：自动探测 djylb/nps v0.35.0 `/api/*` REST 端点，Bearer token 认证（线程安全自动刷新）——为后续迁移到现代 API 做准备
+
+### 修复
+
+- **Edge 安装静默失败**：`nps-ctl edge install` 现在能检测并恢复上游 `nps install` 退出码为 0 但实际部署失败的情况（预拷贝二进制、兜底创建 `Nps.service`、验证失败时硬退出）
+- **Edge 升级缺失 service 文件**：`edge upgrade` 在 systemd service 文件丢失时（如 VPS 重装后）自动重建
+- `host edit` 中 `HeaderChange` 字段名错误——编辑时会静默丢弃 header 修改规则
+
+### 变更
+
+- 部署脚本中 `which` 替换为 POSIX `command -v`，提升跨发行版兼容性
+- 固定开发工具版本：ruff 0.15.20、ty 0.0.54
+
+---
+
 ## v0.6.0 — 2026-06-13
 
 ### 新增

@@ -461,11 +461,13 @@ nps-ctl host list -e nps-us
 | `-T`, `--target`  | 目标地址（host:port，必填）              |
 | `-e`, `--edge`    | Edge 名称（默认：所有 Edge）             |
 | `-r`, `--remark`  | 域名映射备注                             |
+| `--auth`          | HTTP Basic Auth（`"user=pass"` 或 `"user1=pass1,user2=pass2"`） |
 | `-y`, `--yes`     | 跳过确认提示                             |
 
 ```bash
 nps-ctl host add -d app.example.com -c my-server -T 127.0.0.1:8080
 nps-ctl host add -d api.example.com -c my-server -T :3000 -r api-backend
+nps-ctl host add -d private.example.com -c my-server -T :8080 --auth "admin=secret"
 ```
 
 ### `host del`
@@ -510,12 +512,14 @@ nps-ctl host del -r api-backend                 # 按备注跨 Edge 删除
 | `--new-domain`    | 新的域名                                       |
 | `--new-target`    | 新的目标地址（host:port）                      |
 | `--new-remark`    | 新的备注名称                                   |
+| `--auth`          | HTTP Basic Auth（`"user=pass"` 或空字符串清除） |
 | `-y`, `--yes`     | 跳过确认提示                                   |
 
 ```bash
 nps-ctl host edit --id 2 -e nps-us --new-target 10.0.0.2:8080
 nps-ctl host edit -d app.example.com --new-domain app2.example.com
 nps-ctl host edit -r api-backend --new-target :3001
+nps-ctl host edit -d private.example.com --auth ""   # 清除 auth
 ```
 
 ---
