@@ -41,11 +41,7 @@ nps-ctl client list
 nps-ctl host list
 ```
 
-<div class="grid cards" markdown>
-
-- :material-download: **[安装](get-started/installation.md)** — 安装 nps-ctl 并配置环境
-- :material-rocket-launch: **[快速入门](get-started/quickstart.md)** — 配置你的第一个边缘节点并运行基本命令
-- :material-console: **[CLI 参考](cli/index.md)** — 所有命令组的完整参考
-- :material-language-python: **[Python 库](api/index.md)** — 在你自己的脚本中将 nps-ctl 作为库使用
-
-</div>
+- **[安装](get-started/installation.md)** — 安装 nps-ctl 并配置环境
+- **[快速入门](get-started/quickstart.md)** — 配置你的第一个边缘节点并运行基本命令
+- **[CLI 参考](guides/cli.md)** — 所有命令组的完整参考
+- **[Python 库](guides/library.md)** — 在你自己的脚本中将 nps-ctl 作为库使用
