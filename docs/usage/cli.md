@@ -446,11 +446,13 @@ Add a new host mapping to edge nodes.
 | `-T`, `--target` ADDR | Target address (host:port) (required) |
 | `-e`, `--edge` EDGE | Edge name to add host mapping to (default: all edges) |
 | `-r`, `--remark` TEXT | Host mapping remark |
+| `--auth` TEXT | HTTP Basic Auth (`"user=pass"` or `"user1=pass1,user2=pass2"`) |
 | `-y`, `--yes` | Skip confirmation prompts |
 
 ```bash
 nps-ctl host add -d app.example.com -c my-server -T :8080
 nps-ctl host add -d api.example.com -c my-server -T 127.0.0.1:3000 -r "api"
+nps-ctl host add -d private.example.com -c my-server -T :8080 --auth "admin=secret"
 ```
 
 ### `host del`
@@ -494,12 +496,14 @@ Edit an existing host mapping on edge node(s). Locator arguments identify the ho
 | `--new-domain` DOMAIN | New domain name |
 | `--new-target` ADDR | New target address (host:port) |
 | `--new-remark` TEXT | New host remark |
+| `--auth` TEXT | HTTP Basic Auth (`"user=pass"` or empty string to clear) |
 | `-y`, `--yes` | Skip confirmation prompts |
 
 ```bash
 nps-ctl host edit -d app.example.com --new-target :9090
 nps-ctl host edit -r "api" --new-domain api-v2.example.com
 nps-ctl host edit --id 2 -e nps-us --new-remark "web-app"
+nps-ctl host edit -d private.example.com --auth ""   # clear auth
 ```
 
 ---

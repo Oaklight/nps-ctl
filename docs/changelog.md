@@ -8,6 +8,27 @@ All notable changes to nps-ctl are documented here. This project follows [Keep a
 
 ---
 
+## v0.7.0 — 2026-10-08
+
+### Added
+
+- **HTTP Basic Auth for host mappings**: `--auth` flag on `host add` and `host edit` sets native NPS basic auth (format: `"user=pass"` or `"user1=pass1,user2=pass2"`; empty string to clear)
+- Auth status column in `host list` output
+- Modern API transport layer: auto-detection of djylb/nps v0.35.0 `/api/*` REST endpoint, Bearer token auth with thread-safe refresh — preparation for future modern API migration
+
+### Fixed
+
+- **Edge install silent failure**: `nps-ctl edge install` now detects and recovers when upstream `nps install` exits 0 despite failing to deploy (pre-copies binary, creates fallback `Nps.service`, hard-fails verification)
+- **Edge upgrade missing service file**: `edge upgrade` recreates the systemd service file if it was lost (e.g. after VPS reimage)
+- `HeaderChange` field name in `host edit` — was silently dropping header change rules on edit
+
+### Changed
+
+- `which` replaced with POSIX `command -v` in deploy scripts for portability
+- Pinned dev tool versions: ruff 0.15.20, ty 0.0.54
+
+---
+
 ## v0.6.0 — 2026-06-13
 
 ### Added
