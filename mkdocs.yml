@@ -68,12 +68,16 @@ extra:
 
 nav:
   - Home: index.md
-  - Usage:
-      - Installation: usage/installation.md
-      - Configuration: usage/configuration.md
-      - CLI Reference: usage/cli.md
-      - Library Usage: usage/library.md
-  - API Reference:
-      - NPSClient: api/client.md
-      - NPSCluster: api/cluster.md
+  - Get Started:
+      - Installation: get-started/installation.md
+      - Quick Start: get-started/quickstart.md
+      - Configuration: get-started/configuration.md
+  - Guides:
+      - Concepts: guides/concepts.md
+      - CLI Reference: guides/cli.md
+      - Python Library: guides/library.md
+  - Reference:
+      - API Reference: reference/api.md
+      - CLI Quick Reference: reference/cli-flags.md
+  - Troubleshooting: troubleshooting.md
   - Changelog: changelog.md

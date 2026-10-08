@@ -1,5 +1,7 @@
 # CLI Reference
 
+nps-ctl provides a rich command-line interface organized into five command groups. Each group manages a different aspect of your NPS infrastructure. For a quick overview of all flags, see the [CLI Quick Reference](../reference/cli-flags.md).
+
 ## Global Options
 
 | Option | Description |
@@ -525,24 +527,4 @@ nps-ctl util generate-auth-key 64       # Custom length
 
 ---
 
-## Short Flag Reference
-
-Quick reference for all single-letter flags:
-
-| Flag | Long Form | Scope |
-| --- | --- | --- |
-| `-a` | `--all` | `client list`, `tunnel list`, `host list` |
-| `-c` | `--client` | Subcommands that take a client argument |
-| `-d` | `--domain` | `host add`, `host del`, `host edit` |
-| `-e` | `--edge` | Most subcommands |
-| `-f` | `--from` | `edge sync` |
-| `-o` | `--output` | `edge export` |
-| `-p` | `--port` | `tunnel add`, `tunnel del`, `tunnel edit` |
-| `-q` | `--quiet` | `edge sync` |
-| `-r` | `--remark` | Various add/del/edit subcommands |
-| `-t` | `--type` | `tunnel list/add/del/edit`, `edge sync` |
-| `-v` | `--verbose` | Global and per-subcommand |
-| `-w` | `--workers` | `edge sync` |
-| `-y` | `--yes` | Most mutating subcommands |
-| `-T` | `--target` | `tunnel add`, `host add` |
-| `-V` | `--version` | Global |
+See also: [CLI Quick Reference](../reference/cli-flags.md) for a compact flag lookup table.

@@ -6,25 +6,48 @@ hide:
 
 # nps-ctl
 
-A Python library and CLI tool for managing [NPS](https://github.com/djylb/nps) proxy servers.
+**A Python CLI and library for managing NPS proxy server clusters.**
 
-!!! note
-    This project targets [djylb/nps](https://github.com/djylb/nps), the actively maintained fork of the original [ehang-io/nps](https://github.com/ehang-io/nps) (unmaintained since 2021). The API is compatible with both forks, but djylb/nps is recommended.
+[![PyPI version](https://img.shields.io/pypi/v/nps-ctl)](https://pypi.org/project/nps-ctl/)
+[![Python version](https://img.shields.io/pypi/pyversions/nps-ctl)](https://pypi.org/project/nps-ctl/)
+[![License](https://img.shields.io/github/license/Oaklight/nps-ctl)](https://github.com/Oaklight/nps-ctl)
+[![CI](https://img.shields.io/github/actions/workflow/status/Oaklight/nps-ctl/ci.yml)](https://github.com/Oaklight/nps-ctl/actions/workflows/ci.yml)
+
+!!! note "Upstream NPS fork"
+    nps-ctl targets the [djylb/nps](https://github.com/djylb/nps) fork, which
+    is the actively maintained continuation of the original NPS project. Make
+    sure your NPS server instances are running this fork.
 
 ## Features
 
-- **API Client** — Type-safe Python wrapper for the NPS HTTP API
-- **Multi-node Support** — Manage multiple NPS edge servers from a single interface
-- **Cluster Sync** — Synchronize clients, tunnels, and hosts across edge nodes
-- **NPC Deployment** — Install, configure, and manage NPC clients via SSH
-- **CLI Tool** — Rich terminal interface for all operations
-- **Minimal Dependencies** — Only requires [rich](https://github.com/Textualize/rich) for CLI output
+- **Multi-edge cluster management** — control multiple NPS server nodes from a single CLI, with per-edge or broadcast operations.
+- **Rich CLI and Python API** — full-featured command-line interface powered by Rich, plus a Python library for scripting and automation.
+- **SSH deployment of NPS/NPC** — install, upgrade, and manage NPS server and NPC client binaries on remote hosts over SSH.
+- **Cross-edge sync and broadcast** — add or remove hosts and tunnels across all edges in one command.
+- **HTTP Basic Auth for hosts** — configure authentication on HTTP host mappings directly from the CLI.
+- **Minimal dependencies** — only requires `rich`; no heavyweight frameworks.
 
-## Quick Links
+## Get Started
 
-- [Installation](usage/installation.md)
-- [Configuration](usage/configuration.md)
-- [CLI Reference](usage/cli.md)
-- [Library Usage](usage/library.md)
-- [GitHub Repository](https://github.com/Oaklight/nps-ctl)
-- [PyPI Package](https://pypi.org/project/nps-ctl/)
+Install from PyPI:
+
+```bash
+pip install nps-ctl
+```
+
+Then configure your edges in `~/.config/nps-ctl/edges.toml` and start managing your cluster:
+
+```bash
+nps-ctl edge list
+nps-ctl client list
+nps-ctl host list
+```
+
+<div class="grid cards" markdown>
+
+- :material-download: **[Installation](get-started/installation.md)** — install nps-ctl and set up your environment
+- :material-rocket-launch: **[Quick Start](get-started/quickstart.md)** — configure your first edge and run basic commands
+- :material-console: **[CLI Reference](cli/index.md)** — complete reference for all command groups
+- :material-language-python: **[Python Library](api/index.md)** — use nps-ctl as a library in your own scripts
+
+</div>
