@@ -101,12 +101,11 @@ NUITKA_NOFOLLOW := \
 	tkinter unittest pydoc doctest test \
 	distutils ensurepip idlelib lib2to3 \
 	turtle turtledemo xmlrpc curses \
-	asyncio email sqlite3 csv ctypes \
+	asyncio email sqlite3 csv \
 	pdb cProfile profile trace \
 	ftplib imaplib poplib smtplib nntplib telnetlib \
 	xml.sax xml.dom xml.etree \
-	multiprocessing \
-	http.server http.cookiejar xmlrpc \
+	http.server http.cookiejar \
 	zipapp compileall py_compile \
 	webbrowser antigravity this \
 	gettext optparse \
