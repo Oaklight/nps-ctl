@@ -75,4 +75,7 @@ def cmd_status(args: argparse.Namespace) -> int:
     console.print(table)
     total = len(cluster.edge_names)
     console.print(f"[dim]{online}/{total} edges online[/dim]")
-    return 0
+    if total == 0:
+        print_error("No edges configured")
+        return 1
+    return 0 if online == total else 1

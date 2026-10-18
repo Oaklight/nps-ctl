@@ -12,6 +12,7 @@ from .helpers import (
     print_edge_summary,
     print_error,
     resolve_write_edges,
+    validate_read_target,
 )
 
 
@@ -22,6 +23,10 @@ def cmd_hosts(args: argparse.Namespace) -> int:
     except FileNotFoundError as e:
         print_error(str(e))
         return 1
+
+    target_error = validate_read_target(args)
+    if target_error is not None:
+        return target_error
 
     edge_name = getattr(args, "edge", None)
     if edge_name:
@@ -191,11 +196,11 @@ def cmd_host_del(args: argparse.Namespace) -> int:
     host_remark = getattr(args, "remark", None)
 
     # --id requires -e
-    if host_id is not None and not args.edge:
-        print_error("--id requires -e/--edge (IDs are edge-specific)")
-        return 2
     if host_id is not None and getattr(args, "all", False):
         print_error("--id targets a single edge; use -e/--edge, not -a/--all")
+        return 2
+    if host_id is not None and not args.edge:
+        print_error("--id requires -e/--edge (IDs are edge-specific)")
         return 2
 
     if host_id is not None:
@@ -317,11 +322,11 @@ def cmd_host_edit(args: argparse.Namespace) -> int:
     new_auth = getattr(args, "auth", None)
 
     # --id requires -e
-    if host_id is not None and not args.edge:
-        print_error("--id requires -e/--edge (IDs are edge-specific)")
-        return 2
     if host_id is not None and getattr(args, "all", False):
         print_error("--id targets a single edge; use -e/--edge, not -a/--all")
+        return 2
+    if host_id is not None and not args.edge:
+        print_error("--id requires -e/--edge (IDs are edge-specific)")
         return 2
 
     if not any([new_domain, new_target, new_remark is not None, new_auth is not None]):

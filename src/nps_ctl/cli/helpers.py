@@ -265,6 +265,24 @@ def add_all_argument(
     )
 
 
+def validate_read_target(args: argparse.Namespace) -> int | None:
+    """Reject conflicting targets on a read command.
+
+    Reads default to all edges; ``-e`` narrows to one and ``-a`` requests all
+    explicitly. Passing both is ambiguous and matches the mutation rule.
+
+    Args:
+        args: Parsed command line arguments.
+
+    Returns:
+        2 on a usage error, otherwise None.
+    """
+    if getattr(args, "edge", None) and getattr(args, "all", False):
+        print_error("Use either -e/--edge or -a/--all, not both")
+        return 2
+    return None
+
+
 def resolve_write_edges(
     args: argparse.Namespace, edge_names: list[str]
 ) -> tuple[list[str] | None, int]:
@@ -282,6 +300,10 @@ def resolve_write_edges(
     """
     edge = getattr(args, "edge", None)
     all_edges = getattr(args, "all", False)
+
+    if not edge_names:
+        print_error("No edges configured")
+        return None, 1
 
     if edge and all_edges:
         print_error("Use either -e/--edge or -a/--all, not both")

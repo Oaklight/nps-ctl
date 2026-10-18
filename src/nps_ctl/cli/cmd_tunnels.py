@@ -12,6 +12,7 @@ from .helpers import (
     print_edge_summary,
     print_error,
     resolve_write_edges,
+    validate_read_target,
 )
 
 
@@ -24,6 +25,10 @@ def cmd_tunnels(args: argparse.Namespace) -> int:
         return 1
 
     tunnel_type = getattr(args, "type", "") or ""
+
+    target_error = validate_read_target(args)
+    if target_error is not None:
+        return target_error
 
     edge_name = getattr(args, "edge", None)
     if edge_name:
@@ -206,11 +211,11 @@ def cmd_tunnel_del(args: argparse.Namespace) -> int:
         return 1
 
     # --id requires -e
-    if tunnel_id is not None and not args.edge:
-        print_error("--id requires -e/--edge (IDs are edge-specific)")
-        return 2
     if tunnel_id is not None and getattr(args, "all", False):
         print_error("--id targets a single edge; use -e/--edge, not -a/--all")
+        return 2
+    if tunnel_id is not None and not args.edge:
+        print_error("--id requires -e/--edge (IDs are edge-specific)")
         return 2
 
     # port+type: both should be present for reliable matching
@@ -387,11 +392,11 @@ def cmd_tunnel_edit(args: argparse.Namespace) -> int:
         return 1
 
     # --id requires -e
-    if tunnel_id is not None and not args.edge:
-        print_error("--id requires -e/--edge (IDs are edge-specific)")
-        return 2
     if tunnel_id is not None and getattr(args, "all", False):
         print_error("--id targets a single edge; use -e/--edge, not -a/--all")
+        return 2
+    if tunnel_id is not None and not args.edge:
+        print_error("--id requires -e/--edge (IDs are edge-specific)")
         return 2
 
     # port+type: both should be present
