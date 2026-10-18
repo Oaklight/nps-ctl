@@ -402,6 +402,8 @@ def build_edge_results_payload(
     results: Mapping[str, list[Any]],
     errors: Mapping[str, str],
     region_for: Callable[[str], str],
+    *,
+    configured: int | None = None,
 ) -> dict[str, Any]:
     """Build the JSON payload for a multi-edge list command.
 
@@ -409,6 +411,8 @@ def build_edge_results_payload(
         results: Mapping of edge name to items.
         errors: Mapping of failed edge name to error message.
         region_for: Callable returning an edge's region.
+        configured: Total number of configured edges. Defaults to the number
+            of edges in ``results``.
 
     Returns:
         Payload with ``edges`` and ``summary`` keys.
@@ -427,7 +431,7 @@ def build_edge_results_payload(
     return {
         "edges": edges,
         "summary": {
-            "configured": len(edges),
+            "configured": configured if configured is not None else len(edges),
             "ok": len(edges) - failed,
             "failed": failed,
         },

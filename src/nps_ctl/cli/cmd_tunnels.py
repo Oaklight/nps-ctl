@@ -41,6 +41,14 @@ def cmd_tunnels(args: argparse.Namespace) -> int:
             print_error(target_error)
         return 2
 
+    if not cluster.edge_names:
+        message = "No edges configured"
+        if json_mode:
+            print_json({"error": message})
+        else:
+            print_error(message)
+        return 1
+
     edge_name = getattr(args, "edge", None)
     if edge_name:
         nps = cluster.get_client(edge_name)
@@ -61,6 +69,7 @@ def cmd_tunnels(args: argparse.Namespace) -> int:
                         {edge_name: []},
                         {edge_name: str(e)},
                         lambda name: edge_region(cluster, name),
+                        configured=len(cluster.edge_names),
                     )
                 )
             else:
@@ -73,6 +82,7 @@ def cmd_tunnels(args: argparse.Namespace) -> int:
                     {edge_name: tunnels},
                     {},
                     lambda name: edge_region(cluster, name),
+                    configured=len(cluster.edge_names),
                 )
             )
             return 0
