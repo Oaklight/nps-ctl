@@ -831,9 +831,29 @@ def _add_host_commands(subparsers) -> None:
     host_parser = subparsers.add_parser(
         "host",
         help="Host mapping management",
-        description="Manage host mappings: list, add, edit, del.",
+        description="Manage host mappings: list, status, add, edit, del.",
     )
     host_sub = host_parser.add_subparsers(dest="subcommand", help="Host action")
+
+    # host status
+    status_parser = host_sub.add_parser(
+        "status",
+        help="Show client liveness and host inventory per edge",
+        description=(
+            "Show per-edge reachability, online/total clients, host mappings, "
+            "and distinct target ports."
+        ),
+    )
+    add_edge_argument(
+        status_parser,
+        help_text="Edge name to query (default: all edges)",
+    )
+    add_all_argument(
+        status_parser,
+        help_text="Query every configured edge",
+    )
+    add_output_arguments(status_parser)
+    status_parser.set_defaults(requires_config=True)
 
     # host list
     list_parser = host_sub.add_parser(
