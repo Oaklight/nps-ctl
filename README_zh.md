@@ -109,6 +109,21 @@ region = "US"
 ssh_host = "cloud.usa1"
 ```
 
+当边缘节点配置了凭据且服务端支持时，会自动使用现代 `/api/*` 管理接口。在节点条目中添加 `username`/`password`（或 `platform_token`）：
+
+```toml
+[[edges]]
+name = "nps-asia"
+api_url = "https://nps-asia.example.com"
+auth_key = "your_auth_key"
+username = "admin"
+password = "your_password"
+# platform_token = "..."   # username/password 的替代方案
+api_mode = "auto"           # "auto" | "modern" | "legacy"
+```
+
+`auto` 会探测一次 `/api/system/health`，失败时回退到旧版接口。现代模式的列表请求使用 `/api/*` 并自动获取所有分页；列出隧道不再需要按七种类型分别请求。
+
 可选，创建 `config/clients.toml` 用于 NPC 客户端管理：
 
 ```toml

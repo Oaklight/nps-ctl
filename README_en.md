@@ -109,6 +109,25 @@ region = "US"
 ssh_host = "cloud.usa1"
 ```
 
+The modern `/api/*` management API is used when an edge has credentials and
+the server supports it. Add `username`/`password` (or a `platform_token`) to
+an edge entry:
+
+```toml
+[[edges]]
+name = "nps-asia"
+api_url = "https://nps-asia.example.com"
+auth_key = "your_auth_key"
+username = "admin"
+password = "your_password"
+# platform_token = "..."   # alternative to username/password
+api_mode = "auto"           # "auto" | "modern" | "legacy"
+```
+
+`auto` probes `/api/system/health` once and falls back to the legacy API.
+Modern listings use `/api/*` endpoints and fetch every page; listing tunnels
+no longer fans out over seven tunnel types.
+
 Optionally, create `config/clients.toml` for NPC client management:
 
 ```toml
