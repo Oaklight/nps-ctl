@@ -17,7 +17,12 @@ class ModernNPS:
 
     def api_request(self, method, path, params=None, data=None):
         self.calls.append((method, path, params or {}, data or {}))
-        return {"data": {"item": self.item, "items": self.items}}
+        if method == "GET" and self.item is not None:
+            return {"data": self.item}
+        return {
+            "data": self.items,
+            "meta": {"pagination": {"total": len(self.items)}},
+        }
 
 
 def test_host_crud_uses_modern_paths_and_fields():
