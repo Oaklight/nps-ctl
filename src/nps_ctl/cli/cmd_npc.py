@@ -336,8 +336,8 @@ def cmd_npc_uninstall(args: argparse.Namespace) -> int:
 
 def _parse_npc_status_output(
     stdout: str,
-) -> tuple[str, str]:
-    """Parse NPC status check output into status and details.
+) -> tuple[str, str, bool]:
+    """Parse NPC status check output into status, details, and health.
 
     Extracts version and service status from the SSH command output
     produced by ``check_npc_status``.
@@ -346,9 +346,10 @@ def _parse_npc_status_output(
         stdout: Raw stdout from the SSH status check command.
 
     Returns:
-        A tuple of (status, details) where *status* is a rich-markup
-        string like ``[green]Running[/green]`` and *details* contains
-        extra information such as the NPC version.
+        A tuple of (status, details, healthy) where *status* is a
+        rich-markup string like ``[green]Running[/green]``, *details*
+        contains extra information such as the NPC version, and
+        *healthy* is True only when NPC is installed and running.
     """
     lines = stdout.strip().splitlines()
 
@@ -374,24 +375,31 @@ def _parse_npc_status_output(
             if not service_status:
                 service_status = stripped
 
-    # Determine rich-formatted status string
+    # Determine rich-formatted status string. The stopped checks must come
+    # before the running check because "Not running" contains "running".
+    healthy = False
     if not version or version == "Not installed":
         status = "[red]Not Installed[/red]"
-    elif "running" in service_status.lower():
-        status = "[green]Running[/green]"
-    elif "stopped" in service_status.lower() or "not running" in service_status.lower():
-        status = "[yellow]Stopped[/yellow]"
+    elif not service_status:
+        status = "[yellow]Unknown[/yellow]"
     else:
-        status = f"[yellow]{service_status or 'Unknown'}[/yellow]"
+        service = service_status.lower()
+        if "not running" in service or "stopped" in service or "inactive" in service:
+            status = "[yellow]Stopped[/yellow]"
+        elif "running" in service:
+            status = "[green]Running[/green]"
+            healthy = True
+        else:
+            status = f"[yellow]{service_status}[/yellow]"
 
     # Build details string
     details_parts: list[str] = []
     if version and version != "Not installed":
         details_parts.append(version)
-    if service_status and "running" not in service_status.lower():
+    if service_status and not healthy:
         details_parts.append(service_status)
 
-    return status, ", ".join(details_parts)
+    return status, ", ".join(details_parts), healthy
 
 
 def cmd_npc_status(args: argparse.Namespace) -> int:
@@ -399,7 +407,8 @@ def cmd_npc_status(args: argparse.Namespace) -> int:
 
     When ``--parallel`` is passed, SSH checks run concurrently using a
     thread pool, which significantly speeds up status collection for
-    many clients.
+    many clients. Exits 1 if any check fails or any target's NPC is not
+    installed and running.
     """
     try:
         cluster = NPSCluster(args.config)
@@ -462,10 +471,10 @@ def cmd_npc_status(args: argparse.Namespace) -> int:
                 cfg = configs[name]
                 result = check_npc_status(ssh_host=cfg.ssh_host, ssh_user=cfg.ssh_user)
                 if result.success:
-                    s, d = _parse_npc_status_output(result.stdout or "")
+                    s, d, healthy = _parse_npc_status_output(result.stdout or "")
                 else:
-                    s, d = "[red]Error[/red]", result.message
-                return name, s, d, result.success
+                    s, d, healthy = "[red]Error[/red]", result.message, False
+                return name, s, d, result.success and healthy
 
             with ThreadPoolExecutor(max_workers=min(8, len(valid_clients))) as executor:
                 futures = {
@@ -492,7 +501,9 @@ def cmd_npc_status(args: argparse.Namespace) -> int:
             result = check_npc_status(ssh_host=cfg.ssh_host, ssh_user=cfg.ssh_user)
 
             if result.success:
-                status, details = _parse_npc_status_output(result.stdout or "")
+                status, details, healthy = _parse_npc_status_output(result.stdout or "")
+                if not healthy:
+                    failed += 1
             else:
                 status = "[red]Error[/red]"
                 details = result.message
