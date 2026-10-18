@@ -17,11 +17,22 @@ Config files:
 - `~/.config/nps-ctl/edges.toml` — edge definitions
 - `~/.config/nps-ctl/clients.toml` — NPC client definitions
 
-Run `nps-ctl edge status` to see current edges and their state.
+## Cluster inventory (do this first)
+
+Run `nps-ctl edge list` before any edge-targeted operation. It reads
+`edges.toml` only and prints every configured edge, including edges that are
+currently unreachable. The edge names in the examples below are illustrative;
+they are never the inventory.
+
+- Read commands (`host list`, `client list`, `tunnel list`) default to all edges.
+- Write commands require an explicit target: `-e <edge>` for one edge or
+  `-a/--all` for every configured edge. There is no silent cluster-wide default.
+- `nps-ctl edge status` also lists every edge, but contacts each one.
 
 ## Edge (NPS server) management
 
 ```bash
+nps-ctl edge list                             # every configured edge, offline
 nps-ctl edge status                           # all edges status
 nps-ctl edge install --edge nps-europe -y     # install NPS on a node
 nps-ctl edge upgrade --edge nps-america -y    # upgrade binary, preserve data
@@ -49,7 +60,8 @@ nps-ctl client uninstall --client cloud.deu1 -y
 nps-ctl host list                             # all edges
 nps-ctl host list --edge nps-america          # single edge
 nps-ctl host add -e nps-america -d myapp.service.oaklight.cn -c cloud.usa2 -t :8080
-nps-ctl host del --host myapp.service.oaklight.cn -y   # delete from all edges
+nps-ctl host add -a -d myapp.service.oaklight.cn -c cloud.usa2 -t :8080  # every edge
+nps-ctl host del --host myapp.service.oaklight.cn -a -y   # delete from all edges
 nps-ctl host del --edge nps-america --host myapp.service.oaklight.cn -y  # single edge
 nps-ctl host edit --edge nps-america --id 42 --target :9090
 ```
@@ -71,7 +83,7 @@ nps-ctl tunnel stop --edge nps-america --id 5
 ### Migrate a service to a different client
 
 ```bash
-nps-ctl host del --host myapp.service.oaklight.cn -y
+nps-ctl host del --host myapp.service.oaklight.cn -a -y
 nps-ctl host add -e nps-america -d myapp.service.oaklight.cn -c <new-client> -t :<port>
 ```
 

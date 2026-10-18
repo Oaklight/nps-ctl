@@ -4,11 +4,46 @@ This module defines TypedDict types for NPS API responses and
 dataclass configurations.
 """
 
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, TypedDict
+from typing import Any, Generic, TypedDict, TypeVar
 
 # Type alias for client ID mapping (source_id -> target_id)
 ClientIdMapping = dict[int, int]
+
+T = TypeVar("T")
+
+
+class EdgeResults(dict[str, list[T]], Generic[T]):
+    """Per-edge fetch results with failure information.
+
+    Behaves like the previous ``dict[str, list[T]]`` return value so existing
+    callers keep working. Failed edges are present with an empty list, and
+    their reason is recorded in :attr:`errors`.
+
+    Attributes:
+        errors: Mapping of edge name to the error message for edges whose
+            fetch failed.
+    """
+
+    def __init__(
+        self,
+        *args: Any,
+        errors: Mapping[str, str] | None = None,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        self.errors: dict[str, str] = dict(errors or {})
+
+    @property
+    def failed_edges(self) -> list[str]:
+        """Edge names whose fetch failed, in result order."""
+        return [name for name in self if name in self.errors]
+
+    @property
+    def ok_edges(self) -> list[str]:
+        """Edge names whose fetch succeeded, in result order."""
+        return [name for name in self if name not in self.errors]
 
 
 class ClientInfo(TypedDict, total=False):

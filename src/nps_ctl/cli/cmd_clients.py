@@ -6,7 +6,13 @@ from .. import client_mgmt
 from ..cluster import NPSCluster
 from ..exceptions import NPSError
 from ..types import ClientInfo
-from .helpers import console, create_table, print_error
+from .helpers import (
+    console,
+    create_table,
+    print_edge_summary,
+    print_error,
+    resolve_write_edges,
+)
 
 
 def cmd_clients(args: argparse.Namespace) -> int:
@@ -17,24 +23,8 @@ def cmd_clients(args: argparse.Namespace) -> int:
         print_error(str(e))
         return 1
 
-    if args.all:
-        # Show clients from all edges
-        all_clients = cluster.get_all_clients()
-        for edge_name, clients in all_clients.items():
-            edge = cluster.get_edge(edge_name)
-            region = edge.region if edge else ""
-            console.print(f"\n[bold cyan]=== {edge_name} ({region}) ===[/bold cyan]")
-            _print_clients(clients)
-    else:
-        # Show clients from specific edge
-        edge_name = args.edge
-        if not edge_name:
-            # Use first edge as default
-            edge_name = cluster.edge_names[0] if cluster.edge_names else None
-            if not edge_name:
-                print_error("No edges configured")
-                return 1
-
+    edge_name = getattr(args, "edge", None)
+    if edge_name:
         nps = cluster.get_client(edge_name)
         if not nps:
             print_error(f"Edge '{edge_name}' not found")
@@ -49,8 +39,22 @@ def cmd_clients(args: argparse.Namespace) -> int:
         except NPSError as e:
             print_error(str(e))
             return 1
+        return 0
 
-    return 0
+    all_clients = cluster.get_all_clients()
+    for edge_name, clients in all_clients.items():
+        edge = cluster.get_edge(edge_name)
+        region = edge.region if edge else ""
+        if edge_name in all_clients.errors:
+            console.print(
+                f"\n[red]✗ {edge_name} ({region}): "
+                f"{all_clients.errors[edge_name]}[/red]"
+            )
+            continue
+        console.print(f"\n[bold cyan]=== {edge_name} ({region}) ===[/bold cyan]")
+        _print_clients(clients)
+
+    return print_edge_summary(all_clients, all_clients.errors)
 
 
 def _print_clients(clients: list[ClientInfo]) -> None:
@@ -104,7 +108,10 @@ def cmd_client_del(args: argparse.Namespace) -> int:
     # --id requires -e
     if client_id is not None and not args.edge:
         print_error("--id requires -e/--edge (IDs are edge-specific)")
-        return 1
+        return 2
+    if client_id is not None and getattr(args, "all", False):
+        print_error("--id targets a single edge; use -e/--edge, not -a/--all")
+        return 2
 
     if client_id is not None:
         # Delete by ID on a single edge
@@ -139,10 +146,9 @@ def cmd_client_del(args: argparse.Namespace) -> int:
     else:
         # Delete by name across edge(s)
         assert client_name is not None  # guaranteed by mutually exclusive group
-        edges = [args.edge] if args.edge else cluster.edge_names
-        if not edges:
-            print_error("No edges configured")
-            return 1
+        edges, code = resolve_write_edges(args, cluster.edge_names)
+        if edges is None:
+            return code
 
         if not args.yes:
             console.print(
