@@ -44,6 +44,10 @@ def cmd_status(args: argparse.Namespace) -> int:
         print_error(str(e))
         return 1
 
+    if not cluster.edge_names:
+        print_error("No edges configured")
+        return 1
+
     # Create table
     table = create_table(title="NPS Edge Status")
     table.add_column("Edge", style="bold")
@@ -75,7 +79,4 @@ def cmd_status(args: argparse.Namespace) -> int:
     console.print(table)
     total = len(cluster.edge_names)
     console.print(f"[dim]{online}/{total} edges online[/dim]")
-    if total == 0:
-        print_error("No edges configured")
-        return 1
     return 0 if online == total else 1

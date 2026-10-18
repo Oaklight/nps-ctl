@@ -59,11 +59,11 @@ nps-ctl client uninstall --client cloud.deu1 -y
 ```bash
 nps-ctl host list                             # all edges
 nps-ctl host list --edge nps-america          # single edge
-nps-ctl host add -e nps-america -d myapp.service.oaklight.cn -c cloud.usa2 -t :8080
-nps-ctl host add -a -d myapp.service.oaklight.cn -c cloud.usa2 -t :8080  # every edge
+nps-ctl host add -e nps-america -d myapp.service.oaklight.cn -c cloud.usa2 -T :8080
+nps-ctl host add -a -d myapp.service.oaklight.cn -c cloud.usa2 -T :8080  # every edge
 nps-ctl host del --domain myapp.service.oaklight.cn -a -y   # delete from all edges
 nps-ctl host del --edge nps-america --domain myapp.service.oaklight.cn -y  # single edge
-nps-ctl host edit --edge nps-america --id 42 --target :9090
+nps-ctl host edit --edge nps-america --id 42 --new-target :9090
 ```
 
 **`host edit` cannot change the client.** To move a service, delete and re-add.
@@ -84,7 +84,7 @@ nps-ctl tunnel stop --edge nps-america --id 5
 
 ```bash
 nps-ctl host del --domain myapp.service.oaklight.cn -a -y
-nps-ctl host add -e nps-america -d myapp.service.oaklight.cn -c <new-client> -t :<port>
+nps-ctl host add -e nps-america -d myapp.service.oaklight.cn -c <new-client> -T :<port>
 ```
 
 ### Upgrade NPS (non-destructive)
