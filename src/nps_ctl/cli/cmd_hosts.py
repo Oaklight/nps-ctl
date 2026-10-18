@@ -6,7 +6,13 @@ from .. import client_mgmt, host
 from ..cluster import NPSCluster
 from ..exceptions import NPSError
 from ..types import HostInfo
-from .helpers import console, create_table, print_error
+from .helpers import (
+    console,
+    create_table,
+    print_edge_summary,
+    print_error,
+    resolve_write_edges,
+)
 
 
 def cmd_hosts(args: argparse.Namespace) -> int:
@@ -17,21 +23,8 @@ def cmd_hosts(args: argparse.Namespace) -> int:
         print_error(str(e))
         return 1
 
-    if args.all:
-        all_hosts = cluster.get_all_hosts()
-        for edge_name, hosts in all_hosts.items():
-            edge = cluster.get_edge(edge_name)
-            region = edge.region if edge else ""
-            console.print(f"\n[bold cyan]=== {edge_name} ({region}) ===[/bold cyan]")
-            _print_hosts(hosts)
-    else:
-        edge_name = args.edge
-        if not edge_name:
-            edge_name = cluster.edge_names[0] if cluster.edge_names else None
-            if not edge_name:
-                print_error("No edges configured")
-                return 1
-
+    edge_name = getattr(args, "edge", None)
+    if edge_name:
         nps = cluster.get_client(edge_name)
         if not nps:
             print_error(f"Edge '{edge_name}' not found")
@@ -46,8 +39,21 @@ def cmd_hosts(args: argparse.Namespace) -> int:
         except NPSError as e:
             print_error(str(e))
             return 1
+        return 0
 
-    return 0
+    all_hosts = cluster.get_all_hosts()
+    for edge_name, hosts in all_hosts.items():
+        edge = cluster.get_edge(edge_name)
+        region = edge.region if edge else ""
+        if edge_name in all_hosts.errors:
+            console.print(
+                f"\n[red]✗ {edge_name} ({region}): {all_hosts.errors[edge_name]}[/red]"
+            )
+            continue
+        console.print(f"\n[bold cyan]=== {edge_name} ({region}) ===[/bold cyan]")
+        _print_hosts(hosts)
+
+    return print_edge_summary(all_hosts, all_hosts.errors)
 
 
 def cmd_add_host(args: argparse.Namespace) -> int:
@@ -58,6 +64,10 @@ def cmd_add_host(args: argparse.Namespace) -> int:
         print_error(str(e))
         return 1
 
+    targets, code = resolve_write_edges(args, cluster.edge_names)
+    if targets is None:
+        return code
+
     # Normalize auth: comma-separated -> newline-separated for NPS API
     auth_str = ""
     if args.auth:
@@ -65,10 +75,6 @@ def cmd_add_host(args: argparse.Namespace) -> int:
 
     # Confirm
     if not args.yes:
-        if args.edge:
-            targets = [args.edge]
-        else:
-            targets = cluster.edge_names
         console.print(
             f"Will add host [bold]{args.domain}[/bold] -> [bold]{args.target}[/bold] "
             f"to: {', '.join(targets)}"
@@ -125,6 +131,8 @@ def cmd_add_host(args: argparse.Namespace) -> int:
         for edge, success in results.items():
             status = "[green]✓[/green]" if success else "[red]✗[/red]"
             console.print(f"{status} {edge}")
+        if not all(results.values()):
+            return 1
 
     return 0
 
@@ -185,7 +193,10 @@ def cmd_host_del(args: argparse.Namespace) -> int:
     # --id requires -e
     if host_id is not None and not args.edge:
         print_error("--id requires -e/--edge (IDs are edge-specific)")
-        return 1
+        return 2
+    if host_id is not None and getattr(args, "all", False):
+        print_error("--id targets a single edge; use -e/--edge, not -a/--all")
+        return 2
 
     if host_id is not None:
         # Delete by ID on a single edge
@@ -223,10 +234,9 @@ def cmd_host_del(args: argparse.Namespace) -> int:
         search_field = "Host" if host_domain else "Remark"
         assert search_key is not None  # guaranteed by mutually exclusive group
 
-        edges = [args.edge] if args.edge else cluster.edge_names
-        if not edges:
-            print_error("No edges configured")
-            return 1
+        edges, code = resolve_write_edges(args, cluster.edge_names)
+        if edges is None:
+            return code
 
         if not args.yes:
             label = f"domain={host_domain}" if host_domain else f"remark={host_remark}"
@@ -309,7 +319,10 @@ def cmd_host_edit(args: argparse.Namespace) -> int:
     # --id requires -e
     if host_id is not None and not args.edge:
         print_error("--id requires -e/--edge (IDs are edge-specific)")
-        return 1
+        return 2
+    if host_id is not None and getattr(args, "all", False):
+        print_error("--id targets a single edge; use -e/--edge, not -a/--all")
+        return 2
 
     if not any([new_domain, new_target, new_remark is not None, new_auth is not None]):
         print_error(
@@ -335,10 +348,9 @@ def cmd_host_edit(args: argparse.Namespace) -> int:
         assert search_key is not None  # guaranteed by locator validation above
         search_field = "Host" if locate_domain else "Remark"
 
-        edges = [args.edge] if args.edge else cluster.edge_names
-        if not edges:
-            print_error("No edges configured")
-            return 1
+        edges, code = resolve_write_edges(args, cluster.edge_names)
+        if edges is None:
+            return code
 
         if not args.yes:
             label = (

@@ -15,7 +15,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, cast
 
 try:
     import socks
@@ -133,7 +133,8 @@ class NPSClient:
 
             # Set default SOCKS proxy globally for this client
             socks.set_default_proxy(socks.SOCKS5, socks_host, socks_port)
-            socket.socket = socks.socksocket  # type: ignore[assignment]  # runtime monkey-patch for SOCKS proxy
+            # Runtime monkey-patch for the SOCKS proxy
+            socket.socket = cast(Any, socks.socksocket)
 
             logger.info(
                 f"SOCKS5 proxy enabled: {socks_host}:{socks_port} for {self.base_url}"

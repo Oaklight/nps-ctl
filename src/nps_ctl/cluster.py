@@ -33,6 +33,7 @@ from .types import (
     ClientIdMapping,
     ClientInfo,
     EdgeConfig,
+    EdgeResults,
     HostInfo,
     NPCClientConfig,
     TunnelInfo,
@@ -342,7 +343,7 @@ class NPSCluster:
         operation_name: str,
         edge_names: list[str] | None = None,
         max_workers: int = 4,
-    ) -> dict[str, T | None]:
+    ) -> dict[str, tuple[T | None, str | None]]:
         """Fetch data from multiple edges in parallel.
 
         Args:
@@ -352,10 +353,12 @@ class NPSCluster:
             max_workers: Maximum number of parallel workers.
 
         Returns:
-            Dictionary mapping edge names to results (None if failed).
+            Dictionary mapping edge name to ``(result, error)`` in configured
+            edge order. ``result`` is None and ``error`` is set when the fetch
+            failed.
         """
         targets = edge_names or list(self._clients.keys())
-        results: dict[str, T | None] = {}
+        outcomes: dict[str, tuple[T | None, str | None]] = {}
 
         def fetch_single(name: str) -> tuple[str, T | None, str | None]:
             """Fetch from a single edge, return (name, result, error)."""
@@ -374,9 +377,7 @@ class NPSCluster:
                 name, result, error = future.result()
                 if error:
                     op_logger.cluster_operation(operation_name, name, False, error)
-                    results[name] = None
                 else:
-                    results[name] = result
                     # Log success with count if result is a list
                     if isinstance(result, list):
                         op_logger.cluster_operation(
@@ -384,18 +385,20 @@ class NPSCluster:
                         )
                     else:
                         op_logger.cluster_operation(operation_name, name, True)
+                outcomes[name] = (result, error)
 
-        return results
+        # Preserve configured edge order regardless of completion order.
+        return {name: outcomes[name] for name in targets}
 
-    def get_all_clients(self, max_workers: int = 4) -> dict[str, list[ClientInfo]]:
+    def get_all_clients(self, max_workers: int = 4) -> EdgeResults[ClientInfo]:
         """Get clients from all edges in parallel.
 
         Args:
             max_workers: Maximum number of parallel workers.
 
         Returns:
-            Dictionary mapping edge names to their client lists.
-            Failed edges will have empty lists.
+            Mapping of edge names to client lists, in configured edge order.
+            Failed edges have empty lists and appear in ``errors``.
         """
         ctx = OperationContext("get_all_clients", "cluster")
         op_logger.operation_start(ctx)
@@ -407,15 +410,15 @@ class NPSCluster:
             max_workers=max_workers,
         )
 
-        # Convert None to empty list for failed edges
-        result: dict[str, list[ClientInfo]] = {
-            name: clients if clients is not None else []
-            for name, clients in raw_results.items()
-        }
+        result: EdgeResults[ClientInfo] = EdgeResults()
+        for name, (clients, error) in raw_results.items():
+            result[name] = clients if clients is not None else []
+            if error:
+                result.errors[name] = error
 
         elapsed_ms = (time.perf_counter() - start_time) * 1000
         total_clients = sum(len(c) for c in result.values())
-        failed_count = sum(1 for c in raw_results.values() if c is None)
+        failed_count = len(result.errors)
         op_logger.operation_success(
             ctx,
             result=f"{total_clients} clients total, {failed_count} edges failed",
@@ -423,15 +426,15 @@ class NPSCluster:
         )
         return result
 
-    def get_all_tunnels(self, max_workers: int = 4) -> dict[str, list[TunnelInfo]]:
+    def get_all_tunnels(self, max_workers: int = 4) -> EdgeResults[TunnelInfo]:
         """Get tunnels from all edges in parallel.
 
         Args:
             max_workers: Maximum number of parallel workers.
 
         Returns:
-            Dictionary mapping edge names to their tunnel lists.
-            Failed edges will have empty lists.
+            Mapping of edge names to tunnel lists, in configured edge order.
+            Failed edges have empty lists and appear in ``errors``.
         """
         ctx = OperationContext("get_all_tunnels", "cluster")
         op_logger.operation_start(ctx)
@@ -443,15 +446,15 @@ class NPSCluster:
             max_workers=max_workers,
         )
 
-        # Convert None to empty list for failed edges
-        result: dict[str, list[TunnelInfo]] = {
-            name: tunnels if tunnels is not None else []
-            for name, tunnels in raw_results.items()
-        }
+        result: EdgeResults[TunnelInfo] = EdgeResults()
+        for name, (tunnels, error) in raw_results.items():
+            result[name] = tunnels if tunnels is not None else []
+            if error:
+                result.errors[name] = error
 
         elapsed_ms = (time.perf_counter() - start_time) * 1000
         total_tunnels = sum(len(t) for t in result.values())
-        failed_count = sum(1 for t in raw_results.values() if t is None)
+        failed_count = len(result.errors)
         op_logger.operation_success(
             ctx,
             result=f"{total_tunnels} tunnels total, {failed_count} edges failed",
@@ -459,15 +462,15 @@ class NPSCluster:
         )
         return result
 
-    def get_all_hosts(self, max_workers: int = 4) -> dict[str, list[HostInfo]]:
+    def get_all_hosts(self, max_workers: int = 4) -> EdgeResults[HostInfo]:
         """Get hosts from all edges in parallel.
 
         Args:
             max_workers: Maximum number of parallel workers.
 
         Returns:
-            Dictionary mapping edge names to their host lists.
-            Failed edges will have empty lists.
+            Mapping of edge names to host lists, in configured edge order.
+            Failed edges have empty lists and appear in ``errors``.
         """
         ctx = OperationContext("get_all_hosts", "cluster")
         op_logger.operation_start(ctx)
@@ -479,15 +482,15 @@ class NPSCluster:
             max_workers=max_workers,
         )
 
-        # Convert None to empty list for failed edges
-        result: dict[str, list[HostInfo]] = {
-            name: hosts if hosts is not None else []
-            for name, hosts in raw_results.items()
-        }
+        result: EdgeResults[HostInfo] = EdgeResults()
+        for name, (hosts, error) in raw_results.items():
+            result[name] = hosts if hosts is not None else []
+            if error:
+                result.errors[name] = error
 
         elapsed_ms = (time.perf_counter() - start_time) * 1000
         total_hosts = sum(len(h) for h in result.values())
-        failed_count = sum(1 for h in raw_results.values() if h is None)
+        failed_count = len(result.errors)
         op_logger.operation_success(
             ctx,
             result=f"{total_hosts} hosts total, {failed_count} edges failed",

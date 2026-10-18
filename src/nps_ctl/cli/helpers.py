@@ -6,6 +6,7 @@ argument definitions for the CLI parser.
 """
 
 import argparse
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -243,6 +244,83 @@ def add_verbose_argument(parser: argparse.ArgumentParser) -> None:
         action="store_true",
         help="Show detailed output",
     )
+
+
+def add_all_argument(
+    parser: argparse.ArgumentParser,
+    *,
+    help_text: str | None = None,
+) -> None:
+    """Add the standard -a/--all argument to a mutating parser.
+
+    Args:
+        parser: The argument parser to add the argument to.
+        help_text: Custom help text.
+    """
+    parser.add_argument(
+        "-a",
+        "--all",
+        action="store_true",
+        help=help_text or "Operate on every configured edge",
+    )
+
+
+def resolve_write_edges(
+    args: argparse.Namespace, edge_names: list[str]
+) -> tuple[list[str] | None, int]:
+    """Resolve target edges for a mutating command.
+
+    Mutations must target exactly one edge or explicitly request all edges;
+    there is no silent cluster-wide default.
+
+    Args:
+        args: Parsed command line arguments.
+        edge_names: All configured edge names.
+
+    Returns:
+        ``(targets, exit_code)``. ``targets`` is None on a usage error.
+    """
+    edge = getattr(args, "edge", None)
+    all_edges = getattr(args, "all", False)
+
+    if edge and all_edges:
+        print_error("Use either -e/--edge or -a/--all, not both")
+        return None, 2
+
+    if not edge and not all_edges:
+        print_error(
+            "Specify -e/--edge for one edge or -a/--all for every configured edge"
+        )
+        if edge_names:
+            print_info(f"Configured edges: {', '.join(edge_names)}")
+        return None, 2
+
+    return ([edge] if edge else list(edge_names)), 0
+
+
+def print_edge_summary(results: Mapping[str, Any], errors: Mapping[str, str]) -> int:
+    """Print an ok/failed summary for multi-edge output.
+
+    Args:
+        results: Mapping of edge name to result. Only the size is used.
+        errors: Mapping of failed edge name to error message.
+
+    Returns:
+        1 if any edge failed, otherwise 0.
+    """
+    total = len(results)
+    failed = len(errors)
+    if total == 0:
+        print_error("No edges configured")
+        return 1
+    if failed:
+        console.print(
+            f"[red]{total} edges: {total - failed} ok, {failed} failed "
+            f"({', '.join(errors)})[/red]"
+        )
+        return 1
+    console.print(f"[dim]{total} edges: {total} ok[/dim]")
+    return 0
 
 
 def get_template_path() -> Path:

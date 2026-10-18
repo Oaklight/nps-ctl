@@ -8,6 +8,7 @@ import argparse
 
 from .. import __version__
 from .helpers import (
+    add_all_argument,
     add_client_argument,
     add_edge_argument,
     add_verbose_argument,
@@ -111,7 +112,7 @@ def _add_client_commands(subparsers) -> None:
     )
     add_edge_argument(
         list_parser,
-        help_text="Edge name to query clients from (required for updating clients.toml)",
+        help_text=("Edge name to query (default: all edges; required for --update)"),
     )
     list_parser.add_argument(
         "-a",
@@ -333,7 +334,11 @@ def _add_client_commands(subparsers) -> None:
     )
     add_edge_argument(
         del_parser,
-        help_text="Edge name (required when using --id, default: all edges for --remark)",
+        help_text=("Edge name (required with --id; otherwise use this or -a/--all)"),
+    )
+    add_all_argument(
+        del_parser,
+        help_text="Delete the named client from every configured edge",
     )
     add_yes_argument(del_parser)
     del_parser.set_defaults(requires_config=True)
@@ -351,6 +356,17 @@ def _add_edge_commands(subparsers) -> None:
         description="Manage NPS edge nodes: status, install, uninstall, sync, export.",
     )
     edge_sub = edge_parser.add_subparsers(dest="subcommand", help="Edge action")
+
+    # edge list
+    edge_list_parser = edge_sub.add_parser(
+        "list",
+        help="List configured edges (offline)",
+        description=(
+            "List every edge configured in edges.toml without contacting it. "
+            "Use this to discover the full edge set."
+        ),
+    )
+    edge_list_parser.set_defaults(requires_config=True)
 
     # edge status
     status_parser = edge_sub.add_parser(
@@ -545,7 +561,7 @@ def _add_tunnel_commands(subparsers) -> None:
     )
     add_edge_argument(
         list_parser,
-        help_text="Edge name to query (default: first edge)",
+        help_text="Edge name to query (default: all edges)",
     )
     list_parser.add_argument(
         "-t",
@@ -588,7 +604,11 @@ def _add_tunnel_commands(subparsers) -> None:
     )
     add_edge_argument(
         add_parser,
-        help_text="Edge name to add tunnel to (default: all edges)",
+        help_text="Edge name to add tunnel to (or use -a/--all)",
+    )
+    add_all_argument(
+        add_parser,
+        help_text="Add the tunnel to every configured edge",
     )
     add_parser.add_argument(
         "-r",
@@ -632,7 +652,11 @@ def _add_tunnel_commands(subparsers) -> None:
     )
     add_edge_argument(
         tunnel_del_parser,
-        help_text="Edge name (required for --id, optional for --remark/--port+--type)",
+        help_text="Edge name (required with --id; otherwise use this or -a/--all)",
+    )
+    add_all_argument(
+        tunnel_del_parser,
+        help_text="Delete the matching tunnel from every configured edge",
     )
     add_yes_argument(tunnel_del_parser)
     tunnel_del_parser.set_defaults(requires_config=True)
@@ -672,7 +696,11 @@ def _add_tunnel_commands(subparsers) -> None:
     )
     add_edge_argument(
         tunnel_edit_parser,
-        help_text="Edge name (required for --id, optional for --remark/--port+--type)",
+        help_text="Edge name (required with --id; otherwise use this or -a/--all)",
+    )
+    add_all_argument(
+        tunnel_edit_parser,
+        help_text="Edit the matching tunnel on every configured edge",
     )
     # -- Value arguments (what to change) --
     tunnel_edit_parser.add_argument(
@@ -743,7 +771,7 @@ def _add_host_commands(subparsers) -> None:
     )
     add_edge_argument(
         list_parser,
-        help_text="Edge name to query (default: first edge)",
+        help_text="Edge name to query (default: all edges)",
     )
     list_parser.add_argument(
         "-a",
@@ -774,7 +802,11 @@ def _add_host_commands(subparsers) -> None:
     )
     add_edge_argument(
         add_parser,
-        help_text="Edge name to add host mapping to (default: all edges)",
+        help_text="Edge name to add host mapping to (or use -a/--all)",
+    )
+    add_all_argument(
+        add_parser,
+        help_text="Add the host mapping to every configured edge",
     )
     add_parser.add_argument(
         "-r",
@@ -815,7 +847,11 @@ def _add_host_commands(subparsers) -> None:
     )
     add_edge_argument(
         host_del_parser,
-        help_text="Edge name (required for --id, optional for --domain/--remark)",
+        help_text="Edge name (required with --id; otherwise use this or -a/--all)",
+    )
+    add_all_argument(
+        host_del_parser,
+        help_text="Delete the matching host mapping from every configured edge",
     )
     add_yes_argument(host_del_parser)
     host_del_parser.set_defaults(requires_config=True)
@@ -848,7 +884,11 @@ def _add_host_commands(subparsers) -> None:
     )
     add_edge_argument(
         host_edit_parser,
-        help_text="Edge name (required for --id, optional for --domain/--remark)",
+        help_text="Edge name (required with --id; otherwise use this or -a/--all)",
+    )
+    add_all_argument(
+        host_edit_parser,
+        help_text="Edit the matching host mapping on every configured edge",
     )
     # -- Value arguments (what to change) --
     host_edit_parser.add_argument(

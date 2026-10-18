@@ -181,7 +181,7 @@ def _dispatch(args) -> int:
         cmd_npc_uninstall,
         cmd_npc_upgrade,
     )
-    from .cmd_status import cmd_status
+    from .cmd_status import cmd_edge_list, cmd_status
     from .cmd_sync import cmd_export, cmd_sync
     from .cmd_tunnels import (
         cmd_add_tunnel,
@@ -207,6 +207,7 @@ def _dispatch(args) -> int:
         ("client", "status"): cmd_npc_status,
         ("client", "restart"): cmd_npc_restart,
         # edge commands
+        ("edge", "list"): cmd_edge_list,
         ("edge", "status"): cmd_status,
         ("edge", "install"): cmd_install,
         ("edge", "upgrade"): cmd_upgrade,

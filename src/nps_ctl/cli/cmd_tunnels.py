@@ -6,7 +6,13 @@ from .. import client_mgmt, tunnel
 from ..cluster import NPSCluster
 from ..exceptions import NPSError
 from ..types import TunnelInfo
-from .helpers import console, create_table, print_error
+from .helpers import (
+    console,
+    create_table,
+    print_edge_summary,
+    print_error,
+    resolve_write_edges,
+)
 
 
 def cmd_tunnels(args: argparse.Namespace) -> int:
@@ -19,21 +25,8 @@ def cmd_tunnels(args: argparse.Namespace) -> int:
 
     tunnel_type = getattr(args, "type", "") or ""
 
-    if args.all:
-        all_tunnels = cluster.get_all_tunnels()
-        for edge_name, tunnels in all_tunnels.items():
-            edge = cluster.get_edge(edge_name)
-            region = edge.region if edge else ""
-            console.print(f"\n[bold cyan]=== {edge_name} ({region}) ===[/bold cyan]")
-            _print_tunnels(tunnels)
-    else:
-        edge_name = args.edge
-        if not edge_name:
-            edge_name = cluster.edge_names[0] if cluster.edge_names else None
-            if not edge_name:
-                print_error("No edges configured")
-                return 1
-
+    edge_name = getattr(args, "edge", None)
+    if edge_name:
         nps = cluster.get_client(edge_name)
         if not nps:
             print_error(f"Edge '{edge_name}' not found")
@@ -48,8 +41,22 @@ def cmd_tunnels(args: argparse.Namespace) -> int:
         except NPSError as e:
             print_error(str(e))
             return 1
+        return 0
 
-    return 0
+    all_tunnels = cluster.get_all_tunnels()
+    for edge_name, tunnels in all_tunnels.items():
+        edge = cluster.get_edge(edge_name)
+        region = edge.region if edge else ""
+        if edge_name in all_tunnels.errors:
+            console.print(
+                f"\n[red]✗ {edge_name} ({region}): "
+                f"{all_tunnels.errors[edge_name]}[/red]"
+            )
+            continue
+        console.print(f"\n[bold cyan]=== {edge_name} ({region}) ===[/bold cyan]")
+        _print_tunnels(tunnels)
+
+    return print_edge_summary(all_tunnels, all_tunnels.errors)
 
 
 def cmd_add_tunnel(args: argparse.Namespace) -> int:
@@ -68,12 +75,12 @@ def cmd_add_tunnel(args: argparse.Namespace) -> int:
         print_error(str(e))
         return 1
 
+    targets, code = resolve_write_edges(args, cluster.edge_names)
+    if targets is None:
+        return code
+
     # Confirm
     if not args.yes:
-        targets = [args.edge] if args.edge else cluster.edge_names
-        if not targets:
-            print_error("No edges configured")
-            return 1
         console.print(
             f"Will add [bold]{args.type}[/bold] tunnel to: {', '.join(targets)}"
         )
@@ -132,6 +139,8 @@ def cmd_add_tunnel(args: argparse.Namespace) -> int:
         for edge, success in results.items():
             status = "[green]✓[/green]" if success else "[red]✗[/red]"
             console.print(f"{status} {edge}")
+        if not all(results.values()):
+            return 1
 
     return 0
 
@@ -199,7 +208,10 @@ def cmd_tunnel_del(args: argparse.Namespace) -> int:
     # --id requires -e
     if tunnel_id is not None and not args.edge:
         print_error("--id requires -e/--edge (IDs are edge-specific)")
-        return 1
+        return 2
+    if tunnel_id is not None and getattr(args, "all", False):
+        print_error("--id targets a single edge; use -e/--edge, not -a/--all")
+        return 2
 
     # port+type: both should be present for reliable matching
     if tunnel_port is not None and not tunnel_type:
@@ -259,10 +271,9 @@ def cmd_tunnel_del(args: argparse.Namespace) -> int:
             return 1
     else:
         # Delete by remark or port+type across edge(s)
-        edges = [args.edge] if args.edge else cluster.edge_names
-        if not edges:
-            print_error("No edges configured")
-            return 1
+        edges, code = resolve_write_edges(args, cluster.edge_names)
+        if edges is None:
+            return code
 
         if not args.yes:
             if tunnel_remark:
@@ -378,7 +389,10 @@ def cmd_tunnel_edit(args: argparse.Namespace) -> int:
     # --id requires -e
     if tunnel_id is not None and not args.edge:
         print_error("--id requires -e/--edge (IDs are edge-specific)")
-        return 1
+        return 2
+    if tunnel_id is not None and getattr(args, "all", False):
+        print_error("--id targets a single edge; use -e/--edge, not -a/--all")
+        return 2
 
     # port+type: both should be present
     if locate_port is not None and not locate_type:
@@ -403,10 +417,9 @@ def cmd_tunnel_edit(args: argparse.Namespace) -> int:
         )
     else:
         # Edit by remark or port+type across edge(s)
-        edges = [args.edge] if args.edge else cluster.edge_names
-        if not edges:
-            print_error("No edges configured")
-            return 1
+        edges, code = resolve_write_edges(args, cluster.edge_names)
+        if edges is None:
+            return code
 
         if not args.yes:
             if locate_remark:
