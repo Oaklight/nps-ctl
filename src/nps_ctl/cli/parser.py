@@ -634,7 +634,8 @@ def _add_tunnel_commands(subparsers) -> None:
         "--auth",
         help=(
             "HTTP Basic Auth credentials "
-            '(e.g. "user=pass" or "user1=pass1,user2=pass2")'
+            '(e.g. "user=pass" or "user1=pass1,user2=pass2"; '
+            "use newlines if a password contains a comma)"
         ),
     )
     add_yes_argument(add_parser)
@@ -847,7 +848,10 @@ def _add_host_commands(subparsers) -> None:
     )
     add_parser.add_argument(
         "--auth",
-        help='HTTP Basic Auth (format: "user=pass" or "user1=pass1,user2=pass2")',
+        help=(
+            'HTTP Basic Auth (format: "user=pass" or "user1=pass1,user2=pass2"; '
+            "use newlines if a password contains a comma)"
+        ),
     )
     add_yes_argument(add_parser)
     add_parser.set_defaults(requires_config=True)

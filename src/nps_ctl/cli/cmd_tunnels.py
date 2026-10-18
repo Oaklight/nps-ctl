@@ -11,6 +11,7 @@ from .helpers import (
     console,
     create_table,
     edge_region,
+    normalize_auth,
     print_edge_summary,
     print_error,
     print_json,
@@ -141,7 +142,7 @@ def cmd_add_tunnel(args: argparse.Namespace) -> int:
         return code
 
     # Normalize auth: comma-separated -> newline-separated for NPS API
-    auth_str = (getattr(args, "auth", None) or "").replace(",", "\n")
+    auth_str = normalize_auth(getattr(args, "auth", None) or "")
 
     # Confirm
     if not args.yes:
@@ -452,7 +453,7 @@ def cmd_tunnel_edit(args: argparse.Namespace) -> int:
     new_remark = getattr(args, "new_remark", None)
     new_auth = getattr(args, "auth", None)
     if new_auth is not None:
-        new_auth = new_auth.replace(",", "\n")
+        new_auth = normalize_auth(new_auth)
 
     # Validate: at least one locator
     if tunnel_id is None and not locate_remark and locate_port is None:
