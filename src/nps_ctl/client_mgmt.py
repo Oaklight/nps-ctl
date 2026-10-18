@@ -298,7 +298,7 @@ def _normalize_client(item: dict[str, Any]) -> ClientInfo:
         "Remark": item.get("remark", ""),
         "Status": item.get("status", False),
         "IsConnect": item.get("is_connect", False),
-        "RateLimit": item.get("rate_limit_total_bps", 0),
+        "RateLimit": item.get("rate_limit_total_bps", 0) // 1024,
         "Flow": {
             "InletFlow": item.get("service_in_bytes", 0),
             "ExportFlow": item.get("service_out_bytes", 0),

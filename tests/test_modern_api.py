@@ -149,6 +149,25 @@ def test_tunnel_crud_uses_modern_paths_and_fields():
     assert del_call[:2] == ("POST", "/api/tunnels/9/actions/delete")
 
 
+def test_client_get_normalizes_rate_limit_to_kb():
+    nps = ModernNPS(
+        item={
+            "id": 3,
+            "remark": "server",
+            "rate_limit_total_bps": 20480,
+            "max_connections": 50,
+            "config_conn_allow": True,
+        }
+    )
+
+    result = client_mgmt.get_client(nps, 3)
+
+    assert result is not None
+    assert result["RateLimit"] == 20
+    assert result["MaxConn"] == 50
+    assert result["ConfigConnAllow"] is True
+
+
 def test_tunnel_get_normalizes_modern_response():
     nps = ModernNPS(
         item={
