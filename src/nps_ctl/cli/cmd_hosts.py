@@ -1,6 +1,8 @@
 """CLI commands: hosts, add-host - List and manage host mappings."""
 
 import argparse
+from collections.abc import Mapping
+from typing import TypedDict
 
 from .. import client_mgmt, host
 from ..cluster import NPSCluster
@@ -19,9 +21,102 @@ from .helpers import (
 )
 
 
+class _MatrixRow(TypedDict):
+    """One domain row in the host matrix."""
+
+    host: str
+    edges: dict[str, bool | None]
+
+
+def _build_host_matrix(
+    results: Mapping[str, list[HostInfo]],
+    errors: Mapping[str, str],
+    edge_names: list[str],
+) -> tuple[list[_MatrixRow], dict[str, int]]:
+    """Build a domain-by-edge presence matrix.
+
+    Args:
+        results: Mapping of edge name to host mappings.
+        errors: Mapping of failed edge name to error message.
+        edge_names: Edge columns, in display order.
+
+    Returns:
+        Matrix rows and a summary dictionary.
+    """
+    domains: dict[str, set[str]] = {}
+    for edge_name, hosts in results.items():
+        for item in hosts:
+            domain = item.get("Host", "")
+            if domain:
+                domains.setdefault(domain, set()).add(edge_name)
+
+    rows: list[_MatrixRow] = []
+    for domain in sorted(domains):
+        row_edges: dict[str, bool | None] = {}
+        for edge_name in edge_names:
+            if edge_name in errors:
+                row_edges[edge_name] = None
+            else:
+                row_edges[edge_name] = edge_name in domains[domain]
+        rows.append({"host": domain, "edges": row_edges})
+
+    summary = {
+        "domains": len(rows),
+        "edges": len(edge_names),
+        "failed_edges": len(errors),
+    }
+    return rows, summary
+
+
+def _print_host_matrix(
+    rows: list[_MatrixRow],
+    edge_names: list[str],
+    errors: Mapping[str, str],
+) -> None:
+    """Print a host matrix as a table."""
+    table = create_table(title="Host matrix")
+    table.add_column("Host", style="bold cyan", overflow="fold")
+    for edge_name in edge_names:
+        label = f"[red]{edge_name}![/red]" if edge_name in errors else edge_name
+        table.add_column(label, justify="center")
+
+    for row in rows:
+        cells = []
+        for edge_name in edge_names:
+            value = row["edges"][edge_name]
+            if value is None:
+                cells.append("[red]![/red]")
+            elif value:
+                cells.append("[green]✓[/green]")
+            else:
+                cells.append("[dim]-[/dim]")
+        table.add_row(row["host"], *cells)
+
+    console.print(table, crop=False)
+    console.print(
+        f"[dim]{len(rows)} domains, {len(edge_names)} edges, {len(errors)} failed[/dim]"
+    )
+
+
+def _emit_host_matrix(
+    results: Mapping[str, list[HostInfo]],
+    errors: Mapping[str, str],
+    edge_names: list[str],
+    json_mode: bool,
+) -> int:
+    """Emit the host matrix and return the exit code."""
+    rows, summary = _build_host_matrix(results, errors, edge_names)
+    if json_mode:
+        print_json({"domains": rows, "summary": summary})
+    else:
+        _print_host_matrix(rows, edge_names, errors)
+    return 1 if errors else 0
+
+
 def cmd_hosts(args: argparse.Namespace) -> int:
     """List host mappings on edge nodes."""
     json_mode = getattr(args, "json", False)
+    matrix_mode = getattr(args, "matrix", False)
     try:
         cluster = NPSCluster(args.config)
     except FileNotFoundError as e:
@@ -61,6 +156,10 @@ def cmd_hosts(args: argparse.Namespace) -> int:
         try:
             hosts = host.list_hosts(nps)
         except NPSError as e:
+            if matrix_mode:
+                return _emit_host_matrix(
+                    {edge_name: []}, {edge_name: str(e)}, [edge_name], json_mode
+                )
             if json_mode:
                 print_json(
                     build_edge_results_payload(
@@ -73,6 +172,9 @@ def cmd_hosts(args: argparse.Namespace) -> int:
             else:
                 print_error(str(e))
             return 1
+
+        if matrix_mode:
+            return _emit_host_matrix({edge_name: hosts}, {}, [edge_name], json_mode)
 
         if json_mode:
             print_json(
@@ -92,6 +194,10 @@ def cmd_hosts(args: argparse.Namespace) -> int:
         return 0
 
     all_hosts = cluster.get_all_hosts()
+    if matrix_mode:
+        return _emit_host_matrix(
+            all_hosts, all_hosts.errors, list(all_hosts), json_mode
+        )
     if json_mode:
         print_json(
             build_edge_results_payload(

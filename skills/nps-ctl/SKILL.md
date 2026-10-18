@@ -65,6 +65,7 @@ nps-ctl client uninstall --client cloud.deu1 -y
 
 ```bash
 nps-ctl host list                             # all edges
+nps-ctl host list --matrix                    # domain-by-edge presence matrix
 nps-ctl host list --edge nps-america          # single edge
 nps-ctl host add -e nps-america -d myapp.service.oaklight.cn -c cloud.usa2 -T :8080
 nps-ctl host add -a -d myapp.service.oaklight.cn -c cloud.usa2 -T :8080  # every edge
