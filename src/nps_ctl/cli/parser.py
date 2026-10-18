@@ -794,6 +794,11 @@ def _add_host_commands(subparsers) -> None:
         action="store_true",
         help="Show host mappings from all edges",
     )
+    list_parser.add_argument(
+        "--matrix",
+        action="store_true",
+        help="Show a domain-by-edge presence matrix",
+    )
     add_output_arguments(list_parser)
     list_parser.set_defaults(requires_config=True)
 
