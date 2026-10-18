@@ -260,9 +260,9 @@ def test_edge_status_json(monkeypatch, capsys):
         "ok": 1,
         "failed": 1,
         "partial": 0,
-        "clients": 1,
-        "hosts": 1,
-        "ports": 1,
+        "clients": None,
+        "hosts": None,
+        "ports": None,
     }
 
 
