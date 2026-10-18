@@ -93,8 +93,11 @@ def _print_host_matrix(
         table.add_row(row["host"], *cells)
 
     console.print(table, crop=False)
+    for edge_name, error in errors.items():
+        console.print(f"[red]✗ {edge_name}: {error}[/red]")
     console.print(
-        f"[dim]{len(rows)} domains, {len(edge_names)} edges, {len(errors)} failed[/dim]"
+        f"[dim]domains: {len(rows)}, edges: {len(edge_names)}, "
+        f"failed: {len(errors)}[/dim]"
     )
 
 

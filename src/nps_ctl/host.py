@@ -6,9 +6,10 @@ NPS server, including listing, adding, editing, and deleting hosts.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from .types import HostInfo
+from .utils import fetch_all_pages
 
 if TYPE_CHECKING:
     from .base import NPSClient
@@ -20,6 +21,7 @@ def list_hosts(
     search: str = "",
     offset: int = 0,
     limit: int = 100,
+    paginate: bool = True,
 ) -> list[HostInfo]:
     """List all host (domain) mappings.
 
@@ -28,7 +30,8 @@ def list_hosts(
         client_id: Filter by client ID (None for all).
         search: Search keyword.
         offset: Pagination offset.
-        limit: Maximum number of results.
+        limit: Page size when paginating.
+        paginate: Fetch every page. Set False for a single request.
 
     Returns:
         List of host information dictionaries.
@@ -41,8 +44,12 @@ def list_hosts(
     if client_id is not None:
         data["client_id"] = client_id
 
-    result = nps.request("/index/hostlist", method="POST", data=data)
-    return result.get("rows", [])
+    if not paginate:
+        result = nps.request("/index/hostlist", method="POST", data=data)
+        return result.get("rows", [])
+
+    rows = fetch_all_pages(nps, "/index/hostlist", data, limit=limit)
+    return cast(list[HostInfo], rows)
 
 
 def get_host(nps: NPSClient, host_id: int) -> HostInfo | None:

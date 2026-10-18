@@ -65,7 +65,7 @@ def test_matrix_table_marks_presence_and_absence(monkeypatch, capsys):
     out = _plain(capsys.readouterr().out)
     assert out.index("alpha.test") < out.index("beta.test")
     assert out.count("✓") == 3
-    assert "3 edges, 0 failed" in out
+    assert "domains: 2, edges: 3, failed: 0" in out
 
 
 def test_matrix_json_reports_presence(monkeypatch, capsys):
@@ -121,7 +121,8 @@ def test_matrix_table_marks_failed_edge(monkeypatch, capsys):
 
     out = _plain(capsys.readouterr().out)
     assert "!" in out
-    assert "1 failed" in out
+    assert "failed: 1" in out
+    assert "timeout" in out
     assert "edge-b!" in out
 
 

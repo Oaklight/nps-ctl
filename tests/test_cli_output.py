@@ -148,7 +148,9 @@ class FakeStatusCluster:
 def test_edge_status_exits_zero_when_all_online(monkeypatch):
     cluster = FakeStatusCluster(["a", "b"])
     monkeypatch.setattr(cmd_status, "NPSCluster", lambda config: cluster)
-    monkeypatch.setattr(cmd_status.client_mgmt, "list_clients", lambda nps, limit=1: [])
+    monkeypatch.setattr(
+        cmd_status.client_mgmt, "list_clients", lambda nps, limit=1, **kwargs: []
+    )
 
     assert cmd_status.cmd_status(argparse.Namespace(config="ignored")) == 0
 
@@ -156,7 +158,7 @@ def test_edge_status_exits_zero_when_all_online(monkeypatch):
 def test_edge_status_exits_nonzero_when_an_edge_is_offline(monkeypatch):
     cluster = FakeStatusCluster(["a", "b"], failing={"b"})
 
-    def fake_list(nps, limit=1):
+    def fake_list(nps, limit=1, **kwargs):
         if nps.name in cluster.failing:
             raise NPSError("connection refused")
         return []
@@ -212,7 +214,7 @@ def test_host_list_json_reports_partial_failure(monkeypatch, capsys):
 def test_edge_status_json(monkeypatch, capsys):
     cluster = FakeStatusCluster(["a", "b"], failing={"b"})
 
-    def fake_list(nps, limit=1):
+    def fake_list(nps, limit=1, **kwargs):
         if nps.name in cluster.failing:
             raise NPSError("connection refused")
         return []

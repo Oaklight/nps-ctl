@@ -6,9 +6,10 @@ including listing, adding, editing, starting, stopping, and deleting tunnels.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from .types import TunnelInfo
+from .utils import fetch_all_pages
 
 if TYPE_CHECKING:
     from .base import NPSClient
@@ -25,6 +26,7 @@ def list_tunnels(
     search: str = "",
     offset: int = 0,
     limit: int = 100,
+    paginate: bool = True,
 ) -> list[TunnelInfo]:
     """List tunnels.
 
@@ -39,7 +41,8 @@ def list_tunnels(
             "secret", "p2p", "file"). Empty string queries all types.
         search: Search keyword.
         offset: Pagination offset.
-        limit: Maximum number of results per type.
+        limit: Page size when paginating.
+        paginate: Fetch every page. Set False for a single request.
 
     Returns:
         List of tunnel information dictionaries.
@@ -52,6 +55,7 @@ def list_tunnels(
             search=search,
             offset=offset,
             limit=limit,
+            paginate=paginate,
         )
 
     # Query all tunnel types and merge results
@@ -64,6 +68,7 @@ def list_tunnels(
             search=search,
             offset=offset,
             limit=limit,
+            paginate=paginate,
         )
         all_tunnels.extend(tunnels)
     return all_tunnels
@@ -76,6 +81,7 @@ def _list_tunnels_by_type(
     search: str = "",
     offset: int = 0,
     limit: int = 100,
+    paginate: bool = True,
 ) -> list[TunnelInfo]:
     """List tunnels of a specific type.
 
@@ -85,7 +91,8 @@ def _list_tunnels_by_type(
         client_id: Filter by client ID (None for all).
         search: Search keyword.
         offset: Pagination offset.
-        limit: Maximum number of results.
+        limit: Page size when paginating.
+        paginate: Fetch every page. Set False for a single request.
 
     Returns:
         List of tunnel information dictionaries.
@@ -99,8 +106,12 @@ def _list_tunnels_by_type(
     if client_id is not None:
         data["client_id"] = client_id
 
-    result = nps.request("/index/gettunnel", method="POST", data=data)
-    return result.get("rows", [])
+    if not paginate:
+        result = nps.request("/index/gettunnel", method="POST", data=data)
+        return result.get("rows", [])
+
+    rows = fetch_all_pages(nps, "/index/gettunnel", data, limit=limit)
+    return cast(list[TunnelInfo], rows)
 
 
 def get_tunnel(nps: NPSClient, tunnel_id: int) -> TunnelInfo | None:
