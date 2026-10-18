@@ -11,7 +11,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, cast
 
 from .types import HostInfo
-from .utils import extract_api_items, fetch_all_api_pages, fetch_all_pages
+from .utils import (
+    extract_api_item,
+    extract_api_items,
+    fetch_all_api_pages,
+    fetch_all_pages,
+)
 
 if TYPE_CHECKING:
     from .base import NPSClient
@@ -347,8 +352,8 @@ def _list_hosts_v2(
 
 def _get_host_v2(nps: NPSClient, host_id: int) -> HostInfo | None:
     resp = nps.api_request("GET", f"/api/hosts/{host_id}")
-    item = resp.get("data")
-    if not isinstance(item, dict):
+    item = extract_api_item(resp)
+    if item is None:
         return None
     return _normalize_host(item)
 

@@ -169,3 +169,74 @@ def test_modern_list_hosts_paginate_false_single_request():
 
     assert len(rows) == 100
     assert nps.requests == [("/api/hosts", 0, 100)]
+
+
+class DataPaginationModernNPS:
+    """Serve total/has_more inside data, as some builds do."""
+
+    is_modern = True
+
+    def __init__(self, rows, total=None, page_cap=None):
+        self.rows = rows
+        self.total = len(rows) if total is None else total
+        self.page_cap = page_cap
+        self.requests = []
+
+    def api_request(self, method, path, params=None, data=None):
+        params = params or {}
+        offset = int(params.get("offset", 0))
+        limit = int(params.get("limit", 100))
+        if self.page_cap is not None:
+            limit = min(limit, self.page_cap)
+        self.requests.append((path, offset, limit))
+        page = self.rows[offset : offset + limit]
+        return {
+            "data": {
+                "items": page,
+                "total": self.total,
+                "has_more": offset + len(page) < self.total,
+            }
+        }
+
+
+def test_modern_list_reads_total_and_has_more_from_data():
+    nps = DataPaginationModernNPS(_rows(151))
+
+    rows = host.list_hosts(nps)
+
+    assert len(rows) == 151
+    assert nps.requests == [("/api/hosts", 0, 100), ("/api/hosts", 100, 100)]
+
+
+def test_modern_list_honors_has_more_when_total_is_absent():
+    nps = DataPaginationModernNPS(_rows(150), total=0)
+
+    rows = host.list_hosts(nps)
+
+    assert len(rows) == 100
+    assert nps.requests == [("/api/hosts", 0, 100)]
+
+
+class ShortPageHasMoreNPS:
+    """Keep paging on has_more even when a page is shorter than the limit."""
+
+    is_modern = True
+
+    def __init__(self):
+        self.requests = []
+
+    def api_request(self, method, path, params=None, data=None):
+        offset = int((params or {}).get("offset", 0))
+        self.requests.append(offset)
+        if offset == 0:
+            return {"data": {"items": [{"id": 0}], "has_more": True}}
+        return {"data": {"items": [{"id": 1}], "has_more": False}}
+
+
+def test_modern_list_uses_has_more_over_short_page():
+    nps = ShortPageHasMoreNPS()
+
+    rows = host.list_hosts(nps)
+
+    assert [row["Id"] for row in rows] == [0, 1]
+    assert nps.requests == [0, 1]

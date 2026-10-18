@@ -67,15 +67,48 @@ def fetch_all_pages(
 def extract_api_items(resp: dict[str, Any]) -> list[dict[str, Any]]:
     """Return the row list from a modern list response.
 
+    Accepts the documented ``{"data": [...]}`` envelope and the wrapper
+    variants some builds use (``data.items``, ``data.rows``, or a top-level
+    ``rows`` array).
+
     Args:
         resp: Decoded ``/api/*`` response.
 
     Returns:
-        The ``data`` array (or ``data.items`` for wrapped responses).
+        The row list, or an empty list when the payload is not a list.
     """
-    data = resp.get("data") or []
+    data = resp.get("data")
+    if isinstance(data, list):
+        return data
     if isinstance(data, dict):
-        data = data.get("items") or []
+        for key in ("items", "rows"):
+            rows = data.get(key)
+            if isinstance(rows, list):
+                return rows
+    rows = resp.get("rows")
+    return rows if isinstance(rows, list) else []
+
+
+def extract_api_item(resp: dict[str, Any]) -> dict[str, Any] | None:
+    """Return the resource object from a modern single-item response.
+
+    The server normally puts the resource directly in ``data``. Some
+    builds wrap it as ``{"data": {"item": {...}}}``; accept both so callers
+    never merge an empty record into an edit payload.
+
+    Args:
+        resp: Decoded ``/api/*`` response.
+
+    Returns:
+        The resource dictionary, or None when no object is present.
+    """
+    data = resp.get("data")
+    if not isinstance(data, dict):
+        return None
+    for key in ("item", "data"):
+        nested = data.get(key)
+        if isinstance(nested, dict) and set(data) <= {key, "meta"}:
+            return nested
     return data
 
 
@@ -120,15 +153,32 @@ def fetch_all_api_pages(
         items.extend(page)
         offset += len(page)
 
-        meta = resp.get("meta") or {}
-        pagination = meta.get("pagination") or {}
-        total = int(pagination.get("total", meta.get("total", 0)) or 0)
+        meta_raw = resp.get("meta")
+        meta: dict[str, Any] = meta_raw if isinstance(meta_raw, dict) else {}
+        pagination_raw = meta.get("pagination")
+        pagination: dict[str, Any] = (
+            pagination_raw if isinstance(pagination_raw, dict) else {}
+        )
+        data_raw = resp.get("data")
+        data: dict[str, Any] = data_raw if isinstance(data_raw, dict) else {}
+        total = 0
+        for container in (pagination, meta, data):
+            if container.get("total") is not None:
+                total = int(container.get("total") or 0)
+                break
+        has_more = pagination.get("has_more")
+        if has_more is None:
+            has_more = meta.get("has_more")
+        if has_more is None:
+            has_more = data.get("has_more")
         if not page:
+            break
+        if has_more is False:
             break
         if total:
             if offset >= total:
                 break
-        elif len(page) < limit:
+        elif has_more is not True and len(page) < limit:
             break
 
     return items

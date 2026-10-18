@@ -11,7 +11,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, cast
 
 from .types import ClientInfo
-from .utils import extract_api_items, fetch_all_api_pages, fetch_all_pages
+from .utils import (
+    extract_api_item,
+    extract_api_items,
+    fetch_all_api_pages,
+    fetch_all_pages,
+)
 
 if TYPE_CHECKING:
     from .base import NPSClient
@@ -336,8 +341,8 @@ def _list_clients_v2(
 
 def _get_client_v2(nps: NPSClient, client_id: int) -> ClientInfo | None:
     resp = nps.api_request("GET", f"/api/clients/{client_id}")
-    item = resp.get("data")
-    if not isinstance(item, dict):
+    item = extract_api_item(resp)
+    if item is None:
         return None
     return _normalize_client(item)
 

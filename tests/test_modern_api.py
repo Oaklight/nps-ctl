@@ -190,3 +190,74 @@ def test_tunnel_get_normalizes_modern_response():
     assert result["Target"]["TargetStr"] == "127.0.0.1:80"
     assert result["Flow"]["InletFlow"] == 12
     assert result["Flow"]["ExportFlow"] == 34
+
+
+class WrappedItemNPS:
+    """Serve the single-resource wrapper shape some builds use."""
+
+    is_modern = True
+
+    def __init__(self, item):
+        self.item = item
+
+    def api_request(self, method, path, params=None, data=None):
+        return {"data": {"item": self.item}}
+
+
+def test_get_host_accepts_wrapped_item_envelope():
+    nps = WrappedItemNPS(
+        {
+            "id": 7,
+            "host": "app.example.com",
+            "target": "127.0.0.1:8080",
+            "auth": "admin=secret",
+            "client": {"id": 1, "remark": "server"},
+        }
+    )
+
+    result = host.get_host(nps, 7)
+
+    assert result is not None
+    assert result["Host"] == "app.example.com"
+    assert result["Target"]["TargetStr"] == "127.0.0.1:8080"
+    assert result["UserAuth"]["Content"] == "admin=secret"
+
+
+def test_get_client_accepts_wrapped_item_envelope():
+    nps = WrappedItemNPS(
+        {
+            "id": 3,
+            "remark": "server",
+            "verify_key": "key-1",
+            "rate_limit_total_bps": 20480,
+        }
+    )
+
+    result = client_mgmt.get_client(nps, 3)
+
+    assert result is not None
+    assert result["Id"] == 3
+    assert result["Remark"] == "server"
+    assert result["VerifyKey"] == "key-1"
+    assert result["RateLimit"] == 20
+
+
+def test_get_tunnel_accepts_wrapped_item_envelope():
+    nps = WrappedItemNPS(
+        {
+            "id": 9,
+            "port": 8080,
+            "mode": "tcp",
+            "target": "127.0.0.1:80",
+            "remark": "web",
+            "client": {"id": 1, "remark": "server"},
+        }
+    )
+
+    result = tunnel.get_tunnel(nps, 9)
+
+    assert result is not None
+    assert result["Id"] == 9
+    assert result["Mode"] == "tcp"
+    assert result["Port"] == 8080
+    assert result["Target"]["TargetStr"] == "127.0.0.1:80"
