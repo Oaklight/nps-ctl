@@ -64,7 +64,8 @@ def test_matrix_table_marks_presence_and_absence(monkeypatch, capsys):
 
     out = _plain(capsys.readouterr().out)
     assert out.index("alpha.test") < out.index("beta.test")
-    assert out.count("✓") == 3
+    assert "✓ present   - missing   ! fetch failed" in out
+    assert out.count("✓") == 4
     assert "domains: 2, edges: 3, failed: 0" in out
 
 
@@ -74,7 +75,12 @@ def test_matrix_json_reports_presence(monkeypatch, capsys):
     assert cmd_hosts.cmd_hosts(_args(json=True)) == 0
 
     payload = json.loads(capsys.readouterr().out)
-    assert payload["summary"] == {"domains": 2, "edges": 3, "failed_edges": 0}
+    assert payload["summary"] == {
+        "domains": 2,
+        "edges": 3,
+        "failed_edges": 0,
+        "failed": {},
+    }
     rows = {row["host"]: row["edges"] for row in payload["domains"]}
     assert rows["alpha.test"] == {
         "edge-a": True,
@@ -102,7 +108,12 @@ def test_matrix_marks_failed_edge_as_null(monkeypatch, capsys):
     assert cmd_hosts.cmd_hosts(_args(json=True)) == 1
 
     payload = json.loads(capsys.readouterr().out)
-    assert payload["summary"] == {"domains": 1, "edges": 3, "failed_edges": 1}
+    assert payload["summary"] == {
+        "domains": 1,
+        "edges": 3,
+        "failed_edges": 1,
+        "failed": {"edge-b": "timeout"},
+    }
     assert payload["domains"][0]["edges"]["edge-b"] is None
 
 
@@ -137,5 +148,23 @@ def test_matrix_single_edge(monkeypatch, capsys):
     assert cmd_hosts.cmd_hosts(_args(edge="edge-a", json=True)) == 0
 
     payload = json.loads(capsys.readouterr().out)
-    assert payload["summary"] == {"domains": 1, "edges": 1, "failed_edges": 0}
+    assert payload["summary"] == {
+        "domains": 1,
+        "edges": 1,
+        "failed_edges": 0,
+        "failed": {},
+    }
     assert payload["domains"][0]["edges"] == {"edge-a": True}
+
+
+def test_matrix_escapes_rich_markup(monkeypatch, capsys):
+    cluster = MatrixCluster(
+        results={"nps[asia]": [_host(1, "a[b].example.com")]},
+    )
+    monkeypatch.setattr(cmd_hosts, "NPSCluster", lambda config: cluster)
+
+    assert cmd_hosts.cmd_hosts(_args()) == 0
+
+    out = _plain(capsys.readouterr().out)
+    assert "nps[asia]" in out
+    assert "a[b].example.com" in out

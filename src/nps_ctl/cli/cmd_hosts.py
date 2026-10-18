@@ -4,6 +4,8 @@ import argparse
 from collections.abc import Mapping
 from typing import TypedDict
 
+from rich.markup import escape
+
 from .. import client_mgmt, host
 from ..cluster import NPSCluster
 from ..exceptions import NPSError
@@ -28,11 +30,20 @@ class _MatrixRow(TypedDict):
     edges: dict[str, bool | None]
 
 
+class _MatrixSummary(TypedDict):
+    """Summary metadata for the host matrix payload."""
+
+    domains: int
+    edges: int
+    failed_edges: int
+    failed: dict[str, str]
+
+
 def _build_host_matrix(
     results: Mapping[str, list[HostInfo]],
     errors: Mapping[str, str],
     edge_names: list[str],
-) -> tuple[list[_MatrixRow], dict[str, int]]:
+) -> tuple[list[_MatrixRow], _MatrixSummary]:
     """Build a domain-by-edge presence matrix.
 
     Args:
@@ -60,10 +71,11 @@ def _build_host_matrix(
                 row_edges[edge_name] = edge_name in domains[domain]
         rows.append({"host": domain, "edges": row_edges})
 
-    summary = {
+    summary: _MatrixSummary = {
         "domains": len(rows),
         "edges": len(edge_names),
         "failed_edges": len(errors),
+        "failed": dict(errors),
     }
     return rows, summary
 
@@ -74,10 +86,13 @@ def _print_host_matrix(
     errors: Mapping[str, str],
 ) -> None:
     """Print a host matrix as a table."""
+    console.print("[dim]✓ present   - missing   ! fetch failed[/dim]")
     table = create_table(title="Host matrix")
     table.add_column("Host", style="bold cyan", overflow="fold")
     for edge_name in edge_names:
-        label = f"[red]{edge_name}![/red]" if edge_name in errors else edge_name
+        label = escape(edge_name)
+        if edge_name in errors:
+            label = f"[red]{label}![/red]"
         table.add_column(label, justify="center")
 
     for row in rows:
@@ -90,11 +105,11 @@ def _print_host_matrix(
                 cells.append("[green]✓[/green]")
             else:
                 cells.append("[dim]-[/dim]")
-        table.add_row(row["host"], *cells)
+        table.add_row(escape(row["host"]), *cells)
 
     console.print(table, crop=False)
     for edge_name, error in errors.items():
-        console.print(f"[red]✗ {edge_name}: {error}[/red]")
+        console.print(f"[red]✗ {escape(edge_name)}: {escape(error)}[/red]")
     console.print(
         f"[dim]domains: {len(rows)}, edges: {len(edge_names)}, "
         f"failed: {len(errors)}[/dim]"
