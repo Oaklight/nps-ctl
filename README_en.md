@@ -89,6 +89,24 @@ Read commands (`client list`, `host list`, `tunnel list`) default to all configu
 
 Piped output has no ANSI styling. Add `--no-color` to disable color on a terminal. `--json` is available on `edge list`, `edge status`, and `client/host/tunnel list`.
 
+## Web dashboard
+
+`nps-ctl web` serves a read-only dashboard for all configured edges:
+
+```bash
+export NPS_WEB_PASSWORD='choose-a-password'
+nps-ctl web --username admin
+# http://127.0.0.1:8080/
+```
+
+The server binds to `127.0.0.1` by default. Binding to a non-loopback address
+without credentials is refused unless `--insecure` is passed. The dashboard
+shows edge health and resource counts, and lets you browse clients, tunnels
+and hosts per edge; credentials (client verification keys, tunnel passwords,
+and Basic Auth) are redacted from its JSON output.
+Mutating actions remain in the CLI. The built-in server speaks plain HTTP, so
+terminate TLS in front of it before exposing it beyond loopback.
+
 ## Configuration
 
 Create a `config/edges.toml` file:

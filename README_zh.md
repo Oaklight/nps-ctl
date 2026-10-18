@@ -89,6 +89,22 @@ nps-ctl edge list --json
 
 输出到管道时不包含 ANSI 样式。在终端中可用 `--no-color` 显式关闭颜色。`edge list`、`edge status` 以及 `client/host/tunnel list` 支持 `--json`。
 
+## Web 管理面板
+
+`nps-ctl web` 为所有已配置边缘节点提供只读管理面板：
+
+```bash
+export NPS_WEB_PASSWORD='choose-a-password'
+nps-ctl web --username admin
+# http://127.0.0.1:8080/
+```
+
+默认只监听 `127.0.0.1`。未配置凭据时绑定到非回环地址会被拒绝，除非传入
+`--insecure`。面板展示边缘节点健康状态和资源数量，并可逐个节点查看客户端、
+隧道和域名映射；JSON 输出会隐藏凭据（客户端验证密钥、隧道密码和
+Basic Auth）。变更操作仍在 CLI 中完成。
+内置服务器只提供 HTTP，如需暴露到回环地址之外，请在前置代理上终止 TLS。
+
 ## 配置
 
 创建 `config/edges.toml` 文件：
