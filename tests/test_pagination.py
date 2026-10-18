@@ -1,0 +1,76 @@
+"""Tests for paginated NPS list endpoints."""
+
+from __future__ import annotations
+
+from nps_ctl import client_mgmt, host, tunnel
+
+
+class FakeNPS:
+    """Serve a paginated list endpoint from an in-memory row set."""
+
+    def __init__(self, rows, total=None):
+        self.rows = rows
+        self.total = len(rows) if total is None else total
+        self.requests = []
+
+    def request(self, path, method="POST", data=None):
+        data = data or {}
+        offset = int(data.get("offset", 0))
+        limit = int(data.get("limit", 100))
+        self.requests.append((path, offset, limit))
+        return {
+            "rows": self.rows[offset : offset + limit],
+            "total": self.total,
+        }
+
+
+def _rows(count: int):
+    return [{"Id": index} for index in range(count)]
+
+
+def test_list_hosts_fetches_all_pages():
+    nps = FakeNPS(_rows(151))
+
+    rows = host.list_hosts(nps)
+
+    assert len(rows) == 151
+    assert nps.requests == [
+        ("/index/hostlist", 0, 100),
+        ("/index/hostlist", 100, 100),
+    ]
+
+
+def test_list_hosts_uses_short_page_as_end():
+    nps = FakeNPS(_rows(150), total=0)
+
+    rows = host.list_hosts(nps)
+
+    assert len(rows) == 150
+    assert len(nps.requests) == 2
+
+
+def test_list_hosts_paginate_false_single_request():
+    nps = FakeNPS(_rows(151))
+
+    rows = host.list_hosts(nps, limit=1, paginate=False)
+
+    assert len(rows) == 1
+    assert nps.requests == [("/index/hostlist", 0, 1)]
+
+
+def test_list_clients_fetches_all_pages():
+    nps = FakeNPS(_rows(250))
+
+    rows = client_mgmt.list_clients(nps)
+
+    assert len(rows) == 250
+    assert [request[1] for request in nps.requests] == [0, 100, 200]
+
+
+def test_list_tunnels_fetches_all_pages_for_type():
+    nps = FakeNPS(_rows(150))
+
+    rows = tunnel.list_tunnels(nps, tunnel_type="tcp")
+
+    assert len(rows) == 150
+    assert len(nps.requests) == 2

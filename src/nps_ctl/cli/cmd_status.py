@@ -111,7 +111,7 @@ def cmd_status(args: argparse.Namespace) -> int:
 
             try:
                 # Try to get clients to verify connection
-                client_mgmt.list_clients(nps, limit=1)
+                client_mgmt.list_clients(nps, limit=1, paginate=False)
                 is_online = True
                 online += 1
             except NPSError:

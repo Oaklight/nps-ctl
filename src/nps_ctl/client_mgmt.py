@@ -6,9 +6,10 @@ including listing, adding, editing, and deleting clients.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from .types import ClientInfo
+from .utils import fetch_all_pages
 
 if TYPE_CHECKING:
     from .base import NPSClient
@@ -20,6 +21,7 @@ def list_clients(
     order: str = "asc",
     offset: int = 0,
     limit: int = 100,
+    paginate: bool = True,
 ) -> list[ClientInfo]:
     """List all clients.
 
@@ -28,7 +30,8 @@ def list_clients(
         search: Search keyword for filtering.
         order: Sort order ("asc" or "desc").
         offset: Pagination offset.
-        limit: Maximum number of results.
+        limit: Page size when paginating.
+        paginate: Fetch every page. Set False for a single request.
 
     Returns:
         List of client information dictionaries.
@@ -39,8 +42,12 @@ def list_clients(
         "offset": offset,
         "limit": limit,
     }
-    result = nps.request("/client/list", method="POST", data=data)
-    return result.get("rows", [])
+    if not paginate:
+        result = nps.request("/client/list", method="POST", data=data)
+        return result.get("rows", [])
+
+    rows = fetch_all_pages(nps, "/client/list", data, limit=limit)
+    return cast(list[ClientInfo], rows)
 
 
 def get_client(nps: NPSClient, client_id: int) -> ClientInfo | None:
