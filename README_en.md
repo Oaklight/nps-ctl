@@ -39,7 +39,7 @@ pip install nps-ctl PySocks
 ### As a Library
 
 ```python
-from nps_ctl import NPSClient
+from nps_ctl import NPSClient, client_mgmt
 
 # Connect to a single NPS server
 client = NPSClient(
@@ -48,12 +48,11 @@ client = NPSClient(
 )
 
 # List all clients
-clients = client.list_clients()
-for c in clients:
+for c in client_mgmt.list_clients(client):
     print(f"{c['Id']}: {c['VerifyKey']}")
 
 # Add a new client
-client.add_client(remark="my-server", vkey="unique-key")
+client_mgmt.add_client(client, remark="my-server", vkey="unique-key")
 ```
 
 ### As a CLI Tool
@@ -70,7 +69,7 @@ nps-ctl client list
 nps-ctl client list --edge nps-asia
 
 # Sync configuration from one edge to the others
-nps-ctl edge sync --from nps-asia
+nps-ctl edge sync --from nps-asia -y
 
 # Write commands require an explicit target: -a for all edges, -e for one
 nps-ctl host add -a -d app.example.com -c my-server -T :8080
@@ -88,7 +87,7 @@ nps-ctl edge list --json
 
 Read commands (`client list`, `host list`, `tunnel list`) default to all configured edges. `-e/--edge` narrows to one edge; `-a/--all` is an explicit all-edges alias. Mutating commands (`host/tunnel add|del|edit`, `client del`) require one of `-e` or `-a`; there is no silent cluster-wide default.
 
-Piped output has no ANSI styling. Add `--no-color` to disable it on a terminal. `--json` is available on `edge list`, `edge status`, and `client/host/tunnel list`.
+Piped output has no ANSI styling. Add `--no-color` to disable color on a terminal. `--json` is available on `edge list`, `edge status`, and `client/host/tunnel list`.
 
 ## Configuration
 

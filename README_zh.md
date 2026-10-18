@@ -39,7 +39,7 @@ pip install nps-ctl PySocks
 ### 作为库使用
 
 ```python
-from nps_ctl import NPSClient
+from nps_ctl import NPSClient, client_mgmt
 
 # 连接到单台 NPS 服务器
 client = NPSClient(
@@ -48,12 +48,11 @@ client = NPSClient(
 )
 
 # 列出所有客户端
-clients = client.list_clients()
-for c in clients:
+for c in client_mgmt.list_clients(client):
     print(f"{c['Id']}: {c['VerifyKey']}")
 
 # 添加新客户端
-client.add_client(remark="my-server", vkey="unique-key")
+client_mgmt.add_client(client, remark="my-server", vkey="unique-key")
 ```
 
 ### 作为命令行工具
@@ -70,7 +69,7 @@ nps-ctl client list
 nps-ctl client list --edge nps-asia
 
 # 从一个边缘节点同步配置到其他节点
-nps-ctl edge sync --from nps-asia
+nps-ctl edge sync --from nps-asia -y
 
 # 写入命令必须显式指定目标：-a 表示所有节点，-e 表示单个节点
 nps-ctl host add -a -d app.example.com -c my-server -T :8080
