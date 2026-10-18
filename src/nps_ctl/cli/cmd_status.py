@@ -63,7 +63,7 @@ def cmd_edge_list(args: argparse.Namespace) -> int:
             entry["edge"], entry["region"], entry["api_url"], entry["ssh_host"] or "-"
         )
 
-    console.print(table)
+    console.print(table, crop=False)
     console.print(f"[dim]{len(edges)} edges configured[/dim]")
     return 0
 
@@ -149,6 +149,6 @@ def cmd_status(args: argparse.Namespace) -> int:
         status = "[green]✓ Online[/green]" if row["online"] else "[red]✗ Offline[/red]"
         table.add_row(row["edge"], row["region"], row["api_url"], status)
 
-    console.print(table)
+    console.print(table, crop=False)
     console.print(f"[dim]{online}/{total} edges online[/dim]")
     return 0 if online == total else 1

@@ -123,6 +123,13 @@ def main() -> int:
         parser.parse_args([args.command, "--help"])
         return 0  # pragma: no cover (--help exits)
 
+    if getattr(args, "json", False) and not getattr(args, "json_capable", False):
+        print(
+            "Error: --json is not supported for this command",
+            file=sys.stderr,
+        )
+        return 2
+
     # Setup logging
     verbose = getattr(args, "verbose", False)
     debug = getattr(args, "debug", False)

@@ -232,7 +232,7 @@ def _print_tunnels(tunnels: list[TunnelInfo]) -> None:
             status,
         )
 
-    console.print(table)
+    console.print(table, crop=False)
 
 
 def cmd_tunnel_del(args: argparse.Namespace) -> int:

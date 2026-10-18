@@ -225,7 +225,7 @@ def _print_hosts(hosts: list[HostInfo]) -> None:
             auth_display,
         )
 
-    console.print(table)
+    console.print(table, crop=False)
 
 
 def cmd_host_del(args: argparse.Namespace) -> int:

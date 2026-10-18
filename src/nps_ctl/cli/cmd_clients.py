@@ -142,7 +142,7 @@ def _print_clients(clients: list[ClientInfo]) -> None:
             str(c.get("NowConn", 0)),
         )
 
-    console.print(table)
+    console.print(table, crop=False)
 
 
 def cmd_client_del(args: argparse.Namespace) -> int:
