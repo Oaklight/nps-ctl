@@ -17,7 +17,7 @@ nps-ctl 提供了丰富的命令行界面，按五个命令组进行组织。每
 | `--no-color` | 禁用彩色输出 |
 | `-V`, `--version` | 显示版本并退出 |
 
-读取类命令（`client list`、`host list`、`tunnel list`）默认作用于**所有**已配置的边缘节点；`-e/--edge` 缩小到单个边缘节点，`-a/--all` 是显式的全边缘别名。变更类命令（`client del`、`host/tunnel add|del|edit`）必须提供 `-e` 或 `-a` 之一，不存在隐式的全集群默认值。
+读取类命令（`client list`、`edge status`、`host list`、`host status`、`tunnel list`、`tunnel status`）默认作用于**所有**已配置的边缘节点；`-e/--edge` 缩小到单个边缘节点，`-a/--all` 是显式的全边缘别名。变更类命令（`client del`、`host/tunnel add|del|edit`）必须提供 `-e` 或 `-a` 之一，不存在隐式的全集群默认值。
 
 ## 命令组
 
@@ -218,34 +218,42 @@ nps-ctl edge list --json
 
 ### `edge status`
 
-显示每个已配置边缘节点的可达性与资源清单。该命令会抓取完整的客户端和
-域名映射列表，开销随集群规模增长，属于清单命令而非轻量健康探测。
+显示全部或选定边缘节点的可达性与资源清单。该命令会抓取完整的客户端、域名映射
+和隧道列表，开销随集群规模增长，属于清单命令而非轻量健康探测。使用旧版 API 的
+边缘节点列出隧道时需要按隧道类型逐个请求（共 7 次）；新版 API 只需一次请求。
 
 | 选项 | 说明 |
 | --- | --- |
+| `-e`, `--edge` EDGE | 要查询的边缘节点（默认：全部） |
+| `-a`, `--all` | 显式的全边缘别名（默认行为） |
 | `--json` | 输出机器可读的 JSON |
 | `--no-color` | 禁用彩色输出 |
 
 ```bash
 nps-ctl edge status
-nps-ctl edge status --json
+nps-ctl edge status -e nps-us
+nps-ctl edge status -a --json
 ```
 
 输出列为 `Edge`、`Region`、`API URL`、`Status`、`Clients`、`Hosts` 和
-`Ports`。`Clients` 为 `<在线>/<总数>`；`Hosts` 是域名映射数量，`Ports` 是
-从 `Target.TargetStr` 解析出的不同目标端口数。抓取失败的数量显示为 `-`。
+`Tunnels`。`Clients` 为 `<在线>/<总数>`；`Hosts` 为 `<数量> (<端口数> ports)`，
+`Tunnels` 为 `<数量> (<运行数> running, <端口数> ports)`。端口按去重计数：
+域名端口来自 `Target.TargetStr`，隧道端口来自 `Port`/`Ports`。抓取失败的数量
+显示为 `-`。
 
 状态取值：
 
-- `✓ Online` — 客户端与域名映射抓取均成功。
-- `⚠ Partial` — 其中一个抓取失败，另一个的数量仍会显示。
-- `✗ Offline` — 两个抓取均失败。
+- `✓ Online` — 所有请求的抓取均成功。
+- `⚠ Partial` — 至少一个请求的抓取成功，但并非全部成功。
+- `✗ Offline` — 所有请求的抓取均失败。
 
 JSON 保留 `summary: {configured, online, offline}`，并为每个边缘新增 `ok`、
-`partial`、`clients_total`、`clients_online`、`hosts_total`、`ports` 和
-`error`，顶层新增 `totals`。失败的数量是 `null`，不会是 `0`。
+`partial`、`clients_ok`、`clients_total`、`clients_online`、`hosts_ok`、
+`hosts_total`、`ports`、`tunnels_ok`、`tunnels_total`、`tunnels_running`、
+`tunnel_ports` 和 `error`，顶层新增 `totals`。未请求的资源与失败的数量是
+`null`，不会是 `0`。
 
-只要有节点离线，或任一客户端/域名映射抓取失败，命令就以 1 退出。
+只要有节点离线，或任一客户端、域名映射或隧道抓取失败，命令就以 1 退出。
 
 ### `edge install`
 
@@ -352,6 +360,31 @@ nps-ctl edge export                                   # First configured edge
 ---
 
 ## `tunnel` — 隧道管理
+
+### `tunnel status`
+
+显示选定边缘节点的客户端在线状态与隧道清单。
+
+| 选项 | 说明 |
+| --- | --- |
+| `-e`, `--edge` EDGE | 要查询的边缘节点（默认：全部） |
+| `-a`, `--all` | 显式的全边缘别名（默认行为） |
+| `--json` | 输出机器可读的 JSON |
+| `--no-color` | 禁用彩色输出 |
+
+```bash
+nps-ctl tunnel status
+nps-ctl tunnel status -e nps-us
+nps-ctl tunnel status -a --json
+```
+
+输出列为 `Edge`、`Region`、`Status`、`Clients`、`Tunnels`、`Running` 和
+`Ports`。`Clients` 为 `<在线>/<总数>`；`Ports` 统计 `Port`/`Ports` 中不同的
+服务端端口（自动分配或无效端口会被忽略）。该命令不抓取域名映射，因此 JSON 中
+的域名计数为 `null`。
+
+仅当所有选定边缘的客户端与隧道抓取均成功时退出码为 0；任一抓取或配置失败
+（包括未知的 `-e`）为 1；同时使用 `-e` 和 `-a` 为 2。
 
 ### `tunnel list`
 

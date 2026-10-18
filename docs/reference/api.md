@@ -439,26 +439,36 @@ get_client(name: str) -> NPSClient | None
 #### get_all_clients
 
 ```python
-get_all_clients(max_workers: int = 4) -> dict[str, list[ClientInfo]]
+get_all_clients(
+    max_workers: int = 4,
+    edge_names: list[str] | None = None,
+) -> dict[str, list[ClientInfo]]
 ```
 
-并行获取所有边缘节点的客户端。返回以边缘节点名称为键的字典。
+并行获取全部或选定边缘节点的客户端。`edge_names=None` 表示所有已配置节点，
+空列表表示不获取任何节点。返回以边缘节点名称为键的字典。
 
 #### get_all_tunnels
 
 ```python
-get_all_tunnels(max_workers: int = 4) -> dict[str, list[TunnelInfo]]
+get_all_tunnels(
+    max_workers: int = 4,
+    edge_names: list[str] | None = None,
+) -> dict[str, list[TunnelInfo]]
 ```
 
-并行获取所有边缘节点的隧道。
+并行获取全部或选定边缘节点的隧道。
 
 #### get_all_hosts
 
 ```python
-get_all_hosts(max_workers: int = 4) -> dict[str, list[HostInfo]]
+get_all_hosts(
+    max_workers: int = 4,
+    edge_names: list[str] | None = None,
+) -> dict[str, list[HostInfo]]
 ```
 
-并行获取所有边缘节点的主机映射。
+并行获取全部或选定边缘节点的主机映射。
 
 #### broadcast_client
 
@@ -578,7 +588,7 @@ cleanup() -> None
 | `Status` | `bool` | 启用状态 |
 | `RunStatus` | `bool` | 当前是否运行中 |
 | `Client` | `ClientInfo` | 关联的客户端 |
-| `Ports` | `str` | 端口范围 |
+| `Ports` | `str` | 附加端口规格（逗号/范围）；现代 API 的 `ports` 会归一化为该字符串 |
 | `Flow` | `dict` | 流量数据 |
 | `Password` | `str` | 隧道密码 |
 | `Remark` | `str` | 隧道备注 |

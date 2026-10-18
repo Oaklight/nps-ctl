@@ -8,6 +8,24 @@ nps-ctl 的所有重要变更均记录于此。本项目遵循 [Keep a Changelog
 
 ---
 
+## 未发布
+
+### 新增
+
+- **`tunnel status`**：按边缘节点显示可达性、客户端在线数/总数、隧道数、运行数与不同服务端端口数，支持 `-e/--edge`、`-a/--all`、`--json` 和 `--no-color`
+- `edge status` 支持 `-e/--edge` 和 `-a/--all`
+- 供 `edge status`、`host status` 和 `tunnel status` 共用的状态渲染辅助函数
+- `get_all_tunnels()` 支持 `edge_names`；现代 API 的隧道 `ports` 会归一化到 `TunnelInfo.Ports`
+- Web 仪表盘概览改用共享状态收集器，并暴露 `ok`/`partial`
+
+### 变更
+
+- **`edge status`** 默认抓取隧道，并显示 `Hosts (ports)` 与 `Tunnels (running, ports)`；任一客户端、域名映射或隧道抓取失败时退出 1
+- `edge status` JSON 新增 `clients_ok`、`hosts_ok`、`tunnels_ok`、`tunnels_total`、`tunnels_running`、`tunnel_ports` 及隧道汇总；未请求的资源为 `null`
+- `GET /api/overview` 的 `online` 现在表示客户端列表抓取成功，新增 `ok`/`partial`，不可用的数量以 `null` 而非 `0` 返回
+
+---
+
 ## v0.8.0 — 2026-10-18
 
 ### 新增

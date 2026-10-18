@@ -116,7 +116,36 @@ for edge_name, clients in all_clients.items():
 
 # Same pattern for tunnels and hosts
 all_hosts = cluster.get_all_hosts()
+
+# Restrict any fetch to a subset of edges
+selected_hosts = cluster.get_all_hosts(edge_names=["nps-america"])
 ```
+
+### 状态清单
+
+`nps_ctl.status` 为 CLI 状态命令和 Web 仪表盘收集可达性与资源计数：
+
+```python
+from nps_ctl.status import collect_edge_status, build_status_payload
+
+rows = collect_edge_status(
+    cluster,
+    edge_names=None,          # None 表示所有已配置节点
+    include_hosts=True,
+    include_tunnels=True,
+)
+for row in rows:
+    print(row.edge, row.online, row.ok, row.partial,
+          row.clients_total, row.hosts_total, row.tunnels_total)
+
+payload = build_status_payload(rows)  # edges、summary、totals
+```
+
+每个 `EdgeStatus` 提供 `online`（客户端列表抓取成功）、`ok`（所有请求的资源
+均抓取成功）、`partial`（部分成功）、各资源的 `*_ok` 标志以及数量。抓取失败
+或未请求的资源数量为 `None`。`build_status_payload` 保留
+`summary: {configured, online, offline}`，并在 `totals` 中新增 `clients`、
+`hosts`、`ports`、`tunnels`、`tunnels_running` 和 `tunnel_ports`。
 
 ### 广播操作
 
