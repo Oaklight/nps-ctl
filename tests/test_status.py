@@ -251,9 +251,9 @@ def test_status_payload_shape_and_totals():
         "ok": 1,
         "failed": 1,
         "partial": 1,
-        "clients": 4,
-        "hosts": 4,
-        "ports": 2,
+        "clients": None,
+        "hosts": None,
+        "ports": None,
     }
     assert payload["edges"][1]["hosts_total"] is None
     assert payload["edges"][1]["partial"] is True
@@ -264,3 +264,43 @@ def test_status_payload_shape_and_totals():
 def test_status_module_does_not_import_cluster_at_runtime():
     import nps_ctl.cluster  # noqa: F401
     import nps_ctl.status  # noqa: F401
+
+
+def test_status_payload_totals_when_all_edges_report():
+    rows = [
+        EdgeStatus(
+            edge="edge-a",
+            region="r",
+            api_url="https://a.invalid",
+            online=True,
+            clients_ok=True,
+            clients_total=3,
+            clients_online=2,
+            hosts_ok=True,
+            hosts_total=4,
+            ports=2,
+        ),
+        EdgeStatus(
+            edge="edge-b",
+            region="r",
+            api_url="https://b.invalid",
+            online=True,
+            clients_ok=True,
+            clients_total=1,
+            clients_online=1,
+            hosts_ok=True,
+            hosts_total=2,
+            ports=1,
+        ),
+    ]
+
+    payload = build_status_payload(rows)
+
+    assert payload["totals"] == {
+        "ok": 2,
+        "failed": 0,
+        "partial": 0,
+        "clients": 4,
+        "hosts": 6,
+        "ports": 3,
+    }

@@ -175,11 +175,19 @@ def collect_edge_status(
     return rows
 
 
+def _sum_counts(values: list[int | None]) -> int | None:
+    """Sum counts, or return None when any edge failed to report."""
+    if any(value is None for value in values):
+        return None
+    return sum(value or 0 for value in values)
+
+
 def build_status_payload(rows: list[EdgeStatus]) -> dict[str, Any]:
     """Build the shared JSON payload for status commands.
 
     ``summary`` keeps its existing ``{configured, online, offline}`` shape;
-    ``totals`` aggregates the inventory counts.
+    ``totals`` aggregates the inventory counts, using ``null`` when any edge
+    could not report so the JSON and the text footer always agree.
     """
     online = sum(1 for row in rows if row.online)
     return {
@@ -208,8 +216,8 @@ def build_status_payload(rows: list[EdgeStatus]) -> dict[str, Any]:
             "ok": sum(1 for row in rows if row.ok),
             "failed": sum(1 for row in rows if not row.online),
             "partial": sum(1 for row in rows if row.partial),
-            "clients": sum(row.clients_total or 0 for row in rows),
-            "hosts": sum(row.hosts_total or 0 for row in rows),
-            "ports": sum(row.ports or 0 for row in rows),
+            "clients": _sum_counts([row.clients_total for row in rows]),
+            "hosts": _sum_counts([row.hosts_total for row in rows]),
+            "ports": _sum_counts([row.ports for row in rows]),
         },
     }
