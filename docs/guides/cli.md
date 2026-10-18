@@ -17,11 +17,11 @@ nps-ctl provides a rich command-line interface organized into five command group
 | `--no-color` | Disable colored output |
 | `-V`, `--version` | Show version and exit |
 
-Read commands (`client list`, `host list`, `tunnel list`) default to **all**
-configured edges; `-e/--edge` narrows to one edge and `-a/--all` is an
-explicit all-edges alias. Mutating commands (`client del`, `host/tunnel
-add|del|edit`) require one of `-e` or `-a`; there is no silent cluster-wide
-default.
+Read commands (`client list`, `edge status`, `host list`, `host status`,
+`tunnel list`, `tunnel status`) default to **all** configured edges;
+`-e/--edge` narrows to one edge and `-a/--all` is an explicit all-edges
+alias. Mutating commands (`client del`, `host/tunnel add|del|edit`) require
+one of `-e` or `-a`; there is no silent cluster-wide default.
 
 ## Command Groups
 
@@ -224,36 +224,44 @@ nps-ctl edge list --json
 
 ### `edge status`
 
-Show reachability and inventory for every configured edge. This fetches the
-full client and host lists, so its cost grows with the cluster: it is an
-inventory command, not a lightweight health probe.
+Show reachability and inventory for all or selected edges. This fetches the
+full client, host, and tunnel lists, so its cost grows with the cluster: it
+is an inventory command, not a lightweight health probe. On legacy API edges,
+listing tunnels requires one request per tunnel type (seven total); the modern
+API uses a single request.
 
 | Option | Description |
 | --- | --- |
+| `-e`, `--edge` EDGE | Edge name to query (default: all edges) |
+| `-a`, `--all` | Explicit all-edges alias (the default) |
 | `--json` | Emit machine-readable JSON |
 | `--no-color` | Disable colored output |
 
 ```bash
 nps-ctl edge status
-nps-ctl edge status --json
+nps-ctl edge status -e nps-us
+nps-ctl edge status -a --json
 ```
 
 Columns are `Edge`, `Region`, `API URL`, `Status`, `Clients`, `Hosts`, and
-`Ports`. `Clients` is `<online>/<total>`; `Hosts` counts host mappings and
-`Ports` counts distinct target ports parsed from `Target.TargetStr`. A count
-that could not be fetched is shown as `-`.
+`Tunnels`. `Clients` is `<online>/<total>`; `Hosts` is `<count> (<n> ports)`
+and `Tunnels` is `<count> (<n> running, <n> ports)`. Ports are distinct:
+host ports come from `Target.TargetStr`, tunnel ports from `Port`/`Ports`.
+A count that could not be fetched is shown as `-`.
 
 Status values:
 
-- `✓ Online` — both the client and host fetches succeeded.
-- `⚠ Partial` — one of the two fetches failed; the other counts are shown.
-- `✗ Offline` — neither fetch succeeded.
+- `✓ Online` — all requested fetches succeeded.
+- `⚠ Partial` — at least one requested fetch succeeded, but not all.
+- `✗ Offline` — every requested fetch failed.
 
 JSON keeps `summary: {configured, online, offline}` and adds per-edge `ok`,
-`partial`, `clients_total`, `clients_online`, `hosts_total`, `ports`, and
-`error`, plus a top-level `totals`. Failed counts are `null`, never `0`.
+`partial`, `clients_ok`, `clients_total`, `clients_online`, `hosts_ok`,
+`hosts_total`, `ports`, `tunnels_ok`, `tunnels_total`, `tunnels_running`,
+`tunnel_ports`, and `error`, plus a top-level `totals`. Unrequested resources
+and failed counts are `null`, never `0`.
 
-Exits 1 if any edge is offline, or if any client or host fetch failed.
+Exits 1 if any edge is offline, or if any client, host, or tunnel fetch failed.
 
 ### `edge install`
 
@@ -361,6 +369,32 @@ nps-ctl edge export                                   # First configured edge
 ---
 
 ## `tunnel` — Tunnel Management
+
+### `tunnel status`
+
+Show client liveness and tunnel inventory for selected edges.
+
+| Option | Description |
+| --- | --- |
+| `-e`, `--edge` EDGE | Edge name to query (default: all edges) |
+| `-a`, `--all` | Explicit all-edges alias (the default) |
+| `--json` | Emit machine-readable JSON |
+| `--no-color` | Disable colored output |
+
+```bash
+nps-ctl tunnel status
+nps-ctl tunnel status -e nps-us
+nps-ctl tunnel status -a --json
+```
+
+Columns are `Edge`, `Region`, `Status`, `Clients`, `Tunnels`, `Running`, and
+`Ports`. `Clients` is `<online>/<total>`; `Ports` counts distinct server ports
+from `Port` and `Ports` (auto-assigned or invalid ports are ignored). Hosts
+are not fetched, so host counts are `null` in JSON.
+
+The command exits 0 only when every selected edge's client and tunnel fetches
+succeed, 1 on any fetch or configuration failure (including an unknown `-e`),
+and 2 when `-e` and `-a` are combined.
 
 ### `tunnel list`
 

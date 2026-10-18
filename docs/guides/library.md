@@ -121,7 +121,38 @@ for edge_name, clients in all_clients.items():
 
 # Same pattern for tunnels and hosts
 all_hosts = cluster.get_all_hosts()
+
+# Restrict any fetch to a subset of edges
+selected_hosts = cluster.get_all_hosts(edge_names=["nps-america"])
 ```
+
+### Status inventory
+
+`nps_ctl.status` collects reachability and resource counts for the CLI status
+commands and the web dashboard:
+
+```python
+from nps_ctl.status import collect_edge_status, build_status_payload
+
+rows = collect_edge_status(
+    cluster,
+    edge_names=None,          # None = every configured edge
+    include_hosts=True,
+    include_tunnels=True,
+)
+for row in rows:
+    print(row.edge, row.online, row.ok, row.partial,
+          row.clients_total, row.hosts_total, row.tunnels_total)
+
+payload = build_status_payload(rows)  # edges, summary, totals
+```
+
+Each `EdgeStatus` exposes `online` (client-list fetch succeeded), `ok` (all
+requested fetches succeeded), `partial` (some but not all), the per-resource
+`*_ok` flags, and counts. Counts are `None` when a fetch failed and when the
+resource was not requested. `build_status_payload` keeps
+`summary: {configured, online, offline}` and adds `totals` with `clients`,
+`hosts`, `ports`, `tunnels`, `tunnels_running`, and `tunnel_ports`.
 
 ### Broadcasting operations
 

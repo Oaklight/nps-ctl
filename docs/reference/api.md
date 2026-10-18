@@ -445,26 +445,37 @@ Get the `NPSClient` instance for a specific edge.
 #### get_all_clients
 
 ```python
-get_all_clients(max_workers: int = 4) -> dict[str, list[ClientInfo]]
+get_all_clients(
+    max_workers: int = 4,
+    edge_names: list[str] | None = None,
+) -> dict[str, list[ClientInfo]]
 ```
 
-Fetch clients from all edges in parallel. Returns a dict keyed by edge name.
+Fetch clients from all or selected edges in parallel. `edge_names=None` means
+every configured edge; an empty list means none. Returns a dict keyed by edge
+name.
 
 #### get_all_tunnels
 
 ```python
-get_all_tunnels(max_workers: int = 4) -> dict[str, list[TunnelInfo]]
+get_all_tunnels(
+    max_workers: int = 4,
+    edge_names: list[str] | None = None,
+) -> dict[str, list[TunnelInfo]]
 ```
 
-Fetch tunnels from all edges in parallel.
+Fetch tunnels from all or selected edges in parallel.
 
 #### get_all_hosts
 
 ```python
-get_all_hosts(max_workers: int = 4) -> dict[str, list[HostInfo]]
+get_all_hosts(
+    max_workers: int = 4,
+    edge_names: list[str] | None = None,
+) -> dict[str, list[HostInfo]]
 ```
 
-Fetch hosts from all edges in parallel.
+Fetch hosts from all or selected edges in parallel.
 
 #### broadcast_client
 
@@ -586,7 +597,7 @@ Clean up all `NPSClient` instances. Called automatically via context manager.
 | `Status` | `bool` | Enabled status |
 | `RunStatus` | `bool` | Currently running |
 | `Client` | `ClientInfo` | Associated client |
-| `Ports` | `str` | Port range |
+| `Ports` | `str` | Additional port spec (comma/range); modern `ports` values are normalized to this string |
 | `Flow` | `dict` | Traffic flow data |
 | `Password` | `str` | Tunnel password |
 | `Remark` | `str` | Tunnel remark |

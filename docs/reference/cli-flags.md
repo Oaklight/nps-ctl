@@ -21,17 +21,17 @@ nps-ctl [global options] <command> <subcommand> [options]
 | | `--json` | Emit machine-readable JSON (list, status, and `edge list`) |
 | | `--no-color` | Disable colored output |
 
-Read commands (`client list`, `host list`, `host status`, `tunnel list`)
-default to all configured edges. `-e/--edge` narrows to one edge and
-`-a/--all` is an explicit all-edges alias (`edge status` always covers every
-configured edge); mutating commands (`client del`, `host/tunnel add|del|edit`)
-require one of them.
+Read commands (`client list`, `edge status`, `host list`, `host status`,
+`tunnel list`, `tunnel status`) default to all configured edges.
+`-e/--edge` narrows to one edge and `-a/--all` is an explicit all-edges alias;
+mutating commands (`client del`, `host/tunnel add|del|edit`) require one of
+them.
 
 ## Short flag reference
 
 | Short | Long | Used in | Description |
 |-------|------|---------|-------------|
-| `-a` | `--all` | `client list/del`, `tunnel list/add/del/edit`, `host list/status/add/del/edit` | Explicit all-edges scope (default for reads, required alternative for mutations) |
+| `-a` | `--all` | `client list/del`, `edge status`, `tunnel list/status/add/del/edit`, `host list/status/add/del/edit` | Explicit all-edges scope (default for reads, required alternative for mutations) |
 | | `--matrix` | `host list` | Domain-by-edge presence matrix |
 | `-c` | `--client` | `client del/push/install/upgrade/reconfig/uninstall/status/restart`, `tunnel add`, `host add` | Client name (remark) or numeric ID |
 | `-d` | `--domain` | `host add/del/edit` | Domain name |
@@ -59,6 +59,6 @@ require one of them.
 |-------|-------------|
 | `client` | `list`, `push`, `add`, `install`, `upgrade`, `reconfig`, `uninstall`, `status`, `restart`, `del` |
 | `edge` | `list`, `status`, `install`, `upgrade`, `reconfig`, `uninstall`, `sync`, `export` |
-| `tunnel` | `list`, `add`, `del`, `edit`, `start`, `stop` |
+| `tunnel` | `list`, `status`, `add`, `del`, `edit`, `start`, `stop` |
 | `host` | `list`, `status`, `add`, `del`, `edit` |
 | `util` | `generate-auth-key` |
