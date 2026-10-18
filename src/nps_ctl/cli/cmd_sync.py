@@ -96,7 +96,20 @@ def cmd_sync(args: argparse.Namespace) -> int:
         console.print(f"[red]Error: {e}[/red]", file=sys.stderr)
         return 1
 
-    return 0
+    failed_targets = sum(1 for ops in results.values() if _sync_target_failed(ops))
+    console.print(
+        f"\nTargets: {len(results) - failed_targets} ok, {failed_targets} failed"
+    )
+    return 1 if failed_targets else 0
+
+
+def _sync_target_failed(operations: dict[str, bool]) -> bool:
+    """Return whether a sync target had a connection or item failure."""
+    return "_edge_failed" in operations or any(
+        not succeeded
+        for operation, succeeded in operations.items()
+        if operation != "_edge_failed"
+    )
 
 
 def _print_detailed_results(results: dict[str, dict[str, bool]]) -> None:
