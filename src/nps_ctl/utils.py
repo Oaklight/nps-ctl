@@ -25,14 +25,16 @@ def fetch_all_pages(
     """Fetch every page from a paginated NPS list endpoint.
 
     NPS list endpoints return ``{"rows": [...], "total": N}``. This helper
-    advances ``offset`` until the page is short, the reported total is reached,
-    or the safety page cap is hit.
+    advances ``offset`` until the reported total is reached, the page is
+    empty, or the safety page cap is hit. When ``total`` is present it is
+    authoritative, so a server that clamps ``limit`` below the requested page
+    size still gets every row. The server must honour ``offset``.
 
     Args:
         nps: NPSClient instance.
         path: API path, for example ``/index/hostlist``.
         data: Base request payload. ``offset`` and ``limit`` are overwritten.
-        limit: Page size.
+        limit: Requested page size.
         max_pages: Maximum number of requests to make.
 
     Returns:
@@ -51,7 +53,12 @@ def fetch_all_pages(
         offset += len(page)
 
         total = int(result.get("total", 0) or 0)
-        if not page or len(page) < limit or (total and offset >= total):
+        if not page:
+            break
+        if total:
+            if offset >= total:
+                break
+        elif len(page) < limit:
             break
 
     return rows

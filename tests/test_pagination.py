@@ -8,15 +8,18 @@ from nps_ctl import client_mgmt, host, tunnel
 class FakeNPS:
     """Serve a paginated list endpoint from an in-memory row set."""
 
-    def __init__(self, rows, total=None):
+    def __init__(self, rows, total=None, page_cap=None):
         self.rows = rows
         self.total = len(rows) if total is None else total
+        self.page_cap = page_cap
         self.requests = []
 
     def request(self, path, method="POST", data=None):
         data = data or {}
         offset = int(data.get("offset", 0))
         limit = int(data.get("limit", 100))
+        if self.page_cap is not None:
+            limit = min(limit, self.page_cap)
         self.requests.append((path, offset, limit))
         return {
             "rows": self.rows[offset : offset + limit],
@@ -56,6 +59,32 @@ def test_list_hosts_paginate_false_single_request():
 
     assert len(rows) == 1
     assert nps.requests == [("/index/hostlist", 0, 1)]
+
+
+def test_list_hosts_uses_total_when_server_caps_page_size():
+    nps = FakeNPS(_rows(151), page_cap=10)
+
+    rows = host.list_hosts(nps)
+
+    assert len(rows) == 151
+    assert [request[1] for request in nps.requests] == [
+        0,
+        10,
+        20,
+        30,
+        40,
+        50,
+        60,
+        70,
+        80,
+        90,
+        100,
+        110,
+        120,
+        130,
+        140,
+        150,
+    ]
 
 
 def test_list_clients_fetches_all_pages():
