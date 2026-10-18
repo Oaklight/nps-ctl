@@ -64,6 +64,9 @@ nps-ctl edge list
 # 检查所有边缘节点状态
 nps-ctl edge status
 
+# 检查单个边缘节点的客户端在线状态与域名映射清单
+nps-ctl host status -e nps-asia
+
 # 读取命令默认作用于所有边缘节点；-e 缩小到单个节点
 nps-ctl client list
 nps-ctl client list --edge nps-asia
@@ -85,9 +88,9 @@ nps-ctl client status
 nps-ctl edge list --json
 ```
 
-读取命令（`client list`、`host list`、`tunnel list`）默认作用于所有已配置的边缘节点。`-e/--edge` 缩小到单个节点，`-a/--all` 显式表示所有节点。写入命令（`host/tunnel add|del|edit`、`client del`）必须提供 `-e` 或 `-a` 之一，不存在静默的全集群默认行为。
+读取命令（`client list`、`host list`、`host status`、`tunnel list`）默认作用于所有已配置的边缘节点。`-e/--edge` 缩小到单个节点，`-a/--all` 显式表示所有节点（`edge status` 始终覆盖所有节点）。写入命令（`host/tunnel add|del|edit`、`client del`）必须提供 `-e` 或 `-a` 之一，不存在静默的全集群默认行为。
 
-输出到管道时不包含 ANSI 样式。在终端中可用 `--no-color` 显式关闭颜色。`edge list`、`edge status` 以及 `client/host/tunnel list` 支持 `--json`。
+输出到管道时不包含 ANSI 样式。在终端中可用 `--no-color` 显式关闭颜色。`edge list`、`edge status`、`host status` 以及 `client/host/tunnel list` 支持 `--json`。
 
 ## Web 管理面板
 

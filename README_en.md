@@ -64,6 +64,9 @@ nps-ctl edge list
 # Check every edge
 nps-ctl edge status
 
+# Check client liveness and host inventory for one edge
+nps-ctl host status -e nps-asia
+
 # Read commands default to all edges; -e narrows to one
 nps-ctl client list
 nps-ctl client list --edge nps-asia
@@ -85,9 +88,9 @@ nps-ctl client status
 nps-ctl edge list --json
 ```
 
-Read commands (`client list`, `host list`, `tunnel list`) default to all configured edges. `-e/--edge` narrows to one edge; `-a/--all` is an explicit all-edges alias. Mutating commands (`host/tunnel add|del|edit`, `client del`) require one of `-e` or `-a`; there is no silent cluster-wide default.
+Read commands (`client list`, `host list`, `host status`, `tunnel list`) default to all configured edges. `-e/--edge` narrows to one edge; `-a/--all` is an explicit all-edges alias (`edge status` always covers every edge). Mutating commands (`host/tunnel add|del|edit`, `client del`) require one of `-e` or `-a`; there is no silent cluster-wide default.
 
-Piped output has no ANSI styling. Add `--no-color` to disable color on a terminal. `--json` is available on `edge list`, `edge status`, and `client/host/tunnel list`.
+Piped output has no ANSI styling. Add `--no-color` to disable color on a terminal. `--json` is available on `edge list`, `edge status`, `host status`, and `client/host/tunnel list`.
 
 ## Web dashboard
 

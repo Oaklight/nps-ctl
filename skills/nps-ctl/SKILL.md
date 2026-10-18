@@ -24,13 +24,15 @@ Run `nps-ctl edge list` before any edge-targeted operation. It reads
 currently unreachable. The edge names in the examples below are illustrative;
 they are never the inventory.
 
-- Read commands (`host list`, `client list`, `tunnel list`) default to all edges.
+- Read commands (`host list`, `host status`, `client list`, `tunnel list`)
+  default to all edges.
 - Write commands require an explicit target: `-e <edge>` for one edge or
   `-a/--all` for every configured edge. There is no silent cluster-wide default.
-- `nps-ctl edge status` also lists every edge, but contacts each one.
-- Add `--json` for machine-readable output on `edge list`, `edge status`, and
-  `client/host/tunnel list`. Piped output has no ANSI styling; `--no-color`
-  disables it explicitly.
+- `nps-ctl edge status` also lists every edge, but contacts each one and
+  fetches full client and host inventories.
+- Add `--json` for machine-readable output on `edge list`, `edge status`,
+  `host status`, and `client/host/tunnel list`. Piped output has no ANSI
+  styling; `--no-color` disables it explicitly.
 
 ```bash
 nps-ctl edge list --json      # stable inventory for scripts and agents
@@ -67,6 +69,8 @@ nps-ctl client uninstall --client cloud.deu1 -y
 nps-ctl host list                             # all edges
 nps-ctl host list --matrix                    # domain-by-edge presence matrix
 nps-ctl host list --edge nps-america          # single edge
+nps-ctl host status                           # clients/hosts/ports per edge
+nps-ctl host status -e nps-america --json     # single edge, machine-readable
 nps-ctl host add -e nps-america -d myapp.service.oaklight.cn -c cloud.usa2 -T :8080
 nps-ctl host add -a -d myapp.service.oaklight.cn -c cloud.usa2 -T :8080  # every edge
 nps-ctl host del --domain myapp.service.oaklight.cn -a -y   # delete from all edges
