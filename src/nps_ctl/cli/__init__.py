@@ -190,7 +190,13 @@ def _dispatch(args) -> int:
     """
     from .cmd_deploy import cmd_install, cmd_reconfig, cmd_uninstall, cmd_upgrade
     from .cmd_clients import cmd_client_del
-    from .cmd_hosts import cmd_add_host, cmd_host_del, cmd_host_edit, cmd_hosts
+    from .cmd_hosts import (
+        cmd_add_host,
+        cmd_host_del,
+        cmd_host_edit,
+        cmd_host_status,
+        cmd_hosts,
+    )
     from .cmd_npc import (
         cmd_client_add,
         cmd_npc_install,
@@ -243,6 +249,7 @@ def _dispatch(args) -> int:
         ("tunnel", "stop"): cmd_tunnel_stop,
         # host commands
         ("host", "list"): cmd_hosts,
+        ("host", "status"): cmd_host_status,
         ("host", "add"): cmd_add_host,
         ("host", "del"): cmd_host_del,
         ("host", "edit"): cmd_host_edit,
