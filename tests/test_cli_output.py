@@ -310,3 +310,16 @@ def test_empty_cluster_json_exits_nonzero(monkeypatch, capsys):
 
     assert code == 1
     assert json.loads(capsys.readouterr().out) == {"error": "No edges configured"}
+
+
+def test_overwide_url_is_not_cropped(tmp_path, capsys):
+    long_url = "https://" + ("a" * 280) + ".invalid"
+    config = tmp_path / "edges.toml"
+    config.write_text(
+        f'[[edges]]\nname = "nps-long"\napi_url = "{long_url}"\n'
+        'auth_key = "k"\nregion = "r"\nssh_host = "h"\n',
+        encoding="utf-8",
+    )
+
+    assert cmd_edge_list(argparse.Namespace(config=str(config))) == 0
+    assert long_url in capsys.readouterr().out

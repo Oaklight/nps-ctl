@@ -18,9 +18,9 @@ from ..logging import FlushingConsole, flush_output
 
 # Shared console instance for all CLI commands.
 # FlushingConsole keeps output unbuffered through SSH/SOCKS proxies. When
-# stdout is not a terminal, use a wide layout so table cells are not
-# truncated, and let rich omit ANSI styling.
-console = FlushingConsole(width=None if sys.stdout.isatty() else 200)
+# stdout is not a terminal, use an effectively unlimited width so table cells
+# are never wrapped or cropped, and let rich omit ANSI styling.
+console = FlushingConsole(width=None if sys.stdout.isatty() else 10000)
 
 # Re-export flush_output for convenience
 __all__ = ["console", "flush_output", "FlushingConsole"]
@@ -289,6 +289,7 @@ def add_output_arguments(parser: argparse.ArgumentParser) -> None:
         default=argparse.SUPPRESS,
         help="Disable colored output",
     )
+    parser.set_defaults(json_capable=True)
 
 
 def validate_read_target(args: argparse.Namespace) -> str | None:

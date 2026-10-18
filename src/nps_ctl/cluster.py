@@ -50,8 +50,8 @@ SyncItem = ClientInfo | TunnelInfo | HostInfo
 
 # Rich console for output with forced flush for streaming.
 # FlushingConsole keeps output unbuffered through proxies. When stdout is not
-# a terminal, use a wide layout so table cells are not truncated.
-console = FlushingConsole(width=None if sys.stdout.isatty() else 200)
+# a terminal, use an effectively unlimited width so table cells are not wrapped.
+console = FlushingConsole(width=None if sys.stdout.isatty() else 10000)
 
 
 class RateLimiter:
