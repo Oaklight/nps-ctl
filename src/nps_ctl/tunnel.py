@@ -144,6 +144,7 @@ def add_tunnel(
     local_proxy: int = 0,
     local_path: str = "",
     strip_pre: str = "",
+    auth: str = "",
 ) -> bool:
     """Add a new tunnel.
 
@@ -163,6 +164,7 @@ def add_tunnel(
         local_proxy: Enable local proxy (0=no, 1=yes).
         local_path: Local path (for file service).
         strip_pre: URL prefix stripping.
+        auth: HTTP Basic Auth credentials (format: "user1=pass1\\nuser2=pass2").
 
     Returns:
         True if successful.
@@ -174,6 +176,7 @@ def add_tunnel(
         "target": target,
         "remark": remark,
         "password": password,
+        "auth": auth,
     }
     if server_ip:
         data["server_ip"] = server_ip
@@ -207,6 +210,7 @@ def edit_tunnel(
     local_proxy: int = 0,
     local_path: str = "",
     strip_pre: str = "",
+    auth: str = "",
 ) -> bool:
     """Edit an existing tunnel.
 
@@ -225,6 +229,7 @@ def edit_tunnel(
         local_proxy: Enable local proxy (0=no, 1=yes).
         local_path: Local path (for file service).
         strip_pre: URL prefix stripping.
+        auth: HTTP Basic Auth credentials (format: "user1=pass1\\nuser2=pass2").
 
     Returns:
         True if successful.
@@ -237,6 +242,7 @@ def edit_tunnel(
         "target": target,
         "remark": remark,
         "password": password,
+        "auth": auth,
     }
     if server_ip:
         data["server_ip"] = server_ip

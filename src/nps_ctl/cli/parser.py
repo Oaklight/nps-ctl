@@ -630,6 +630,13 @@ def _add_tunnel_commands(subparsers) -> None:
         "--remark",
         help="Tunnel remark",
     )
+    add_parser.add_argument(
+        "--auth",
+        help=(
+            "HTTP Basic Auth credentials "
+            '(e.g. "user=pass" or "user1=pass1,user2=pass2")'
+        ),
+    )
     add_yes_argument(add_parser)
     add_parser.set_defaults(requires_config=True)
 
@@ -730,6 +737,10 @@ def _add_tunnel_commands(subparsers) -> None:
     tunnel_edit_parser.add_argument(
         "--new-remark",
         help="New tunnel remark",
+    )
+    tunnel_edit_parser.add_argument(
+        "--auth",
+        help=('Set HTTP Basic Auth credentials (e.g. "user=pass"; pass "" to clear)'),
     )
     add_yes_argument(tunnel_edit_parser)
     tunnel_edit_parser.set_defaults(requires_config=True)

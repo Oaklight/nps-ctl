@@ -139,6 +139,9 @@ def cmd_add_tunnel(args: argparse.Namespace) -> int:
     if targets is None:
         return code
 
+    # Normalize auth: comma-separated -> newline-separated for NPS API
+    auth_str = (getattr(args, "auth", None) or "").replace(",", "\n")
+
     # Confirm
     if not args.yes:
         console.print(
@@ -148,6 +151,8 @@ def cmd_add_tunnel(args: argparse.Namespace) -> int:
             f"Client: [bold]{args.client}[/bold], Port: [bold]{args.port}[/bold], "
             f"Target: [bold]{args.target or 'N/A'}[/bold]"
         )
+        if auth_str:
+            console.print("[bold yellow]Basic Auth: enabled[/bold yellow]")
         response = input("Continue? [y/N] ")
         if response.lower() != "y":
             console.print("Aborted.")
@@ -175,6 +180,7 @@ def cmd_add_tunnel(args: argparse.Namespace) -> int:
                 port=args.port,
                 target=args.target or "",
                 remark=args.remark or "",
+                auth=auth_str,
             )
             if success:
                 console.print(f"[green]✓ Added tunnel to {args.edge}[/green]")
@@ -195,6 +201,7 @@ def cmd_add_tunnel(args: argparse.Namespace) -> int:
             port=args.port,
             target=args.target or "",
             remark=args.remark or "",
+            auth=auth_str,
         )
         for edge, success in results.items():
             status = "[green]✓[/green]" if success else "[red]✗[/red]"
@@ -438,6 +445,9 @@ def cmd_tunnel_edit(args: argparse.Namespace) -> int:
     new_target = getattr(args, "new_target", None)
     new_port = getattr(args, "new_port", None)
     new_remark = getattr(args, "new_remark", None)
+    new_auth = getattr(args, "auth", None)
+    if new_auth is not None:
+        new_auth = new_auth.replace(",", "\n")
 
     # Validate: at least one locator
     if tunnel_id is None and not locate_remark and locate_port is None:
@@ -464,16 +474,31 @@ def cmd_tunnel_edit(args: argparse.Namespace) -> int:
         print_error("Cannot use -r/--remark and -p/--port together, pick one locator")
         return 1
 
-    if not any([new_target, new_port is not None, new_remark is not None]):
+    if not any(
+        [
+            new_target,
+            new_port is not None,
+            new_remark is not None,
+            new_auth is not None,
+        ]
+    ):
         print_error(
-            "No changes specified (use --new-target, --new-port, or --new-remark)"
+            "No changes specified "
+            "(use --new-target, --new-port, --new-remark, or --auth)"
         )
         return 1
 
     if tunnel_id is not None:
         # Edit by ID on a single edge
         return _edit_tunnel_on_edge(
-            cluster, args.edge, tunnel_id, args, new_target, new_port, new_remark
+            cluster,
+            args.edge,
+            tunnel_id,
+            args,
+            new_target,
+            new_port,
+            new_remark,
+            new_auth,
         )
     else:
         # Edit by remark or port+type across edge(s)
@@ -493,6 +518,8 @@ def cmd_tunnel_edit(args: argparse.Namespace) -> int:
                 changes.append(f"port -> {new_port}")
             if new_remark is not None:
                 changes.append(f"remark -> {new_remark}")
+            if new_auth is not None:
+                changes.append("auth -> " + ("enabled" if new_auth else "cleared"))
             console.print(f"Will edit tunnel ({label}) on: {', '.join(edges)}")
             console.print(f"Changes: {', '.join(changes)}")
             response = input("Continue? [y/N] ")
@@ -523,7 +550,7 @@ def cmd_tunnel_edit(args: argparse.Namespace) -> int:
                 current = matching[0]
                 tid = current["Id"]
                 success = _apply_tunnel_edit(
-                    nps, tid, current, new_target, new_port, new_remark
+                    nps, tid, current, new_target, new_port, new_remark, new_auth
                 )
                 if success:
                     console.print(f"[green]✓ {edge_name}: updated (ID {tid})[/green]")
@@ -548,6 +575,7 @@ def _edit_tunnel_on_edge(
     new_target: str | None,
     new_port: int | None,
     new_remark: str | None,
+    new_auth: str | None = None,
 ) -> int:
     """Edit a tunnel by ID on a single edge.
 
@@ -559,6 +587,7 @@ def _edit_tunnel_on_edge(
         new_target: New target address or None.
         new_port: New server port or None.
         new_remark: New remark or None.
+        new_auth: New Basic Auth credentials or None.
 
     Returns:
         Exit code.
@@ -584,13 +613,18 @@ def _edit_tunnel_on_edge(
                 console.print(f"  Port: {current.get('Port', '')} -> {new_port}")
             if new_remark is not None:
                 console.print(f"  Remark: {current.get('Remark', '')} -> {new_remark}")
+            if new_auth is not None:
+                if new_auth:
+                    console.print("[bold yellow]  Auth: enabled[/bold yellow]")
+                else:
+                    console.print("  Auth: [dim]cleared[/dim]")
             response = input("Continue? [y/N] ")
             if response.lower() != "y":
                 console.print("Aborted.")
                 return 0
 
         success = _apply_tunnel_edit(
-            nps, tunnel_id, current, new_target, new_port, new_remark
+            nps, tunnel_id, current, new_target, new_port, new_remark, new_auth
         )
         if success:
             console.print(f"[green]✓ Updated tunnel {tunnel_id} on {edge_name}[/green]")
@@ -611,6 +645,7 @@ def _apply_tunnel_edit(
     new_target: str | None,
     new_port: int | None,
     new_remark: str | None,
+    new_auth: str | None = None,
 ) -> bool:
     """Apply a tunnel edit operation.
 
@@ -621,18 +656,25 @@ def _apply_tunnel_edit(
         new_target: New target address or None.
         new_port: New server port or None.
         new_remark: New remark or None.
+        new_auth: New Basic Auth credentials or None to keep existing.
 
     Returns:
         True if successful.
     """
     target_obj = current.get("Target", {})
     client_obj = current.get("Client", {})
+    user_auth = current.get("UserAuth", {})
 
     updated_target = new_target or (
         target_obj.get("TargetStr", "") if target_obj else ""
     )
     updated_port = new_port if new_port is not None else current.get("Port", 0)
     updated_remark = new_remark if new_remark is not None else current.get("Remark", "")
+    updated_auth = (
+        new_auth
+        if new_auth is not None
+        else (user_auth.get("Content", "") if user_auth else "")
+    )
     client_id = client_obj.get("Id", 0) if client_obj else 0
     tunnel_type = current.get("Mode", "tcp")
 
@@ -644,6 +686,7 @@ def _apply_tunnel_edit(
         port=updated_port,
         target=updated_target,
         remark=updated_remark,
+        auth=updated_auth,
     )
 
 
