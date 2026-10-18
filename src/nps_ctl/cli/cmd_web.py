@@ -44,8 +44,10 @@ def cmd_web(args: argparse.Namespace) -> int:
         print_error(str(e))
         return 2
 
-    host, port = server.server_address[:2]
-    console.print(f"Dashboard: [bold]http://{host}:{port}/[/bold]")
+    host = str(server.server_address[0])
+    port = server.server_address[1]
+    display_host = f"[{host}]" if ":" in host else host
+    console.print(f"Dashboard: [bold]http://{display_host}:{port}/[/bold]")
     if not username:
         console.print("[yellow]Authentication disabled (loopback only).[/yellow]")
     console.print("[dim]Press Ctrl+C to stop.[/dim]")
