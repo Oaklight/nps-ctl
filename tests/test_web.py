@@ -13,7 +13,7 @@ from types import SimpleNamespace
 import pytest
 
 from nps_ctl.types import EdgeResults
-from nps_ctl.web import build_auth_header, create_server
+from nps_ctl.web import _overview, build_auth_header, create_server
 
 
 class FakeNPS:
@@ -42,7 +42,7 @@ class FakeNPS:
 class FakeCluster:
     """Cluster stub shared by the dashboard handlers."""
 
-    def __init__(self, edge_data=None, errors=None):
+    def __init__(self, edge_data=None, errors=None, tunnel_errors=None):
         self.edge_data = edge_data or {
             "edge-a": FakeNPS(
                 clients=[
@@ -88,6 +88,7 @@ class FakeCluster:
             )
         }
         self.errors = errors or {}
+        self.tunnel_errors = tunnel_errors or {}
         self.edge_names = list(self.edge_data)
 
     def get_edge(self, name):
@@ -96,20 +97,24 @@ class FakeCluster:
     def get_client(self, name):
         return self.edge_data.get(name)
 
-    def _results(self, attribute):
+    def _results(self, attribute, edge_names=None, errors=None):
+        names = self.edge_names if edge_names is None else edge_names
+        active_errors = self.errors if errors is None else errors
         return EdgeResults(
-            {name: getattr(nps, attribute) for name, nps in self.edge_data.items()},
-            errors=self.errors,
+            {name: getattr(self.edge_data[name], attribute) for name in names},
+            errors={
+                name: active_errors[name] for name in names if name in active_errors
+            },
         )
 
-    def get_all_clients(self):
-        return self._results("clients")
+    def get_all_clients(self, edge_names=None, max_workers=4):
+        return self._results("clients", edge_names)
 
-    def get_all_tunnels(self):
-        return self._results("tunnels")
+    def get_all_tunnels(self, edge_names=None, max_workers=4):
+        return self._results("tunnels", edge_names, self.tunnel_errors)
 
-    def get_all_hosts(self):
-        return self._results("hosts")
+    def get_all_hosts(self, edge_names=None, max_workers=4):
+        return self._results("hosts", edge_names)
 
 
 @pytest.fixture
@@ -155,12 +160,52 @@ def test_overview_reports_edges_and_counts(server):
     assert payload["summary"] == {
         "edges": 1,
         "online": 1,
+        "ok": 1,
+        "partial": 0,
         "clients": 1,
         "tunnels": 1,
         "hosts": 1,
     }
     assert payload["edges"][0]["name"] == "edge-a"
     assert payload["edges"][0]["region"] == "Asia"
+    assert payload["edges"][0]["online"] is True
+    assert payload["edges"][0]["ok"] is True
+    assert payload["edges"][0]["partial"] is False
+    assert payload["edges"][0]["tunnels_running"] == 0
+    assert payload["edges"][0]["tunnel_ports"] == 1
+
+
+def test_overview_reports_partial_and_null_counts():
+    cluster = FakeCluster(
+        edge_data={
+            "edge-a": FakeNPS(
+                clients=[{"Id": 1}],
+                tunnels=[{"Id": 7, "Port": 8080, "RunStatus": True}],
+                hosts=[{"Id": 2}],
+            ),
+            "edge-b": FakeNPS(clients=[{"Id": 3}], tunnels=[], hosts=[]),
+        },
+        tunnel_errors={"edge-b": "timeout"},
+    )
+
+    payload = _overview(cluster)
+
+    assert payload["summary"] == {
+        "edges": 2,
+        "online": 2,
+        "ok": 1,
+        "partial": 1,
+        "clients": 2,
+        "tunnels": None,
+        "hosts": 1,
+    }
+    edge_b = payload["edges"][1]
+    assert edge_b["name"] == "edge-b"
+    assert edge_b["online"] is True
+    assert edge_b["ok"] is False
+    assert edge_b["partial"] is True
+    assert edge_b["tunnels"] is None
+    assert edge_b["error"] == "tunnels: timeout"
 
 
 def test_edge_resources_redact_credentials(server):

@@ -10,13 +10,13 @@ import base64
 import hmac
 import json
 import logging
-from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import TYPE_CHECKING, Any
 from urllib.parse import unquote, urlparse
 
 from . import client_mgmt, host, tunnel
 from .exceptions import NPSError
+from .status import build_status_payload, collect_edge_status
 
 if TYPE_CHECKING:
     from .cluster import NPSCluster
@@ -70,43 +70,41 @@ def build_auth_header(username: str, password: str) -> str:
 
 def _overview(cluster: NPSCluster) -> dict[str, Any]:
     """Collect edge status and resource counts for the dashboard."""
-    with ThreadPoolExecutor(max_workers=3) as executor:
-        clients_future = executor.submit(cluster.get_all_clients)
-        tunnels_future = executor.submit(cluster.get_all_tunnels)
-        hosts_future = executor.submit(cluster.get_all_hosts)
-        clients = clients_future.result()
-        tunnels = tunnels_future.result()
-        hosts = hosts_future.result()
-
-    edges = []
-    for name in cluster.edge_names:
-        edge = cluster.get_edge(name)
-        error = (
-            clients.errors.get(name)
-            or tunnels.errors.get(name)
-            or hosts.errors.get(name)
-        )
-        edges.append(
-            {
-                "name": name,
-                "region": edge.region if edge else "",
-                "api_url": edge.api_url if edge else "",
-                "online": error is None,
-                "error": error,
-                "clients": len(clients.get(name, [])),
-                "tunnels": len(tunnels.get(name, [])),
-                "hosts": len(hosts.get(name, [])),
-            }
-        )
-
+    rows = collect_edge_status(
+        cluster,
+        include_hosts=True,
+        include_tunnels=True,
+    )
+    payload = build_status_payload(rows)
+    totals = payload["totals"]
     return {
-        "edges": edges,
+        "edges": [
+            {
+                "name": row.edge,
+                "region": row.region,
+                "api_url": row.api_url,
+                "online": row.online,
+                "ok": row.ok,
+                "partial": row.partial,
+                "error": row.error or None,
+                "clients": row.clients_total,
+                "clients_online": row.clients_online,
+                "tunnels": row.tunnels_total,
+                "tunnels_running": row.tunnels_running,
+                "hosts": row.hosts_total,
+                "ports": row.ports,
+                "tunnel_ports": row.tunnel_ports,
+            }
+            for row in rows
+        ],
         "summary": {
-            "edges": len(edges),
-            "online": sum(1 for edge in edges if edge["online"]),
-            "clients": sum(edge["clients"] for edge in edges),
-            "tunnels": sum(edge["tunnels"] for edge in edges),
-            "hosts": sum(edge["hosts"] for edge in edges),
+            "edges": len(rows),
+            "online": payload["summary"]["online"],
+            "ok": totals["ok"],
+            "partial": totals["partial"],
+            "clients": totals["clients"],
+            "tunnels": totals["tunnels"],
+            "hosts": totals["hosts"],
         },
     }
 
@@ -293,10 +291,11 @@ _DASHBOARD_HTML = """<!doctype html>
 <style>
   :root { color-scheme: light dark; --fg: #1f2328; --bg: #f6f8fa;
           --card: #ffffff; --muted: #656d76; --line: #d0d7de;
-          --ok: #1a7f37; --bad: #cf222e; }
+          --ok: #1a7f37; --bad: #cf222e; --warn: #9a6700; }
   @media (prefers-color-scheme: dark) {
     :root { --fg: #e6edf3; --bg: #0d1117; --card: #161b22;
-            --muted: #8d96a0; --line: #30363d; --ok: #3fb950; --bad: #f85149; }
+            --muted: #8d96a0; --line: #30363d; --ok: #3fb950; --bad: #f85149;
+            --warn: #d29922; }
   }
   * { box-sizing: border-box; }
   body { margin: 0; padding: 24px; font: 15px/1.5 system-ui, sans-serif;
@@ -315,6 +314,7 @@ _DASHBOARD_HTML = """<!doctype html>
   tr:last-child td { border-bottom: 0; }
   th { color: var(--muted); font-size: 12px; text-transform: uppercase; }
   .ok { color: var(--ok); } .bad { color: var(--bad); }
+  .warn { color: var(--warn); }
   button { font: inherit; padding: 4px 10px; margin-right: 4px;
            border: 1px solid var(--line); border-radius: 6px;
            background: var(--card); color: var(--fg); cursor: pointer; }
@@ -346,9 +346,13 @@ function el(tag, text, cls) {
   return node;
 }
 
+function display(value) {
+  return value === null || value === undefined ? '—' : String(value);
+}
+
 function card(value, label) {
   const box = el('div', undefined, 'card');
-  box.append(el('div', String(value), 'num'), el('div', label, 'label'));
+  box.append(el('div', display(value), 'num'), el('div', label, 'label'));
   return box;
 }
 
@@ -367,11 +371,13 @@ function renderEdges(edges) {
     const row = document.createElement('tr');
     row.append(el('td', edge.name, 'mono'), el('td', edge.region || '—'));
     const status = el('td');
-    status.append(el('span', edge.online ? 'online' : 'offline',
-                     edge.online ? 'ok' : 'bad'));
+    const state = edge.ok ? ['online', 'ok']
+                : edge.partial ? ['partial', 'warn']
+                : ['offline', 'bad'];
+    status.append(el('span', state[0], state[1]));
     if (edge.error) status.append(el('div', edge.error, 'error mono'));
-    row.append(status, el('td', String(edge.clients)),
-               el('td', String(edge.tunnels)), el('td', String(edge.hosts)));
+    row.append(status, el('td', display(edge.clients)),
+               el('td', display(edge.tunnels)), el('td', display(edge.hosts)));
     const actions = el('td');
     for (const resource of ['clients', 'tunnels', 'hosts']) {
       const button = el('button', resource);

@@ -451,6 +451,17 @@ def _stop_tunnel_v1(nps: NPSClient, tunnel_id: int) -> bool:
 # --- Modern API (v2) ---
 
 
+def _normalize_ports(value: Any) -> str:
+    """Normalize a modern ``ports`` value to the legacy string form."""
+    if isinstance(value, (list, tuple)):
+        return ",".join(str(port) for port in value)
+    if isinstance(value, int) and not isinstance(value, bool):
+        return str(value)
+    if isinstance(value, str):
+        return value
+    return ""
+
+
 def _normalize_tunnel(item: dict[str, Any]) -> TunnelInfo:
     """Normalize modern API tunnel response to legacy TunnelInfo format.
 
@@ -476,7 +487,7 @@ def _normalize_tunnel(item: dict[str, Any]) -> TunnelInfo:
         "NoStore": item.get("no_store", False),
         "LocalPath": item.get("local_path", ""),
         "StripPre": item.get("strip_pre", ""),
-        "Ports": "",
+        "Ports": _normalize_ports(item.get("ports", "")),
         "Flow": {
             "InletFlow": item.get("service_in_bytes", 0),
             "ExportFlow": item.get("service_out_bytes", 0),

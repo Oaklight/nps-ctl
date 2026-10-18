@@ -10,12 +10,17 @@ import json
 import re
 import sys
 from collections.abc import Callable, Mapping
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
 
+from rich.live import Live
+from rich.markup import escape
+from rich.spinner import Spinner
 from rich.table import Table
 
 from ..logging import FlushingConsole, flush_output
+from ..status import EdgeStatus, sum_counts
 
 # Shared console instance for all CLI commands.
 # FlushingConsole keeps output unbuffered through SSH/SOCKS proxies. When
@@ -23,8 +28,8 @@ from ..logging import FlushingConsole, flush_output
 # are never wrapped or cropped, and let rich omit ANSI styling.
 console = FlushingConsole(width=None if sys.stdout.isatty() else 10000)
 
-# Re-export flush_output for convenience
-__all__ = ["console", "flush_output", "FlushingConsole"]
+# Re-export flush_output and the status count helper for convenience
+__all__ = ["console", "flush_output", "FlushingConsole", "sum_counts"]
 
 
 def get_clients_config_path(config_path: Path) -> Path:
@@ -166,6 +171,44 @@ def format_status(success: bool) -> str:
         Formatted status string with color.
     """
     return "[green]✓[/green]" if success else "[red]✗[/red]"
+
+
+# ---- Shared status rendering helpers ----
+
+
+def status_cell(row: EdgeStatus) -> str:
+    """Format the reachability/health cell for one edge."""
+    if row.ok:
+        return "[green]✓ Online[/green]"
+    if row.partial:
+        return "[yellow]⚠ Partial[/yellow]"
+    return "[red]✗ Offline[/red]"
+
+
+def count_cell(value: int | None) -> str:
+    """Render an unknown count as ``-``."""
+    return "-" if value is None else str(value)
+
+
+def clients_cell(row: EdgeStatus) -> str:
+    """Render online/total clients, or ``-`` when unknown."""
+    if row.clients_total is None:
+        return "-"
+    return f"{row.clients_online}/{row.clients_total}"
+
+
+def status_spinner(text: str, *, json_mode: bool = False) -> Any:
+    """Return a transient spinner when interactive, else a null context."""
+    if console.is_terminal and not json_mode:
+        return Live(Spinner("dots", text=text), console=console, transient=True)
+    return nullcontext()
+
+
+def print_status_errors(rows: list[EdgeStatus]) -> None:
+    """Print one error line per edge row that reported an error."""
+    for row in rows:
+        if row.error:
+            console.print(f"[red]✗ {escape(row.edge)}: {escape(row.error)}[/red]")
 
 
 # ---- Shared argument factory functions ----

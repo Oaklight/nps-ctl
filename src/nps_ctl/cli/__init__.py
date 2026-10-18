@@ -214,6 +214,7 @@ def _dispatch(args) -> int:
         cmd_tunnel_del,
         cmd_tunnel_edit,
         cmd_tunnel_start,
+        cmd_tunnel_status,
         cmd_tunnel_stop,
         cmd_tunnels,
     )
@@ -246,6 +247,7 @@ def _dispatch(args) -> int:
         ("edge", "sync"): cmd_sync,
         ("edge", "export"): cmd_export,
         # tunnel commands
+        ("tunnel", "status"): cmd_tunnel_status,
         ("tunnel", "list"): cmd_tunnels,
         ("tunnel", "add"): cmd_add_tunnel,
         ("tunnel", "del"): cmd_tunnel_del,

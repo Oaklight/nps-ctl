@@ -64,8 +64,14 @@ nps-ctl edge list
 # Check every edge
 nps-ctl edge status
 
+# Check one edge (clients, hosts, and tunnels)
+nps-ctl edge status -e nps-asia
+
 # Check client liveness and host inventory for one edge
 nps-ctl host status -e nps-asia
+
+# Check tunnel inventory for one edge
+nps-ctl tunnel status -e nps-asia
 
 # Read commands default to all edges; -e narrows to one
 nps-ctl client list
@@ -88,9 +94,9 @@ nps-ctl client status
 nps-ctl edge list --json
 ```
 
-Read commands (`client list`, `host list`, `host status`, `tunnel list`) default to all configured edges. `-e/--edge` narrows to one edge; `-a/--all` is an explicit all-edges alias (`edge status` always covers every edge). Mutating commands (`host/tunnel add|del|edit`, `client del`) require one of `-e` or `-a`; there is no silent cluster-wide default.
+Read commands (`client list`, `edge status`, `host list`, `host status`, `tunnel list`, `tunnel status`) default to all configured edges. `-e/--edge` narrows to one edge; `-a/--all` is an explicit all-edges alias. Mutating commands (`host/tunnel add|del|edit`, `client del`) require one of `-e` or `-a`; there is no silent cluster-wide default.
 
-Piped output has no ANSI styling. Add `--no-color` to disable color on a terminal. `--json` is available on `edge list`, `edge status`, `host status`, and `client/host/tunnel list`.
+Piped output has no ANSI styling. Add `--no-color` to disable color on a terminal. `--json` is available on `edge list`, `edge status`, `host status`, `tunnel status`, and `client/host/tunnel list`.
 
 ## Web dashboard
 
@@ -104,9 +110,10 @@ nps-ctl web --username admin
 
 The server binds to `127.0.0.1` by default. Binding to a non-loopback address
 without credentials is refused unless `--insecure` is passed. The dashboard
-shows edge health and resource counts, and lets you browse clients, tunnels
-and hosts per edge; credentials (client verification keys, tunnel passwords,
-and Basic Auth) are redacted from its JSON output.
+shows edge health (`online`/`partial`/`offline`) and resource counts, and lets
+you browse clients, tunnels and hosts per edge; unavailable counts are
+reported as `null`, and credentials (client verification keys, tunnel
+passwords, and Basic Auth) are redacted from its JSON output.
 Mutating actions remain in the CLI. The built-in server speaks plain HTTP, so
 terminate TLS in front of it before exposing it beyond loopback.
 

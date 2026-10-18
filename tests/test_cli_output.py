@@ -133,10 +133,12 @@ def test_host_list_rejects_edge_and_all(monkeypatch):
 class FakeStatusCluster:
     """Cluster stub for edge status tests."""
 
-    def __init__(self, edge_names, failing=(), host_failing=()):
+    def __init__(self, edge_names, failing=(), host_failing=(), tunnel_failing=()):
         self.edge_names = edge_names
         self.failing = set(failing)
         self.host_failing = set(host_failing)
+        self.tunnel_failing = set(tunnel_failing)
+        self.client_calls: list[list[str] | None] = []
 
     def get_edge(self, name):
         return SimpleNamespace(region="region", api_url="https://example.invalid")
@@ -145,6 +147,7 @@ class FakeStatusCluster:
         return self.edge_names if edge_names is None else edge_names
 
     def get_all_clients(self, edge_names=None, max_workers=4):
+        self.client_calls.append(edge_names)
         names = self._names(edge_names)
         errors = {name: "connection refused" for name in names if name in self.failing}
         return EdgeResults(
@@ -168,6 +171,24 @@ class FakeStatusCluster:
         return EdgeResults(
             {
                 name: [{"Target": {"TargetStr": "example.test:8080"}}]
+                if name not in failed
+                else []
+                for name in names
+            },
+            errors=errors,
+        )
+
+    def get_all_tunnels(self, edge_names=None, max_workers=4):
+        names = self._names(edge_names)
+        errors = {
+            name: "timeout" if name in self.tunnel_failing else "connection refused"
+            for name in names
+            if name in self.failing or name in self.tunnel_failing
+        }
+        failed = set(errors)
+        return EdgeResults(
+            {
+                name: [{"Id": 1, "Port": 8080, "RunStatus": True}]
                 if name not in failed
                 else []
                 for name in names
@@ -253,8 +274,12 @@ def test_edge_status_json(monkeypatch, capsys):
     assert payload["edges"][0]["clients_total"] == 1
     assert payload["edges"][0]["hosts_total"] == 1
     assert payload["edges"][0]["ports"] == 1
+    assert payload["edges"][0]["tunnels_total"] == 1
+    assert payload["edges"][0]["tunnels_running"] == 1
+    assert payload["edges"][0]["tunnel_ports"] == 1
     assert payload["edges"][1]["clients_total"] is None
     assert payload["edges"][1]["hosts_total"] is None
+    assert payload["edges"][1]["tunnels_total"] is None
     assert payload["edges"][1]["error"].startswith("clients: ")
     assert payload["totals"] == {
         "ok": 1,
@@ -263,7 +288,44 @@ def test_edge_status_json(monkeypatch, capsys):
         "clients": None,
         "hosts": None,
         "ports": None,
+        "tunnels": None,
+        "tunnels_running": None,
+        "tunnel_ports": None,
     }
+
+
+def test_edge_status_exits_nonzero_on_tunnel_only_failure(monkeypatch):
+    cluster = FakeStatusCluster(["a", "b"], tunnel_failing={"b"})
+    monkeypatch.setattr(cmd_status, "NPSCluster", lambda config: cluster)
+
+    assert cmd_status.cmd_status(argparse.Namespace(config="ignored")) == 1
+
+
+def test_edge_status_single_edge_contacts_only_that_edge(monkeypatch, capsys):
+    cluster = FakeStatusCluster(["a", "b"])
+    monkeypatch.setattr(cmd_status, "NPSCluster", lambda config: cluster)
+
+    code = cmd_status.cmd_status(
+        argparse.Namespace(config="ignored", edge="a", all=False)
+    )
+
+    capsys.readouterr()
+    assert code == 0
+    assert cluster.client_calls == [["a"]]
+
+
+def test_edge_status_rejects_edge_and_all(monkeypatch, capsys):
+    cluster = FakeStatusCluster(["a", "b"])
+    monkeypatch.setattr(cmd_status, "NPSCluster", lambda config: cluster)
+
+    code = cmd_status.cmd_status(
+        argparse.Namespace(config="ignored", edge="a", all=True)
+    )
+
+    out = _plain(capsys.readouterr().out)
+    assert code == 2
+    assert "either -e/--edge or -a/--all" in out
+    assert cluster.client_calls == []
 
 
 def test_piped_table_has_no_ansi(monkeypatch, capsys):

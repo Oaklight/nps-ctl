@@ -173,6 +173,7 @@ def test_tunnel_get_normalizes_modern_response():
         item={
             "id": 9,
             "port": 8080,
+            "ports": "8001-8003",
             "mode": "tcp",
             "target": "127.0.0.1:80",
             "remark": "web",
@@ -187,6 +188,7 @@ def test_tunnel_get_normalizes_modern_response():
     assert nps.calls[0][:2] == ("GET", "/api/tunnels/9")
     assert result is not None
     assert result["Mode"] == "tcp"
+    assert result["Ports"] == "8001-8003"
     assert result["Target"]["TargetStr"] == "127.0.0.1:80"
     assert result["Flow"]["InletFlow"] == 12
     assert result["Flow"]["ExportFlow"] == 34

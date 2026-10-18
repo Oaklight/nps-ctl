@@ -90,6 +90,55 @@ def test_host_fetch_failure_is_reported(tmp_path, monkeypatch):
     assert result.errors == {"edge-b": "timeout"}
 
 
+def test_get_all_tunnels_limits_to_requested_edges(tmp_path, monkeypatch):
+    names = ["edge-a", "edge-b", "edge-c"]
+    cluster = _cluster(tmp_path, names)
+    called = []
+
+    def fake_list(nps):
+        called.append(nps.name)
+        return [{"Id": 1, "Port": 8080}]
+
+    monkeypatch.setattr(cluster_module.tunnel, "list_tunnels", fake_list)
+
+    result = cluster.get_all_tunnels(edge_names=["edge-b"])
+
+    assert list(result) == ["edge-b"]
+    assert result.errors == {}
+    assert called == ["edge-b"]
+
+
+def test_get_all_tunnels_empty_selection_makes_no_calls(tmp_path, monkeypatch):
+    cluster = _cluster(tmp_path, ["edge-a", "edge-b"])
+    called = []
+
+    def fake_list(nps):
+        called.append(nps.name)
+        return []
+
+    monkeypatch.setattr(cluster_module.tunnel, "list_tunnels", fake_list)
+
+    result = cluster.get_all_tunnels(edge_names=[])
+
+    assert result == {}
+    assert called == []
+
+
+def test_get_all_tunnels_unknown_edge_reports_error(tmp_path, monkeypatch):
+    cluster = _cluster(tmp_path, ["edge-a"])
+
+    def fake_list(nps):
+        return []
+
+    monkeypatch.setattr(cluster_module.tunnel, "list_tunnels", fake_list)
+
+    result = cluster.get_all_tunnels(edge_names=["missing"])
+
+    assert list(result) == ["missing"]
+    assert result["missing"] == []
+    assert result.errors == {"missing": "Edge 'missing' not found"}
+
+
 def test_get_all_clients_contacts_only_selected_edges(tmp_path, monkeypatch):
     names = ["edge-a", "edge-b", "edge-c"]
     cluster = _cluster(tmp_path, names)

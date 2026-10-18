@@ -1,20 +1,21 @@
 """Shared per-edge status collection.
 
-Both ``edge status`` and ``host status`` render the same per-edge inventory:
-reachability, client liveness, host-mapping counts, and distinct target ports.
-Keeping the fan-out and failure semantics here avoids two JSON shapes drifting
-apart.
+``edge status``, ``host status``, ``tunnel status``, and the web dashboard
+render the same per-edge inventory: reachability, client liveness, and the
+counts for the requested resources. Keeping the fan-out and failure semantics
+here prevents their JSON shapes from drifting apart.
 """
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit
 
 if TYPE_CHECKING:
     from .cluster import NPSCluster
-    from .types import HostInfo
+    from .types import HostInfo, TunnelInfo
 
 MAX_PORT = 65535
 
@@ -23,9 +24,11 @@ MAX_PORT = 65535
 class EdgeStatus:
     """Status and inventory for one edge.
 
-    ``online`` reflects whether the client-list fetch succeeded; ``ok`` also
-    requires the host-list fetch to succeed. Counts are ``None`` when their
-    fetch failed, so callers never mistake a failure for an empty edge.
+    ``online`` reflects whether the client-list fetch succeeded. ``ok`` also
+    requires every requested resource fetch to succeed. ``hosts_ok`` and
+    ``tunnels_ok`` are ``None`` when that resource was not requested. Counts
+    are ``None`` when their fetch failed, so callers never mistake a failure
+    for an empty edge.
     """
 
     edge: str
@@ -35,20 +38,30 @@ class EdgeStatus:
     clients_ok: bool
     clients_total: int | None
     clients_online: int | None
-    hosts_ok: bool
+    hosts_ok: bool | None
     hosts_total: int | None
     ports: int | None
     error: str = ""
+    tunnels_ok: bool | None = None
+    tunnels_total: int | None = None
+    tunnels_running: int | None = None
+    tunnel_ports: int | None = None
 
     @property
     def ok(self) -> bool:
-        """Whether every required fetch for this edge succeeded."""
-        return self.clients_ok and self.hosts_ok
+        """Whether every requested fetch for this edge succeeded."""
+        return (
+            self.clients_ok
+            and self.hosts_ok is not False
+            and self.tunnels_ok is not False
+        )
 
     @property
     def partial(self) -> bool:
-        """Whether the edge answered at least one fetch but not both."""
-        return not self.ok and (self.clients_ok or self.hosts_ok)
+        """Whether at least one requested fetch succeeded but not all."""
+        return not self.ok and any(
+            value is True for value in (self.clients_ok, self.hosts_ok, self.tunnels_ok)
+        )
 
 
 def extract_target_ports(target: Any) -> set[int]:
@@ -90,10 +103,128 @@ def count_distinct_target_ports(hosts: list[HostInfo]) -> int:
     return len(ports)
 
 
+def _coerce_port(value: Any) -> int | None:
+    """Return a valid port from an int or numeric string, else None."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        port = value
+    elif isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        try:
+            port = int(text)
+        except ValueError:
+            return None
+    else:
+        return None
+    if 1 <= port <= MAX_PORT:
+        return port
+    return None
+
+
+def _parse_ports(value: Any) -> set[int]:
+    """Parse a Port or Ports value into a set of valid ports.
+
+    Accepts an int, a string of comma/space-separated ports and inclusive
+    ranges (``8000-8010``), or a list/tuple of ints or numeric strings.
+    Malformed tokens and out-of-range values are ignored.
+    """
+    ports: set[int] = set()
+
+    if isinstance(value, (list, tuple)):
+        for item in value:
+            port = _coerce_port(item)
+            if port is not None:
+                ports.add(port)
+        return ports
+
+    if not isinstance(value, str):
+        port = _coerce_port(value)
+        if port is not None:
+            ports.add(port)
+        return ports
+
+    for token in value.replace(",", " ").split():
+        if "-" in token:
+            start_text, _, end_text = token.partition("-")
+            start = _coerce_port(start_text)
+            end = _coerce_port(end_text)
+            if start is not None and end is not None and start <= end:
+                ports.update(range(start, end + 1))
+        else:
+            port = _coerce_port(token)
+            if port is not None:
+                ports.add(port)
+    return ports
+
+
+def extract_tunnel_ports(tunnel: TunnelInfo) -> set[int]:
+    """Return the distinct valid server ports a tunnel exposes.
+
+    Counts every tunnel mode. Auto-assigned or invalid ports (``0``,
+    negatives, values over 65535, malformed ranges) are ignored.
+    """
+    ports = _parse_ports(tunnel.get("Port"))
+    ports.update(_parse_ports(tunnel.get("Ports")))
+    return ports
+
+
+def count_distinct_tunnel_ports(tunnels: list[TunnelInfo]) -> int:
+    """Count distinct valid server ports across tunnels."""
+    ports: set[int] = set()
+    for tunnel in tunnels:
+        ports.update(extract_tunnel_ports(tunnel))
+    return len(ports)
+
+
+def _fetch_resources(
+    cluster: NPSCluster,
+    known: list[str],
+    max_workers: int,
+    *,
+    include_hosts: bool,
+    include_tunnels: bool,
+) -> dict[str, Any]:
+    """Fetch the requested resource inventories concurrently."""
+    specs: list[tuple[str, Any]] = [
+        (
+            "clients",
+            lambda: cluster.get_all_clients(edge_names=known, max_workers=max_workers),
+        )
+    ]
+    if include_hosts:
+        specs.append(
+            (
+                "hosts",
+                lambda: cluster.get_all_hosts(
+                    edge_names=known, max_workers=max_workers
+                ),
+            )
+        )
+    if include_tunnels:
+        specs.append(
+            (
+                "tunnels",
+                lambda: cluster.get_all_tunnels(
+                    edge_names=known, max_workers=max_workers
+                ),
+            )
+        )
+
+    with ThreadPoolExecutor(max_workers=len(specs)) as executor:
+        futures = {name: executor.submit(fetch) for name, fetch in specs}
+        return {name: future.result() for name, future in futures.items()}
+
+
 def collect_edge_status(
     cluster: NPSCluster,
     edge_names: list[str] | None = None,
     max_workers: int = 4,
+    *,
+    include_hosts: bool = True,
+    include_tunnels: bool = False,
 ) -> list[EdgeStatus]:
     """Collect status for all or selected edges.
 
@@ -101,7 +232,9 @@ def collect_edge_status(
         cluster: NPSCluster instance.
         edge_names: Edges to report. ``None`` means every configured edge;
             an empty list means none. Duplicates are collapsed.
-        max_workers: Maximum number of parallel workers per fetch.
+        max_workers: Maximum number of parallel workers per edge fetch.
+        include_hosts: Fetch host mappings and target-port counts.
+        include_tunnels: Fetch tunnels, running state, and server-port counts.
 
     Returns:
         One ``EdgeStatus`` per selected edge, in the requested order. Unknown
@@ -115,8 +248,16 @@ def collect_edge_status(
     configured = set(cluster.edge_names)
     known = [name for name in selected if name in configured]
 
-    clients_results = cluster.get_all_clients(edge_names=known, max_workers=max_workers)
-    hosts_results = cluster.get_all_hosts(edge_names=known, max_workers=max_workers)
+    fetched = _fetch_resources(
+        cluster,
+        known,
+        max_workers,
+        include_hosts=include_hosts,
+        include_tunnels=include_tunnels,
+    )
+    clients_results = fetched["clients"]
+    hosts_results = fetched.get("hosts")
+    tunnels_results = fetched.get("tunnels")
 
     rows: list[EdgeStatus] = []
     for name in selected:
@@ -130,27 +271,44 @@ def collect_edge_status(
                     clients_ok=False,
                     clients_total=None,
                     clients_online=None,
-                    hosts_ok=False,
+                    hosts_ok=False if include_hosts else None,
                     hosts_total=None,
                     ports=None,
                     error=f"Edge '{name}' not found",
+                    tunnels_ok=False if include_tunnels else None,
+                    tunnels_total=None,
+                    tunnels_running=None,
+                    tunnel_ports=None,
                 )
             )
             continue
 
         edge = cluster.get_edge(name)
         clients = clients_results.get(name, [])
-        hosts = hosts_results.get(name, [])
         clients_error = clients_results.errors.get(name)
-        hosts_error = hosts_results.errors.get(name)
         clients_ok = clients_error is None
-        hosts_ok = hosts_error is None
 
-        errors = []
+        errors: list[str] = []
         if clients_error:
             errors.append(f"clients: {clients_error}")
-        if hosts_error:
-            errors.append(f"hosts: {hosts_error}")
+
+        hosts_ok: bool | None = None
+        hosts: list[HostInfo] = []
+        if hosts_results is not None:
+            hosts = hosts_results.get(name, [])
+            hosts_error = hosts_results.errors.get(name)
+            hosts_ok = hosts_error is None
+            if hosts_error:
+                errors.append(f"hosts: {hosts_error}")
+
+        tunnels_ok: bool | None = None
+        tunnels: list[TunnelInfo] = []
+        if tunnels_results is not None:
+            tunnels = tunnels_results.get(name, [])
+            tunnels_error = tunnels_results.errors.get(name)
+            tunnels_ok = tunnels_error is None
+            if tunnels_error:
+                errors.append(f"tunnels: {tunnels_error}")
 
         rows.append(
             EdgeStatus(
@@ -169,13 +327,23 @@ def collect_edge_status(
                 hosts_total=len(hosts) if hosts_ok else None,
                 ports=count_distinct_target_ports(hosts) if hosts_ok else None,
                 error="; ".join(errors),
+                tunnels_ok=tunnels_ok,
+                tunnels_total=len(tunnels) if tunnels_ok else None,
+                tunnels_running=(
+                    sum(1 for tunnel in tunnels if tunnel.get("RunStatus"))
+                    if tunnels_ok
+                    else None
+                ),
+                tunnel_ports=(
+                    count_distinct_tunnel_ports(tunnels) if tunnels_ok else None
+                ),
             )
         )
 
     return rows
 
 
-def _sum_counts(values: list[int | None]) -> int | None:
+def sum_counts(values: list[int | None]) -> int | None:
     """Sum counts, or return None when any edge failed to report."""
     if any(value is None for value in values):
         return None
@@ -183,7 +351,7 @@ def _sum_counts(values: list[int | None]) -> int | None:
 
 
 def build_status_payload(rows: list[EdgeStatus]) -> dict[str, Any]:
-    """Build the shared JSON payload for status commands.
+    """Build the shared JSON payload for status commands and the dashboard.
 
     ``summary`` keeps its existing ``{configured, online, offline}`` shape;
     ``totals`` aggregates the inventory counts, using ``null`` when any edge
@@ -199,10 +367,16 @@ def build_status_payload(rows: list[EdgeStatus]) -> dict[str, Any]:
                 "online": row.online,
                 "ok": row.ok,
                 "partial": row.partial,
+                "clients_ok": row.clients_ok,
                 "clients_total": row.clients_total,
                 "clients_online": row.clients_online,
+                "hosts_ok": row.hosts_ok,
                 "hosts_total": row.hosts_total,
                 "ports": row.ports,
+                "tunnels_ok": row.tunnels_ok,
+                "tunnels_total": row.tunnels_total,
+                "tunnels_running": row.tunnels_running,
+                "tunnel_ports": row.tunnel_ports,
                 "error": row.error,
             }
             for row in rows
@@ -216,8 +390,11 @@ def build_status_payload(rows: list[EdgeStatus]) -> dict[str, Any]:
             "ok": sum(1 for row in rows if row.ok),
             "failed": sum(1 for row in rows if not row.online),
             "partial": sum(1 for row in rows if row.partial),
-            "clients": _sum_counts([row.clients_total for row in rows]),
-            "hosts": _sum_counts([row.hosts_total for row in rows]),
-            "ports": _sum_counts([row.ports for row in rows]),
+            "clients": sum_counts([row.clients_total for row in rows]),
+            "hosts": sum_counts([row.hosts_total for row in rows]),
+            "ports": sum_counts([row.ports for row in rows]),
+            "tunnels": sum_counts([row.tunnels_total for row in rows]),
+            "tunnels_running": sum_counts([row.tunnels_running for row in rows]),
+            "tunnel_ports": sum_counts([row.tunnel_ports for row in rows]),
         },
     }

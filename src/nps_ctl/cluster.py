@@ -437,11 +437,17 @@ class NPSCluster:
         )
         return result
 
-    def get_all_tunnels(self, max_workers: int = 4) -> EdgeResults[TunnelInfo]:
-        """Get tunnels from all edges in parallel.
+    def get_all_tunnels(
+        self,
+        max_workers: int = 4,
+        edge_names: list[str] | None = None,
+    ) -> EdgeResults[TunnelInfo]:
+        """Get tunnels from all or selected edges in parallel.
 
         Args:
             max_workers: Maximum number of parallel workers.
+            edge_names: Edges to fetch. ``None`` means every configured edge;
+                an empty list means none.
 
         Returns:
             Mapping of edge names to tunnel lists, in configured edge order.
@@ -454,6 +460,7 @@ class NPSCluster:
         raw_results = self._parallel_fetch(
             tunnel.list_tunnels,
             "list_tunnels",
+            edge_names=edge_names,
             max_workers=max_workers,
         )
 
