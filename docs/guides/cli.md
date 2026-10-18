@@ -218,7 +218,8 @@ nps-ctl edge list --json
 
 ### `edge status`
 
-显示所有已配置边缘节点的状态。
+显示每个已配置边缘节点的可达性与资源清单。该命令会抓取完整的客户端和
+域名映射列表，开销随集群规模增长，属于清单命令而非轻量健康探测。
 
 | 选项 | 说明 |
 | --- | --- |
@@ -230,7 +231,21 @@ nps-ctl edge status
 nps-ctl edge status --json
 ```
 
-只要有任一节点离线，命令就以 1 退出。
+输出列为 `Edge`、`Region`、`API URL`、`Status`、`Clients`、`Hosts` 和
+`Ports`。`Clients` 为 `<在线>/<总数>`；`Hosts` 是域名映射数量，`Ports` 是
+从 `Target.TargetStr` 解析出的不同目标端口数。抓取失败的数量显示为 `-`。
+
+状态取值：
+
+- `✓ Online` — 客户端与域名映射抓取均成功。
+- `⚠ Partial` — 其中一个抓取失败，另一个的数量仍会显示。
+- `✗ Offline` — 两个抓取均失败。
+
+JSON 保留 `summary: {configured, online, offline}`，并为每个边缘新增 `ok`、
+`partial`、`clients_total`、`clients_online`、`hosts_total`、`ports` 和
+`error`，顶层新增 `totals`。失败的数量是 `null`，不会是 `0`。
+
+只要有节点离线，或任一客户端/域名映射抓取失败，命令就以 1 退出。
 
 ### `edge install`
 
@@ -484,6 +499,30 @@ nps-ctl host list --matrix --json
 ```
 
 矩阵以所有域名的并集为行、已配置边缘节点为列。单元格含义：`✓` 存在、`-` 缺失、`!` 获取失败；失败的边缘节点还会在表格下方显示原因。只要有任一节点获取失败，命令就以 1 退出。
+
+### `host status`
+
+显示所选边缘节点的客户端在线状态与域名映射清单。
+
+| 选项 | 说明 |
+| --- | --- |
+| `-e`, `--edge` EDGE | 要查询的边缘节点名称（默认：所有边缘节点） |
+| `-a`, `--all` | 显式的全边缘别名（默认行为） |
+| `--json` | 输出机器可读的 JSON |
+| `--no-color` | 禁用彩色输出 |
+
+```bash
+nps-ctl host status
+nps-ctl host status -e nps-us
+nps-ctl host status -a --json
+```
+
+输出列为 `Edge`、`Region`、`Status`、`Clients`、`Hosts` 和 `Ports`，状态与
+数量规则与 `edge status` 相同。汇总行报告在线边缘数、在线/总客户端数、域名
+映射数和不同目标端口数。未知数量在表格中显示为 `-`，在 JSON 中为 `null`。
+
+仅当每个所选边缘的客户端与域名映射抓取都成功时命令才以 0 退出；任何抓取或
+配置失败（包括未知的 `-e`）退出 1；同时使用 `-e` 和 `-a` 退出 2。
 
 ### `host add`
 

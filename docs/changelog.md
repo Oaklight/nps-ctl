@@ -8,6 +8,21 @@ nps-ctl 的所有重要变更均记录于此。本项目遵循 [Keep a Changelog
 
 ---
 
+## v0.8.0 — 2026-10-18
+
+### 新增
+
+- **`host status`**：逐边缘显示可达性、在线/总客户端数、域名映射数和不同目标端口数，支持 `-e/--edge`、`-a/--all`、`--json` 和 `--no-color`
+- 共享边缘状态收集器，同时支撑 `host status` 与 `edge status`；抓取失败的数量为 `None`/`null`
+- 集群子集抓取：`get_all_clients()` 与 `get_all_hosts()` 支持 `edge_names`，未知边缘返回清晰的 `Edge '<name>' not found` 错误
+
+### 变更
+
+- **`edge status`** 在可达性之外新增客户端、域名映射和目标端口数量；任一客户端或域名映射抓取失败即退出 1，而不再只检查节点是否离线
+- `edge status` 的 JSON 保留 `summary: {configured, online, offline}`，新增逐边缘数量与顶层 `totals`
+
+---
+
 ## v0.7.0 — 2026-10-08
 
 ### 新增

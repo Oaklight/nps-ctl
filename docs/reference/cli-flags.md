@@ -21,13 +21,13 @@ nps-ctl [全局选项] <命令> <子命令> [选项]
 | | `--json` | 输出机器可读的 JSON（列表、状态和 `edge list`） |
 | | `--no-color` | 禁用彩色输出 |
 
-读取类命令默认作用于所有已配置边缘节点；`-e/--edge` 缩小到单个节点，`-a/--all` 是显式的全边缘别名。变更类命令（`client del`、`host/tunnel add|del|edit`）必须提供其中之一。
+读取类命令（`client list`、`host list`、`host status`、`tunnel list`）默认作用于所有已配置边缘节点；`-e/--edge` 缩小到单个节点，`-a/--all` 是显式的全边缘别名（`edge status` 始终覆盖所有已配置节点）。变更类命令（`client del`、`host/tunnel add|del|edit`）必须提供其中之一。
 
 ## 短标志参考
 
 | 短标志 | 长格式 | 适用命令 | 说明 |
 |--------|--------|----------|------|
-| `-a` | `--all` | `client list/del`、`tunnel list/add/del/edit`、`host list/add/del/edit` | 显式的全边缘范围（读取时是默认值，变更时是必需选项之一） |
+| `-a` | `--all` | `client list/del`、`tunnel list/add/del/edit`、`host list/status/add/del/edit` | 显式的全边缘范围（读取时是默认值，变更时是必需选项之一） |
 | | `--matrix` | `host list` | 域名与边缘节点的存在性矩阵 |
 | `-c` | `--client` | `client del/push/install/upgrade/reconfig/uninstall/status/restart`、`tunnel add`、`host add` | 客户端名称（备注）或数字 ID |
 | `-d` | `--domain` | `host add/del/edit` | 域名 |
@@ -56,5 +56,5 @@ nps-ctl [全局选项] <命令> <子命令> [选项]
 | `client` | `list`、`push`、`add`、`install`、`upgrade`、`reconfig`、`uninstall`、`status`、`restart`、`del` |
 | `edge` | `list`、`status`、`install`、`upgrade`、`reconfig`、`uninstall`、`sync`、`export` |
 | `tunnel` | `list`、`add`、`del`、`edit`、`start`、`stop` |
-| `host` | `list`、`add`、`del`、`edit` |
+| `host` | `list`、`status`、`add`、`del`、`edit` |
 | `util` | `generate-auth-key` |
