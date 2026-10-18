@@ -17,7 +17,6 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import unquote, urlparse
 
 from . import client_mgmt, host, tunnel
-from .cli.helpers import redact_user_auth
 from .exceptions import NPSError
 
 if TYPE_CHECKING:
@@ -27,6 +26,28 @@ logger = logging.getLogger(__name__)
 
 LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost"}
 RESOURCES = {"clients", "tunnels", "hosts"}
+SENSITIVE_ROW_KEYS = ("VerifyKey", "Password", "WebPassword", "BasicPassword")
+
+
+def _redact_row(item: Any) -> Any:
+    """Return a copy of a resource row with credentials redacted."""
+    if not isinstance(item, dict):
+        return item
+    row = dict(item)
+    for key in SENSITIVE_ROW_KEYS:
+        if row.get(key):
+            row[key] = "**redacted**"
+    user_auth = row.get("UserAuth")
+    if isinstance(user_auth, dict) and user_auth.get("Content"):
+        row["UserAuth"] = {"Content": "**redacted**", "AccountMap": {}}
+    cnf = row.get("Cnf")
+    if isinstance(cnf, dict):
+        cnf = dict(cnf)
+        for key in ("P", "Password"):
+            if cnf.get(key):
+                cnf[key] = "**redacted**"
+        row["Cnf"] = cnf
+    return row
 
 
 def build_auth_header(username: str, password: str) -> str:
@@ -114,7 +135,7 @@ def _edge_items(cluster: NPSCluster, edge_name: str, resource: str) -> list[Any]
         items = tunnel.list_tunnels(nps)
     else:
         items = host.list_hosts(nps)
-    return redact_user_auth(items)
+    return [_redact_row(item) for item in items]
 
 
 class _AdminHandler(BaseHTTPRequestHandler):

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import json
+import sys
 import threading
 import urllib.error
 import urllib.request
@@ -44,12 +45,13 @@ class FakeCluster:
     def __init__(self, edge_data=None, errors=None):
         self.edge_data = edge_data or {
             "edge-a": FakeNPS(
-                clients=[{"Id": 1, "Remark": "alpha"}],
+                clients=[{"Id": 1, "Remark": "alpha", "VerifyKey": "vkey-secret"}],
                 tunnels=[
                     {
                         "Id": 7,
                         "Mode": "tcp",
                         "Port": 8080,
+                        "Password": "tunnel-secret",
                         "UserAuth": {
                             "Content": "admin=secret",
                             "AccountMap": {"admin": "secret"},
@@ -137,10 +139,16 @@ def test_overview_reports_edges_and_counts(server):
 
 def test_edge_resources_redact_credentials(server):
     with _get(server, "/api/edges/edge-a/tunnels") as response:
-        payload = json.load(response)
+        tunnels = json.load(response)
+    with _get(server, "/api/edges/edge-a/clients") as response:
+        clients = json.load(response)
 
-    user_auth = payload["items"][0]["UserAuth"]
-    assert user_auth == {"Content": "**redacted**", "AccountMap": {}}
+    assert tunnels["items"][0]["UserAuth"] == {
+        "Content": "**redacted**",
+        "AccountMap": {},
+    }
+    assert tunnels["items"][0]["Password"] == "**redacted**"
+    assert clients["items"][0]["VerifyKey"] == "**redacted**"
 
 
 def test_unknown_edge_returns_404(server):
@@ -164,3 +172,65 @@ def test_dashboard_allows_public_bind_with_auth():
         assert dashboard.auth_header == f"Basic {expected}"
     finally:
         dashboard.server_close()
+
+
+def test_web_routes_through_main(monkeypatch, tmp_path):
+    import nps_ctl.cli as cli
+    import nps_ctl.cli.cmd_web as cmd_web_module
+
+    called = {}
+
+    def fake_cmd_web(args):
+        called["args"] = args
+        return 0
+
+    monkeypatch.setattr(cmd_web_module, "cmd_web", fake_cmd_web)
+    config = tmp_path / "edges.toml"
+    config.write_text("")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["nps-ctl", "--config", str(config), "web", "--port", "8799"],
+    )
+
+    assert cli.main() == 0
+    assert called["args"].command == "web"
+    assert called["args"].leaf_command is True
+
+
+def test_web_rejects_password_without_username(monkeypatch):
+    import nps_ctl.cli.cmd_web as cmd_web_module
+
+    monkeypatch.setattr(cmd_web_module, "NPSCluster", lambda config: object())
+    args = SimpleNamespace(
+        config="ignored",
+        host="127.0.0.1",
+        port=0,
+        username="",
+        password="secret",
+        insecure=False,
+    )
+
+    assert cmd_web_module.cmd_web(args) == 2
+
+
+def test_web_reports_missing_password_without_tty(monkeypatch):
+    import nps_ctl.cli.cmd_web as cmd_web_module
+
+    monkeypatch.setattr(cmd_web_module, "NPSCluster", lambda config: object())
+    monkeypatch.delenv("NPS_WEB_PASSWORD", raising=False)
+
+    def no_tty(prompt):
+        raise EOFError
+
+    monkeypatch.setattr(cmd_web_module.getpass, "getpass", no_tty)
+    args = SimpleNamespace(
+        config="ignored",
+        host="127.0.0.1",
+        port=0,
+        username="admin",
+        password="",
+        insecure=False,
+    )
+
+    assert cmd_web_module.cmd_web(args) == 2

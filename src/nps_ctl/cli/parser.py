@@ -141,7 +141,7 @@ def _add_web_command(subparsers) -> None:
         action="store_true",
         help="Allow a non-loopback bind without authentication",
     )
-    web_parser.set_defaults(requires_config=True)
+    web_parser.set_defaults(requires_config=True, leaf_command=True)
 
 
 def _add_client_commands(subparsers) -> None:

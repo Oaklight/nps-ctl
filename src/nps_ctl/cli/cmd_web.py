@@ -28,8 +28,18 @@ def cmd_web(args: argparse.Namespace) -> int:
 
     username = getattr(args, "username", "") or ""
     password = getattr(args, "password", "") or os.environ.get("NPS_WEB_PASSWORD", "")
+    if password and not username:
+        print_error("--password requires --username")
+        return 2
     if username and not password:
-        password = getpass.getpass(f"Password for {username}: ")
+        try:
+            password = getpass.getpass(f"Password for {username}: ")
+        except EOFError:
+            print_error(
+                "No password provided and no TTY available; "
+                "set NPS_WEB_PASSWORD or pass --password"
+            )
+            return 2
 
     try:
         server = create_server(
@@ -49,7 +59,13 @@ def cmd_web(args: argparse.Namespace) -> int:
     display_host = f"[{host}]" if ":" in host else host
     console.print(f"Dashboard: [bold]http://{display_host}:{port}/[/bold]")
     if not username:
-        console.print("[yellow]Authentication disabled (loopback only).[/yellow]")
+        if host in {"127.0.0.1", "::1", "localhost"}:
+            console.print("[yellow]Authentication disabled (loopback only).[/yellow]")
+        else:
+            console.print(
+                "[bold red]Authentication disabled; the dashboard is "
+                "reachable on the network.[/bold red]"
+            )
     console.print("[dim]Press Ctrl+C to stop.[/dim]")
     try:
         server.serve_forever()

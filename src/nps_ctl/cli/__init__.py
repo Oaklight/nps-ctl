@@ -116,9 +116,10 @@ def main() -> int:
         parser.print_help()
         return 0
 
-    # Command specified but no subcommand -> print command group help
+    # Command specified but no subcommand -> print command group help,
+    # unless this is a leaf command such as `web`.
     subcommand = getattr(args, "subcommand", None)
-    if subcommand is None:
+    if subcommand is None and not getattr(args, "leaf_command", False):
         # Re-parse to get the subparser and print its help
         parser.parse_args([args.command, "--help"])
         return 0  # pragma: no cover (--help exits)
