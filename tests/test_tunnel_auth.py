@@ -12,6 +12,8 @@ from nps_ctl.logging import _mask_sensitive_data
 class FakeNPS:
     """Capture request payloads and report success."""
 
+    is_modern = False
+
     def __init__(self):
         self.requests = []
 

@@ -403,7 +403,8 @@ class NPSClient:
         """Probe the server to check if the modern API is available.
 
         Sends a GET request to /api/system/health with a short timeout
-        and no retry. Returns True on HTTP 200, False otherwise.
+        and no retry. The response must be JSON with ``data.ok == true``;
+        a bare 200 is not enough, because proxies can answer unknown paths.
 
         Returns:
             True if the modern API is available.
@@ -414,12 +415,15 @@ class NPSClient:
         try:
             if self._opener:
                 with self._opener.open(req, timeout=detect_timeout) as response:
-                    is_modern = response.status == 200
+                    raw = response.read()
             else:
                 with urllib.request.urlopen(
                     req, timeout=detect_timeout, context=self._ssl_context
                 ) as response:
-                    is_modern = response.status == 200
+                    raw = response.read()
+            payload = json.loads(raw.decode("utf-8"))
+            data = payload.get("data") if isinstance(payload, dict) else None
+            is_modern = isinstance(data, dict) and data.get("ok") is True
             logger.info(
                 f"Modern API detection for {self.base_url}: "
                 f"{'available' if is_modern else 'not available'}"
@@ -462,11 +466,15 @@ class NPSClient:
                     error_cls=NPSAuthError,
                 )
                 data = json.loads(raw.decode("utf-8"))
-                # Extract token from response — try common locations
+                nested = data.get("data") if isinstance(data, dict) else None
+                if not isinstance(nested, dict):
+                    nested = {}
+                # The server wraps the token in data; accept common variants.
                 token = (
-                    data.get("token")
-                    or data.get("data", {}).get("token")
+                    nested.get("access_token")
+                    or nested.get("token")
                     or data.get("access_token")
+                    or data.get("token")
                 )
                 if not token:
                     raise NPSAuthError(
