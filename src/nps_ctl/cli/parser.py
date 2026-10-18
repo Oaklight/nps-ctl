@@ -11,6 +11,7 @@ from .helpers import (
     add_all_argument,
     add_client_argument,
     add_edge_argument,
+    add_output_arguments,
     add_verbose_argument,
     add_yes_argument,
 )
@@ -42,6 +43,16 @@ def create_parser() -> argparse.ArgumentParser:
         "--debug",
         action="store_true",
         help="Enable debug logging",
+    )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit machine-readable JSON instead of tables",
+    )
+    parser.add_argument(
+        "--no-color",
+        action="store_true",
+        help="Disable colored output",
     )
     parser.add_argument(
         "--verbose",
@@ -130,6 +141,7 @@ def _add_client_commands(subparsers) -> None:
         action="store_true",
         help="Show what would be written without modifying clients.toml",
     )
+    add_output_arguments(list_parser)
     list_parser.set_defaults(requires_config=True)
 
     # client push
@@ -366,6 +378,7 @@ def _add_edge_commands(subparsers) -> None:
             "Use this to discover the full edge set."
         ),
     )
+    add_output_arguments(edge_list_parser)
     edge_list_parser.set_defaults(requires_config=True)
 
     # edge status
@@ -374,6 +387,7 @@ def _add_edge_commands(subparsers) -> None:
         help="Show status of all edge nodes",
         description="Display the status of all configured NPS edge nodes.",
     )
+    add_output_arguments(status_parser)
     status_parser.set_defaults(requires_config=True)
 
     # edge install
@@ -575,6 +589,7 @@ def _add_tunnel_commands(subparsers) -> None:
         action="store_true",
         help="Show tunnels from all edges",
     )
+    add_output_arguments(list_parser)
     list_parser.set_defaults(requires_config=True)
 
     # tunnel add
@@ -779,6 +794,7 @@ def _add_host_commands(subparsers) -> None:
         action="store_true",
         help="Show host mappings from all edges",
     )
+    add_output_arguments(list_parser)
     list_parser.set_defaults(requires_config=True)
 
     # host add

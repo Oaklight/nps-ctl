@@ -7,10 +7,13 @@ from ..cluster import NPSCluster
 from ..exceptions import NPSError
 from ..types import ClientInfo
 from .helpers import (
+    build_edge_results_payload,
     console,
     create_table,
+    edge_region,
     print_edge_summary,
     print_error,
+    print_json,
     resolve_write_edges,
     validate_read_target,
 )
@@ -18,35 +21,77 @@ from .helpers import (
 
 def cmd_clients(args: argparse.Namespace) -> int:
     """List clients on edge nodes."""
+    json_mode = getattr(args, "json", False)
     try:
         cluster = NPSCluster(args.config)
     except FileNotFoundError as e:
-        print_error(str(e))
+        if json_mode:
+            print_json({"error": str(e)})
+        else:
+            print_error(str(e))
         return 1
 
     target_error = validate_read_target(args)
     if target_error is not None:
-        return target_error
+        if json_mode:
+            print_json({"error": target_error})
+        else:
+            print_error(target_error)
+        return 2
 
     edge_name = getattr(args, "edge", None)
     if edge_name:
         nps = cluster.get_client(edge_name)
         if not nps:
-            print_error(f"Edge '{edge_name}' not found")
+            message = f"Edge '{edge_name}' not found"
+            if json_mode:
+                print_json({"error": message})
+            else:
+                print_error(message)
             return 1
 
         try:
-            edge = cluster.get_edge(edge_name)
-            region = edge.region if edge else ""
-            console.print(f"\n[bold cyan]=== {edge_name} ({region}) ===[/bold cyan]")
             clients = client_mgmt.list_clients(nps)
-            _print_clients(clients)
         except NPSError as e:
-            print_error(str(e))
+            if json_mode:
+                print_json(
+                    build_edge_results_payload(
+                        {edge_name: []},
+                        {edge_name: str(e)},
+                        lambda name: edge_region(cluster, name),
+                    )
+                )
+            else:
+                print_error(str(e))
             return 1
+
+        if json_mode:
+            print_json(
+                build_edge_results_payload(
+                    {edge_name: clients},
+                    {},
+                    lambda name: edge_region(cluster, name),
+                )
+            )
+            return 0
+
+        edge = cluster.get_edge(edge_name)
+        region = edge.region if edge else ""
+        console.print(f"\n[bold cyan]=== {edge_name} ({region}) ===[/bold cyan]")
+        _print_clients(clients)
         return 0
 
     all_clients = cluster.get_all_clients()
+    if json_mode:
+        print_json(
+            build_edge_results_payload(
+                all_clients,
+                all_clients.errors,
+                lambda name: edge_region(cluster, name),
+            )
+        )
+        return 1 if all_clients.errors else 0
+
     for edge_name, clients in all_clients.items():
         edge = cluster.get_edge(edge_name)
         region = edge.region if edge else ""
@@ -66,7 +111,7 @@ def _print_clients(clients: list[ClientInfo]) -> None:
     """Print client list as table."""
     table = create_table()
     table.add_column("ID", style="dim")
-    table.add_column("Remark", style="bold")
+    table.add_column("Remark", style="bold", overflow="fold")
     table.add_column("VKey", style="dim")
     table.add_column("Status")
     table.add_column("Conn", justify="right")

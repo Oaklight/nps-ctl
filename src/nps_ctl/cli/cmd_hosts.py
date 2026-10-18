@@ -7,10 +7,13 @@ from ..cluster import NPSCluster
 from ..exceptions import NPSError
 from ..types import HostInfo
 from .helpers import (
+    build_edge_results_payload,
     console,
     create_table,
+    edge_region,
     print_edge_summary,
     print_error,
+    print_json,
     resolve_write_edges,
     validate_read_target,
 )
@@ -18,35 +21,77 @@ from .helpers import (
 
 def cmd_hosts(args: argparse.Namespace) -> int:
     """List host mappings on edge nodes."""
+    json_mode = getattr(args, "json", False)
     try:
         cluster = NPSCluster(args.config)
     except FileNotFoundError as e:
-        print_error(str(e))
+        if json_mode:
+            print_json({"error": str(e)})
+        else:
+            print_error(str(e))
         return 1
 
     target_error = validate_read_target(args)
     if target_error is not None:
-        return target_error
+        if json_mode:
+            print_json({"error": target_error})
+        else:
+            print_error(target_error)
+        return 2
 
     edge_name = getattr(args, "edge", None)
     if edge_name:
         nps = cluster.get_client(edge_name)
         if not nps:
-            print_error(f"Edge '{edge_name}' not found")
+            message = f"Edge '{edge_name}' not found"
+            if json_mode:
+                print_json({"error": message})
+            else:
+                print_error(message)
             return 1
 
         try:
-            edge = cluster.get_edge(edge_name)
-            region = edge.region if edge else ""
-            console.print(f"\n[bold cyan]=== {edge_name} ({region}) ===[/bold cyan]")
             hosts = host.list_hosts(nps)
-            _print_hosts(hosts)
         except NPSError as e:
-            print_error(str(e))
+            if json_mode:
+                print_json(
+                    build_edge_results_payload(
+                        {edge_name: []},
+                        {edge_name: str(e)},
+                        lambda name: edge_region(cluster, name),
+                    )
+                )
+            else:
+                print_error(str(e))
             return 1
+
+        if json_mode:
+            print_json(
+                build_edge_results_payload(
+                    {edge_name: hosts},
+                    {},
+                    lambda name: edge_region(cluster, name),
+                )
+            )
+            return 0
+
+        edge = cluster.get_edge(edge_name)
+        region = edge.region if edge else ""
+        console.print(f"\n[bold cyan]=== {edge_name} ({region}) ===[/bold cyan]")
+        _print_hosts(hosts)
         return 0
 
     all_hosts = cluster.get_all_hosts()
+    if json_mode:
+        print_json(
+            build_edge_results_payload(
+                all_hosts,
+                all_hosts.errors,
+                lambda name: edge_region(cluster, name),
+            )
+        )
+        return 1 if all_hosts.errors else 0
+
     for edge_name, hosts in all_hosts.items():
         edge = cluster.get_edge(edge_name)
         region = edge.region if edge else ""
@@ -146,8 +191,8 @@ def _print_hosts(hosts: list[HostInfo]) -> None:
     """Print host list as table."""
     table = create_table()
     table.add_column("ID", style="dim")
-    table.add_column("Host", style="bold cyan")
-    table.add_column("Target", style="green")
+    table.add_column("Host", style="bold cyan", overflow="fold")
+    table.add_column("Target", style="green", overflow="fold")
     table.add_column("Client")
     table.add_column("Scheme", style="dim")
     table.add_column("Auth", style="dim")

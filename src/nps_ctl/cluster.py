@@ -6,6 +6,7 @@ including broadcasting operations and syncing configurations.
 
 import logging
 import random
+import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
@@ -47,10 +48,10 @@ T = TypeVar("T")
 # Union of all NPS API item types
 SyncItem = ClientInfo | TunnelInfo | HostInfo
 
-# Rich console for output with forced flush for streaming
-# force_terminal=True ensures output is not buffered when piped or through proxies
-# FlushingConsole auto-flushes after every print for immediate visibility
-console = FlushingConsole(force_terminal=True)
+# Rich console for output with forced flush for streaming.
+# FlushingConsole keeps output unbuffered through proxies. When stdout is not
+# a terminal, use a wide layout so table cells are not truncated.
+console = FlushingConsole(width=None if sys.stdout.isatty() else 200)
 
 
 class RateLimiter:

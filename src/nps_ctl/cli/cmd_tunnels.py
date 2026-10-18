@@ -7,10 +7,13 @@ from ..cluster import NPSCluster
 from ..exceptions import NPSError
 from ..types import TunnelInfo
 from .helpers import (
+    build_edge_results_payload,
     console,
     create_table,
+    edge_region,
     print_edge_summary,
     print_error,
+    print_json,
     resolve_write_edges,
     validate_read_target,
 )
@@ -18,37 +21,79 @@ from .helpers import (
 
 def cmd_tunnels(args: argparse.Namespace) -> int:
     """List tunnels on edge nodes."""
+    json_mode = getattr(args, "json", False)
     try:
         cluster = NPSCluster(args.config)
     except FileNotFoundError as e:
-        print_error(str(e))
+        if json_mode:
+            print_json({"error": str(e)})
+        else:
+            print_error(str(e))
         return 1
 
     tunnel_type = getattr(args, "type", "") or ""
 
     target_error = validate_read_target(args)
     if target_error is not None:
-        return target_error
+        if json_mode:
+            print_json({"error": target_error})
+        else:
+            print_error(target_error)
+        return 2
 
     edge_name = getattr(args, "edge", None)
     if edge_name:
         nps = cluster.get_client(edge_name)
         if not nps:
-            print_error(f"Edge '{edge_name}' not found")
+            message = f"Edge '{edge_name}' not found"
+            if json_mode:
+                print_json({"error": message})
+            else:
+                print_error(message)
             return 1
 
         try:
-            edge = cluster.get_edge(edge_name)
-            region = edge.region if edge else ""
-            console.print(f"\n[bold cyan]=== {edge_name} ({region}) ===[/bold cyan]")
             tunnels = tunnel.list_tunnels(nps, tunnel_type=tunnel_type)
-            _print_tunnels(tunnels)
         except NPSError as e:
-            print_error(str(e))
+            if json_mode:
+                print_json(
+                    build_edge_results_payload(
+                        {edge_name: []},
+                        {edge_name: str(e)},
+                        lambda name: edge_region(cluster, name),
+                    )
+                )
+            else:
+                print_error(str(e))
             return 1
+
+        if json_mode:
+            print_json(
+                build_edge_results_payload(
+                    {edge_name: tunnels},
+                    {},
+                    lambda name: edge_region(cluster, name),
+                )
+            )
+            return 0
+
+        edge = cluster.get_edge(edge_name)
+        region = edge.region if edge else ""
+        console.print(f"\n[bold cyan]=== {edge_name} ({region}) ===[/bold cyan]")
+        _print_tunnels(tunnels)
         return 0
 
     all_tunnels = cluster.get_all_tunnels()
+    if json_mode:
+        print_json(
+            build_edge_results_payload(
+                all_tunnels,
+                all_tunnels.errors,
+                lambda name: edge_region(cluster, name),
+            )
+        )
+        return 1 if all_tunnels.errors else 0
+
     for edge_name, tunnels in all_tunnels.items():
         edge = cluster.get_edge(edge_name)
         region = edge.region if edge else ""
@@ -156,7 +201,7 @@ def _print_tunnels(tunnels: list[TunnelInfo]) -> None:
     table.add_column("ID", style="dim")
     table.add_column("Type", style="bold magenta")
     table.add_column("Port", style="cyan", justify="right")
-    table.add_column("Target", style="green")
+    table.add_column("Target", style="green", overflow="fold")
     table.add_column("Client")
     table.add_column("Status")
 
