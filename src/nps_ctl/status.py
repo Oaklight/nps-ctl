@@ -47,8 +47,8 @@ class EdgeStatus:
 
     @property
     def partial(self) -> bool:
-        """Whether the edge is reachable but some inventory fetch failed."""
-        return self.online and not self.ok
+        """Whether the edge answered at least one fetch but not both."""
+        return not self.ok and (self.clients_ok or self.hosts_ok)
 
 
 def extract_target_ports(target: Any) -> set[int]:

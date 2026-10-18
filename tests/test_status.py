@@ -125,6 +125,25 @@ def test_collect_host_only_failure_is_partial():
     assert row.error == "hosts: timeout"
 
 
+def test_collect_client_only_failure_is_partial():
+    cluster = FakeCluster(
+        ["edge-a"],
+        client_errors={"edge-a": "connection refused"},
+        hosts={"edge-a": [{"Target": {"TargetStr": "127.0.0.1:8080"}}]},
+    )
+
+    [row] = collect_edge_status(cluster)
+
+    assert row.online is False
+    assert row.partial is True
+    assert row.ok is False
+    assert row.clients_total is None
+    assert row.clients_online is None
+    assert row.hosts_total == 1
+    assert row.ports == 1
+    assert row.error == "clients: connection refused"
+
+
 def test_collect_offline_edge_keeps_counts_none():
     cluster = FakeCluster(
         ["edge-a"],
