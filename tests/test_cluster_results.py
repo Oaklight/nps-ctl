@@ -88,3 +88,66 @@ def test_host_fetch_failure_is_reported(tmp_path, monkeypatch):
 
     assert result["edge-b"] == []
     assert result.errors == {"edge-b": "timeout"}
+
+
+def test_get_all_clients_contacts_only_selected_edges(tmp_path, monkeypatch):
+    names = ["edge-a", "edge-b", "edge-c"]
+    cluster = _cluster(tmp_path, names)
+    called = []
+
+    def fake_list(nps):
+        called.append(nps.name)
+        return [{"Id": 1, "Remark": nps.name}]
+
+    monkeypatch.setattr(cluster_module.client_mgmt, "list_clients", fake_list)
+
+    result = cluster.get_all_clients(edge_names=["edge-c", "edge-a"])
+
+    assert called == ["edge-c", "edge-a"]
+    assert list(result) == ["edge-c", "edge-a"]
+    assert result.errors == {}
+
+
+def test_get_all_hosts_contacts_only_selected_edges(tmp_path, monkeypatch):
+    names = ["edge-a", "edge-b"]
+    cluster = _cluster(tmp_path, names)
+    called = []
+
+    def fake_list(nps):
+        called.append(nps.name)
+        return [{"Id": 1, "Host": f"{nps.name}.test"}]
+
+    monkeypatch.setattr(cluster_module.host, "list_hosts", fake_list)
+
+    result = cluster.get_all_hosts(edge_names=["edge-b"])
+
+    assert called == ["edge-b"]
+    assert list(result) == ["edge-b"]
+    assert result["edge-b"][0]["Host"] == "edge-b.test"
+
+
+def test_empty_edge_selection_makes_no_calls(tmp_path, monkeypatch):
+    cluster = _cluster(tmp_path, ["edge-a", "edge-b"])
+
+    def fail(nps):
+        raise AssertionError("no edge should be contacted")
+
+    monkeypatch.setattr(cluster_module.client_mgmt, "list_clients", fail)
+
+    result = cluster.get_all_clients(edge_names=[])
+
+    assert dict(result) == {}
+    assert result.errors == {}
+
+
+def test_unknown_edge_produces_clean_error(tmp_path, monkeypatch):
+    cluster = _cluster(tmp_path, ["edge-a"])
+    monkeypatch.setattr(
+        cluster_module.client_mgmt, "list_clients", lambda nps: [{"Id": 1}]
+    )
+
+    result = cluster.get_all_clients(edge_names=["edge-a", "missing"])
+
+    assert list(result) == ["edge-a", "missing"]
+    assert result["missing"] == []
+    assert result.errors == {"missing": "Edge 'missing' not found"}

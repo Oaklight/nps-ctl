@@ -350,7 +350,8 @@ class NPSCluster:
         Args:
             fetch_fn: Function to call on each NPSClient.
             operation_name: Name of the operation for logging.
-            edge_names: List of edge names to fetch from. If None, fetch from all.
+            edge_names: Edges to fetch. ``None`` means every configured edge;
+                an empty list means no edges.
             max_workers: Maximum number of parallel workers.
 
         Returns:
@@ -358,11 +359,13 @@ class NPSCluster:
             edge order. ``result`` is None and ``error`` is set when the fetch
             failed.
         """
-        targets = edge_names or list(self._clients.keys())
+        targets = list(self._clients.keys()) if edge_names is None else list(edge_names)
         outcomes: dict[str, tuple[T | None, str | None]] = {}
 
         def fetch_single(name: str) -> tuple[str, T | None, str | None]:
             """Fetch from a single edge, return (name, result, error)."""
+            if name not in self._clients:
+                return (name, None, f"Edge '{name}' not found")
             try:
                 nps = self._clients[name]
                 result = fetch_fn(nps)
@@ -391,10 +394,16 @@ class NPSCluster:
         # Preserve configured edge order regardless of completion order.
         return {name: outcomes[name] for name in targets}
 
-    def get_all_clients(self, max_workers: int = 4) -> EdgeResults[ClientInfo]:
-        """Get clients from all edges in parallel.
+    def get_all_clients(
+        self,
+        edge_names: list[str] | None = None,
+        max_workers: int = 4,
+    ) -> EdgeResults[ClientInfo]:
+        """Get clients from all or selected edges in parallel.
 
         Args:
+            edge_names: Edges to fetch. ``None`` means every configured edge;
+                an empty list means none.
             max_workers: Maximum number of parallel workers.
 
         Returns:
@@ -408,6 +417,7 @@ class NPSCluster:
         raw_results = self._parallel_fetch(
             client_mgmt.list_clients,
             "list_clients",
+            edge_names=edge_names,
             max_workers=max_workers,
         )
 
@@ -463,10 +473,16 @@ class NPSCluster:
         )
         return result
 
-    def get_all_hosts(self, max_workers: int = 4) -> EdgeResults[HostInfo]:
-        """Get hosts from all edges in parallel.
+    def get_all_hosts(
+        self,
+        edge_names: list[str] | None = None,
+        max_workers: int = 4,
+    ) -> EdgeResults[HostInfo]:
+        """Get hosts from all or selected edges in parallel.
 
         Args:
+            edge_names: Edges to fetch. ``None`` means every configured edge;
+                an empty list means none.
             max_workers: Maximum number of parallel workers.
 
         Returns:
@@ -480,6 +496,7 @@ class NPSCluster:
         raw_results = self._parallel_fetch(
             host.list_hosts,
             "list_hosts",
+            edge_names=edge_names,
             max_workers=max_workers,
         )
 
