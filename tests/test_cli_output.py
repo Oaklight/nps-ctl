@@ -12,7 +12,6 @@ import nps_ctl.cli.cmd_status as cmd_status
 from nps_ctl.cli import _dispatch_client_list
 from nps_ctl.cli.cmd_status import cmd_edge_list
 from nps_ctl.cli.helpers import build_edge_results_payload
-from nps_ctl.exceptions import NPSError
 from nps_ctl.types import EdgeResults, HostInfo
 
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
@@ -134,22 +133,52 @@ def test_host_list_rejects_edge_and_all(monkeypatch):
 class FakeStatusCluster:
     """Cluster stub for edge status tests."""
 
-    def __init__(self, edge_names, failing=()):
+    def __init__(self, edge_names, failing=(), host_failing=()):
         self.edge_names = edge_names
         self.failing = set(failing)
+        self.host_failing = set(host_failing)
 
     def get_edge(self, name):
         return SimpleNamespace(region="region", api_url="https://example.invalid")
 
-    def get_client(self, name):
-        return SimpleNamespace(name=name)
+    def _names(self, edge_names):
+        return self.edge_names if edge_names is None else edge_names
+
+    def get_all_clients(self, edge_names=None, max_workers=4):
+        names = self._names(edge_names)
+        errors = {name: "connection refused" for name in names if name in self.failing}
+        return EdgeResults(
+            {
+                name: (
+                    [{"Id": 1, "IsConnect": True}] if name not in self.failing else []
+                )
+                for name in names
+            },
+            errors=errors,
+        )
+
+    def get_all_hosts(self, edge_names=None, max_workers=4):
+        names = self._names(edge_names)
+        errors = {
+            name: "timeout" if name in self.host_failing else "connection refused"
+            for name in names
+            if name in self.failing or name in self.host_failing
+        }
+        failed = set(errors)
+        return EdgeResults(
+            {
+                name: [{"Target": {"TargetStr": "example.test:8080"}}]
+                if name not in failed
+                else []
+                for name in names
+            },
+            errors=errors,
+        )
 
 
 def test_edge_status_exits_zero_when_all_online(monkeypatch):
-    cluster = FakeStatusCluster(["a", "b"])
-    monkeypatch.setattr(cmd_status, "NPSCluster", lambda config: cluster)
     monkeypatch.setattr(
-        cmd_status.client_mgmt, "list_clients", lambda nps, limit=1, **kwargs: []
+        cmd_status, "NPSCluster", lambda config: FakeStatusCluster(["a", "b"])
     )
 
     assert cmd_status.cmd_status(argparse.Namespace(config="ignored")) == 0
@@ -157,14 +186,14 @@ def test_edge_status_exits_zero_when_all_online(monkeypatch):
 
 def test_edge_status_exits_nonzero_when_an_edge_is_offline(monkeypatch):
     cluster = FakeStatusCluster(["a", "b"], failing={"b"})
-
-    def fake_list(nps, limit=1, **kwargs):
-        if nps.name in cluster.failing:
-            raise NPSError("connection refused")
-        return []
-
     monkeypatch.setattr(cmd_status, "NPSCluster", lambda config: cluster)
-    monkeypatch.setattr(cmd_status.client_mgmt, "list_clients", fake_list)
+
+    assert cmd_status.cmd_status(argparse.Namespace(config="ignored")) == 1
+
+
+def test_edge_status_exits_nonzero_on_host_only_failure(monkeypatch):
+    cluster = FakeStatusCluster(["a", "b"], host_failing={"b"})
+    monkeypatch.setattr(cmd_status, "NPSCluster", lambda config: cluster)
 
     assert cmd_status.cmd_status(argparse.Namespace(config="ignored")) == 1
 
@@ -213,14 +242,7 @@ def test_host_list_json_reports_partial_failure(monkeypatch, capsys):
 
 def test_edge_status_json(monkeypatch, capsys):
     cluster = FakeStatusCluster(["a", "b"], failing={"b"})
-
-    def fake_list(nps, limit=1, **kwargs):
-        if nps.name in cluster.failing:
-            raise NPSError("connection refused")
-        return []
-
     monkeypatch.setattr(cmd_status, "NPSCluster", lambda config: cluster)
-    monkeypatch.setattr(cmd_status.client_mgmt, "list_clients", fake_list)
 
     code = cmd_status.cmd_status(argparse.Namespace(config="ignored", json=True))
 
@@ -228,6 +250,20 @@ def test_edge_status_json(monkeypatch, capsys):
     payload = json.loads(capsys.readouterr().out)
     assert payload["summary"] == {"configured": 2, "online": 1, "offline": 1}
     assert [edge["online"] for edge in payload["edges"]] == [True, False]
+    assert payload["edges"][0]["clients_total"] == 1
+    assert payload["edges"][0]["hosts_total"] == 1
+    assert payload["edges"][0]["ports"] == 1
+    assert payload["edges"][1]["clients_total"] is None
+    assert payload["edges"][1]["hosts_total"] is None
+    assert payload["edges"][1]["error"].startswith("clients: ")
+    assert payload["totals"] == {
+        "ok": 1,
+        "failed": 1,
+        "partial": 0,
+        "clients": 1,
+        "hosts": 1,
+        "ports": 1,
+    }
 
 
 def test_piped_table_has_no_ansi(monkeypatch, capsys):
