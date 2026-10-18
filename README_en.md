@@ -102,7 +102,8 @@ nps-ctl web --username admin
 The server binds to `127.0.0.1` by default. Binding to a non-loopback address
 without credentials is refused unless `--insecure` is passed. The dashboard
 shows edge health and resource counts, and lets you browse clients, tunnels
-and hosts per edge; Basic Auth credentials are redacted from its JSON output.
+and hosts per edge; credentials (client verification keys, tunnel passwords,
+and Basic Auth) are redacted from its JSON output.
 Mutating actions remain in the CLI. The built-in server speaks plain HTTP, so
 terminate TLS in front of it before exposing it beyond loopback.
 

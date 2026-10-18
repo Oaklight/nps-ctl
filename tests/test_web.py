@@ -45,7 +45,15 @@ class FakeCluster:
     def __init__(self, edge_data=None, errors=None):
         self.edge_data = edge_data or {
             "edge-a": FakeNPS(
-                clients=[{"Id": 1, "Remark": "alpha", "VerifyKey": "vkey-secret"}],
+                clients=[
+                    {
+                        "Id": 1,
+                        "Remark": "alpha",
+                        "VerifyKey": "vkey-secret",
+                        "WebUserName": "wu",
+                        "WebPassword": "web-secret",
+                    }
+                ],
                 tunnels=[
                     {
                         "Id": 7,
@@ -149,6 +157,7 @@ def test_edge_resources_redact_credentials(server):
     }
     assert tunnels["items"][0]["Password"] == "**redacted**"
     assert clients["items"][0]["VerifyKey"] == "**redacted**"
+    assert clients["items"][0]["WebPassword"] == "**redacted**"
 
 
 def test_unknown_edge_returns_404(server):
@@ -161,6 +170,11 @@ def test_unknown_edge_returns_404(server):
 def test_dashboard_rejects_public_bind_without_auth():
     with pytest.raises(ValueError, match="Refusing to expose"):
         create_server(FakeCluster(), "0.0.0.0", 0)
+
+
+def test_dashboard_rejects_username_without_password():
+    with pytest.raises(ValueError, match="requires a non-empty password"):
+        create_server(FakeCluster(), "127.0.0.1", 0, username="admin", password="")
 
 
 def test_dashboard_allows_public_bind_with_auth():
@@ -234,3 +248,30 @@ def test_web_reports_missing_password_without_tty(monkeypatch):
     )
 
     assert cmd_web_module.cmd_web(args) == 2
+
+
+def test_web_rejects_empty_password_from_prompt(monkeypatch):
+    import nps_ctl.cli.cmd_web as cmd_web_module
+
+    monkeypatch.setattr(cmd_web_module, "NPSCluster", lambda config: object())
+    monkeypatch.delenv("NPS_WEB_PASSWORD", raising=False)
+    monkeypatch.setattr(cmd_web_module.getpass, "getpass", lambda prompt: "")
+    args = SimpleNamespace(
+        config="ignored",
+        host="127.0.0.1",
+        port=0,
+        username="admin",
+        password="",
+        insecure=False,
+    )
+
+    assert cmd_web_module.cmd_web(args) == 2
+
+
+def test_unauthorized_response_has_security_headers(server):
+    with pytest.raises(urllib.error.HTTPError) as excinfo:
+        _get(server, "/", auth=False)
+
+    headers = excinfo.value.headers
+    assert headers["X-Content-Type-Options"] == "nosniff"
+    assert "default-src 'none'" in headers["Content-Security-Policy"]

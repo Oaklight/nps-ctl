@@ -10,7 +10,6 @@ import base64
 import hmac
 import json
 import logging
-import threading
 from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import TYPE_CHECKING, Any
@@ -189,6 +188,7 @@ class _AdminHandler(BaseHTTPRequestHandler):
         self.send_response(401)
         self.send_header("WWW-Authenticate", 'Basic realm="nps-ctl"')
         self.send_header("Content-Length", "0")
+        self._common_headers()
         self.end_headers()
         return False
 
@@ -262,10 +262,16 @@ def create_server(
         A configured, not-yet-serving AdminServer.
 
     Raises:
-        ValueError: If a non-loopback bind has no authentication and
-            ``allow_insecure`` is false.
+        ValueError: If a username has no password, or a non-loopback bind
+            has no authentication and ``allow_insecure`` is false.
     """
-    if host not in LOOPBACK_HOSTS and not username and not allow_insecure:
+    if username and not password:
+        raise ValueError("Basic Auth username requires a non-empty password")
+    if (
+        host not in LOOPBACK_HOSTS
+        and not (username and password)
+        and not allow_insecure
+    ):
         raise ValueError(
             "Refusing to expose the dashboard without authentication; "
             "set --username/--password or pass --insecure"
@@ -273,34 +279,6 @@ def create_server(
     return AdminServer(
         (host, port), cluster, auth_header=build_auth_header(username, password)
     )
-
-
-def serve(
-    cluster: NPSCluster,
-    host: str = "127.0.0.1",
-    port: int = 8080,
-    username: str = "",
-    password: str = "",
-    *,
-    allow_insecure: bool = False,
-) -> None:
-    """Create and run the dashboard until interrupted."""
-    server = create_server(
-        cluster,
-        host,
-        port,
-        username,
-        password,
-        allow_insecure=allow_insecure,
-    )
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    try:
-        thread.join()
-    except KeyboardInterrupt:
-        server.shutdown()
-    finally:
-        server.server_close()
 
 
 _DASHBOARD_HTML = """<!doctype html>

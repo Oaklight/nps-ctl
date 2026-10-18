@@ -29,7 +29,7 @@ def cmd_web(args: argparse.Namespace) -> int:
     username = getattr(args, "username", "") or ""
     password = getattr(args, "password", "") or os.environ.get("NPS_WEB_PASSWORD", "")
     if password and not username:
-        print_error("--password requires --username")
+        print_error("Password provided without --username")
         return 2
     if username and not password:
         try:
@@ -39,6 +39,9 @@ def cmd_web(args: argparse.Namespace) -> int:
                 "No password provided and no TTY available; "
                 "set NPS_WEB_PASSWORD or pass --password"
             )
+            return 2
+        if not password:
+            print_error("Password cannot be empty")
             return 2
 
     try:
