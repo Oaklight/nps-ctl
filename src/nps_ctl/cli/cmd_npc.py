@@ -424,6 +424,7 @@ def cmd_npc_status(args: argparse.Namespace) -> int:
 
     # Collect rows: list of (client_name, ssh_host, edges_str, status, details)
     rows: list[tuple[str, str, str, str, str]] = []
+    failed = 0
 
     # Pre-resolve configs and identify missing ones
     configs: dict[str, NPCClientConfig] = {}
@@ -431,6 +432,7 @@ def cmd_npc_status(args: argparse.Namespace) -> int:
         npc_config = cluster.get_npc_client(client_name)
         if not npc_config:
             rows.append((client_name, "—", "—", "[red]Config Not Found[/red]", ""))
+            failed += 1
         else:
             configs[client_name] = npc_config
 
@@ -439,7 +441,7 @@ def cmd_npc_status(args: argparse.Namespace) -> int:
 
     if parallel and len(valid_clients) > 1:
         # Parallel SSH checks
-        results_map: dict[str, tuple[str, str]] = {}
+        results_map: dict[str, tuple[str, str, bool]] = {}
 
         with Progress(
             SpinnerColumn(),
@@ -451,11 +453,11 @@ def cmd_npc_status(args: argparse.Namespace) -> int:
         ) as progress:
             task = progress.add_task("Checking NPC status...", total=len(valid_clients))
 
-            def _check_one(name: str) -> tuple[str, str, str]:
+            def _check_one(name: str) -> tuple[str, str, str, bool]:
                 """Run SSH status check for a single client.
 
                 Returns:
-                    Tuple of (client_name, status, details).
+                    Tuple of (client_name, status, details, check_succeeded).
                 """
                 cfg = configs[name]
                 result = check_npc_status(ssh_host=cfg.ssh_host, ssh_user=cfg.ssh_user)
@@ -463,22 +465,24 @@ def cmd_npc_status(args: argparse.Namespace) -> int:
                     s, d = _parse_npc_status_output(result.stdout or "")
                 else:
                     s, d = "[red]Error[/red]", result.message
-                return name, s, d
+                return name, s, d, result.success
 
             with ThreadPoolExecutor(max_workers=min(8, len(valid_clients))) as executor:
                 futures = {
                     executor.submit(_check_one, name): name for name in valid_clients
                 }
                 for future in as_completed(futures):
-                    name, status, details = future.result()
-                    results_map[name] = (status, details)
+                    name, status, details, ok = future.result()
+                    results_map[name] = (status, details, ok)
+                    if not ok:
+                        failed += 1
                     progress.advance(task)
 
         # Build rows in original order
         for client_name in valid_clients:
             cfg = configs[client_name]
             edges_str = ", ".join(cfg.edges) if cfg.edges else "—"
-            status, details = results_map[client_name]
+            status, details, _ = results_map[client_name]
             rows.append((client_name, cfg.ssh_host, edges_str, status, details))
     else:
         # Sequential SSH checks
@@ -492,6 +496,7 @@ def cmd_npc_status(args: argparse.Namespace) -> int:
             else:
                 status = "[red]Error[/red]"
                 details = result.message
+                failed += 1
 
             rows.append((client_name, cfg.ssh_host, edges_str, status, details))
 
@@ -507,7 +512,8 @@ def cmd_npc_status(args: argparse.Namespace) -> int:
         table.add_row(client_name, ssh_host, edges_str, status, details)
 
     console.print(table)
-    return 0
+    console.print(f"[dim]ok: {len(rows) - failed}, failed: {failed}[/dim]")
+    return 1 if failed else 0
 
 
 def cmd_npc_restart(args: argparse.Namespace) -> int:

@@ -1111,7 +1111,7 @@ class NPSCluster:
             if target_clients is None:
                 if not quiet:
                     console.print(f"  [red]✗ Failed to connect to {target_name}[/red]")
-                results[target_name] = {"_edge_failed": False}
+                results[target_name] = {"_edge_failed": True}
                 continue
 
             # Build task list for this edge
@@ -1317,7 +1317,7 @@ class NPSCluster:
                 f"{', '.join(failed_targets)}[/yellow]"
             )
             for target_name in failed_targets:
-                results[target_name]["_edge_failed"] = False
+                results[target_name]["_edge_failed"] = True
 
         # Build all tasks
         tasks: list[tuple[str, str, SyncItem]] = []

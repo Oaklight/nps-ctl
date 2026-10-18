@@ -96,7 +96,14 @@ def cmd_sync(args: argparse.Namespace) -> int:
         console.print(f"[red]Error: {e}[/red]", file=sys.stderr)
         return 1
 
-    return 0
+    failed_targets = [
+        target
+        for target, ops in results.items()
+        if "_edge_failed" in ops or any(v is False for v in ops.values())
+    ]
+    ok_targets = len(results) - len(failed_targets)
+    console.print(f"[dim]edges ok: {ok_targets}, failed: {len(failed_targets)}[/dim]")
+    return 1 if failed_targets else 0
 
 
 def _print_detailed_results(results: dict[str, dict[str, bool]]) -> None:
