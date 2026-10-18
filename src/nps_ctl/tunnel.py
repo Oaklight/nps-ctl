@@ -10,6 +10,7 @@ tunnel types, reducing it to a single GET request.
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Any, cast
 
 from .types import TunnelInfo
@@ -86,6 +87,10 @@ def _filter_tunnels(tunnels: list[TunnelInfo], tunnel_type: str) -> list[TunnelI
             seen.add(tunnel_id)
         filtered.append(tunnel)
     return filtered
+
+# Concurrent per-type queries per edge on the legacy API. Cluster-wide
+# listings already fan out across edges, so keep this modest.
+LEGACY_TYPE_WORKERS = 4
 
 
 # --- Public API (dispatch to v1/v2) ---
@@ -405,11 +410,13 @@ def _list_tunnels_v1(
                 )
             )
         return _filter_tunnels(rows, tunnel_type)
+
     # Query all tunnel types and merge results (8 requests); mixProxy covers
-    # socks5/httpProxy tunnels on djylb/nps.
-    all_tunnels: list[TunnelInfo] = []
-    for t in TUNNEL_TYPES:
-        tunnels = _list_tunnels_by_type_v1(
+    # socks5/httpProxy tunnels on djylb/nps. Each legacy request is
+    # stateless, so the per-type queries run concurrently; ``map`` keeps
+    # results in TUNNEL_TYPES order.
+    def fetch_type(t: str) -> list[TunnelInfo]:
+        return _list_tunnels_by_type_v1(
             nps,
             t,
             client_id=client_id,
@@ -418,7 +425,11 @@ def _list_tunnels_v1(
             limit=limit,
             paginate=paginate,
         )
-        all_tunnels.extend(tunnels)
+
+    all_tunnels: list[TunnelInfo] = []
+    with ThreadPoolExecutor(max_workers=LEGACY_TYPE_WORKERS) as executor:
+        for tunnels in executor.map(fetch_type, TUNNEL_TYPES):
+            all_tunnels.extend(tunnels)
     return _filter_tunnels(all_tunnels, "")
 
 

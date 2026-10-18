@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import threading
+import time
+
 from nps_ctl import client_mgmt, host, tunnel
 
 
@@ -229,6 +232,37 @@ def test_list_tunnels_unfiltered_dedupes_nonconforming_server():
     rows = tunnel.list_tunnels(nps)
 
     assert [row["Id"] for row in rows] == [1, 2, 3]
+
+
+class SlowTypedNPS:
+    """Serve one tunnel per type; earlier types answer slowest."""
+
+    is_modern = False
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.active = 0
+        self.peak = 0
+
+    def request(self, path, method="POST", data=None):
+        tunnel_type = (data or {})["type"]
+        index = tunnel.TUNNEL_TYPES.index(tunnel_type)
+        with self.lock:
+            self.active += 1
+            self.peak = max(self.peak, self.active)
+        time.sleep(0.01 * (len(tunnel.TUNNEL_TYPES) - index))
+        with self.lock:
+            self.active -= 1
+        return {"rows": [{"Id": index, "Mode": tunnel_type}], "total": 1}
+
+
+def test_legacy_list_all_tunnels_runs_types_concurrently_in_order():
+    nps = SlowTypedNPS()
+
+    rows = tunnel.list_tunnels(nps)
+
+    assert [row["Mode"] for row in rows] == list(tunnel.TUNNEL_TYPES)
+    assert 1 < nps.peak <= tunnel.LEGACY_TYPE_WORKERS
 
 
 class FakeModernNPS:
