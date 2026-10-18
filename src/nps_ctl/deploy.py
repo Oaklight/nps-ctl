@@ -298,12 +298,32 @@ echo "Deploying NPS binary..."
 chmod +x /tmp/nps
 cp /tmp/nps /usr/bin/nps
 
+# Preserve TLS certificates: nps install renames existing certs to .bak and
+# does not regenerate them, which leaves the service without a valid cert.
+CERT_BACKUP=/tmp/nps-certs-preserve
+rm -rf "$CERT_BACKUP"
+mkdir -p "$CERT_BACKUP"
+for cert in server.key server.pem; do
+    if [ -f "/etc/nps/conf/$cert" ]; then
+        cp -p "/etc/nps/conf/$cert" "$CERT_BACKUP/$cert"
+    fi
+done
+
 echo "Running NPS install..."
 NPS_INSTALL_OUTPUT=$(/tmp/nps install 2>&1) || true
 echo "$NPS_INSTALL_OUTPUT"
 if echo "$NPS_INSTALL_OUTPUT" | grep -qi "failed"; then
     echo "Warning: nps install reported issues, will verify and apply fallback if needed"
 fi
+
+# Restore certificates when nps install left them as .bak only.
+for cert in server.key server.pem; do
+    if [ ! -f "/etc/nps/conf/$cert" ] && [ -f "$CERT_BACKUP/$cert" ]; then
+        cp -p "$CERT_BACKUP/$cert" "/etc/nps/conf/$cert"
+        echo "Restored TLS certificate: $cert"
+    fi
+done
+rm -rf "$CERT_BACKUP"
 
 echo "Cleaning up..."
 rm -f /tmp/nps.tar.gz /tmp/nps
