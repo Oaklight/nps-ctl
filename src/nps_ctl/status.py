@@ -72,7 +72,7 @@ def extract_target_ports(target: Any) -> set[int]:
         part = part.strip()
         if not part:
             continue
-        candidate = part if "://" in part else f"//{part}"
+        candidate = part if "://" in part or part.startswith("//") else f"//{part}"
         try:
             port = urlsplit(candidate).port
         except ValueError:

@@ -61,6 +61,7 @@ def test_extract_target_ports_handles_forms():
     assert extract_target_ports("http://app.test:8443") == {8443}
     assert extract_target_ports("app.test:443,127.0.0.1:8080") == {443, 8080}
     assert extract_target_ports("[::1]:9000") == {9000}
+    assert extract_target_ports("//app.test:8443") == {8443}
     assert extract_target_ports("app.test") == set()
     assert extract_target_ports("app.test:0,app.test:70000") == set()
     assert extract_target_ports({"TargetStr": "127.0.0.1:8080"}) == {8080}
