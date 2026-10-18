@@ -399,6 +399,29 @@ def edge_region(cluster: Any, name: str) -> str:
     return edge.region if edge else ""
 
 
+def redact_user_auth(items: list[Any]) -> list[Any]:
+    """Return copies with HTTP Basic Auth content redacted.
+
+    Args:
+        items: Host or tunnel rows from the NPS API.
+
+    Returns:
+        Rows safe for JSON output; non-empty ``UserAuth.Content`` values are
+        replaced with ``"**redacted**"``.
+    """
+    redacted: list[Any] = []
+    for item in items:
+        if isinstance(item, dict):
+            user_auth = item.get("UserAuth")
+            if user_auth and user_auth.get("Content"):
+                copy = dict(item)
+                copy["UserAuth"] = {**user_auth, "Content": "**redacted**"}
+                redacted.append(copy)
+                continue
+        redacted.append(item)
+    return redacted
+
+
 def build_edge_results_payload(
     results: Mapping[str, list[Any]],
     errors: Mapping[str, str],

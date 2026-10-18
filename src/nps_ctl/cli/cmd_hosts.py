@@ -18,6 +18,7 @@ from .helpers import (
     print_edge_summary,
     print_error,
     print_json,
+    redact_user_auth,
     resolve_write_edges,
     validate_read_target,
 )
@@ -197,7 +198,7 @@ def cmd_hosts(args: argparse.Namespace) -> int:
         if json_mode:
             print_json(
                 build_edge_results_payload(
-                    {edge_name: hosts},
+                    {edge_name: redact_user_auth(hosts)},
                     {},
                     lambda name: edge_region(cluster, name),
                     configured=len(cluster.edge_names),
@@ -219,7 +220,7 @@ def cmd_hosts(args: argparse.Namespace) -> int:
     if json_mode:
         print_json(
             build_edge_results_payload(
-                all_hosts,
+                {name: redact_user_auth(items) for name, items in all_hosts.items()},
                 all_hosts.errors,
                 lambda name: edge_region(cluster, name),
             )
