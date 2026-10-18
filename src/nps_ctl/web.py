@@ -39,6 +39,9 @@ def _redact_row(item: Any) -> Any:
     user_auth = row.get("UserAuth")
     if isinstance(user_auth, dict) and user_auth.get("Content"):
         row["UserAuth"] = {"Content": "**redacted**", "AccountMap": {}}
+    client = row.get("Client")
+    if isinstance(client, dict):
+        row["Client"] = _redact_row(client)
     cnf = row.get("Cnf")
     if isinstance(cnf, dict):
         cnf = dict(cnf)

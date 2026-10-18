@@ -64,9 +64,27 @@ class FakeCluster:
                             "Content": "admin=secret",
                             "AccountMap": {"admin": "secret"},
                         },
+                        "Client": {
+                            "Id": 1,
+                            "Remark": "server",
+                            "VerifyKey": "client-vkey-secret",
+                            "WebUserName": "wu",
+                            "WebPassword": "client-web-secret",
+                            "Cnf": {"U": "bridge", "P": "bridge-secret"},
+                        },
                     }
                 ],
-                hosts=[{"Id": 2, "Host": "app.example.com"}],
+                hosts=[
+                    {
+                        "Id": 2,
+                        "Host": "app.example.com",
+                        "Client": {
+                            "Id": 1,
+                            "Remark": "server",
+                            "VerifyKey": "client-vkey-secret",
+                        },
+                    }
+                ],
             )
         }
         self.errors = errors or {}
@@ -150,6 +168,8 @@ def test_edge_resources_redact_credentials(server):
         tunnels = json.load(response)
     with _get(server, "/api/edges/edge-a/clients") as response:
         clients = json.load(response)
+    with _get(server, "/api/edges/edge-a/hosts") as response:
+        hosts = json.load(response)
 
     assert tunnels["items"][0]["UserAuth"] == {
         "Content": "**redacted**",
@@ -158,6 +178,26 @@ def test_edge_resources_redact_credentials(server):
     assert tunnels["items"][0]["Password"] == "**redacted**"
     assert clients["items"][0]["VerifyKey"] == "**redacted**"
     assert clients["items"][0]["WebPassword"] == "**redacted**"
+
+    nested = tunnels["items"][0]["Client"]
+    assert nested["VerifyKey"] == "**redacted**"
+    assert nested["WebPassword"] == "**redacted**"
+    assert nested["Cnf"]["P"] == "**redacted**"
+    assert nested["WebUserName"] == "wu"
+    assert hosts["items"][0]["Client"]["VerifyKey"] == "**redacted**"
+
+    for payload in (tunnels, clients, hosts):
+        body = json.dumps(payload)
+        for secret in (
+            "vkey-secret",
+            "web-secret",
+            "tunnel-secret",
+            "admin=secret",
+            "client-vkey-secret",
+            "client-web-secret",
+            "bridge-secret",
+        ):
+            assert secret not in body
 
 
 def test_unknown_edge_returns_404(server):
