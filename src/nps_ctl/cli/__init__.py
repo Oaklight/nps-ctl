@@ -62,6 +62,13 @@ def _dispatch_client_list(args) -> int:
     dry_run = getattr(args, "dry_run", False)
 
     if update or dry_run:
+        if getattr(args, "json", False):
+            print(
+                "Error: --json is not supported with --update or --dry-run",
+                file=sys.stderr,
+            )
+            return 2
+
         if not args.edge:
             print(
                 "Error: -e/--edge is required when using --update or --dry-run",

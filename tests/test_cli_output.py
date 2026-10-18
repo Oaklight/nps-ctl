@@ -9,7 +9,9 @@ from types import SimpleNamespace
 
 import nps_ctl.cli.cmd_hosts as cmd_hosts
 import nps_ctl.cli.cmd_status as cmd_status
+from nps_ctl.cli import _dispatch_client_list
 from nps_ctl.cli.cmd_status import cmd_edge_list
+from nps_ctl.cli.helpers import build_edge_results_payload
 from nps_ctl.exceptions import NPSError
 from nps_ctl.types import EdgeResults, HostInfo
 
@@ -258,3 +260,53 @@ def test_long_host_name_is_not_truncated(monkeypatch, capsys):
 
     assert code == 0
     assert "monitor.service.oaklight.cn" in _plain(capsys.readouterr().out)
+
+
+def test_single_edge_json_reports_cluster_total(monkeypatch, capsys):
+    class SingleEdgeCluster(FakeCluster):
+        def get_client(self, name):
+            return SimpleNamespace(name=name)
+
+    monkeypatch.setattr(cmd_hosts, "NPSCluster", lambda config: SingleEdgeCluster())
+    monkeypatch.setattr(
+        cmd_hosts.host,
+        "list_hosts",
+        lambda nps: [{"Id": 1, "Host": "example.test"}],
+    )
+
+    code = cmd_hosts.cmd_hosts(
+        argparse.Namespace(config="ignored", edge="nps-america", all=False, json=True)
+    )
+
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["summary"] == {"configured": 2, "ok": 1, "failed": 0}
+    assert len(payload["edges"]) == 1
+
+
+def test_payload_configured_override():
+    payload = build_edge_results_payload(
+        {"nps-america": []}, {}, lambda name: "北美", configured=4
+    )
+
+    assert payload["summary"] == {"configured": 4, "ok": 1, "failed": 0}
+
+
+def test_client_list_json_rejected_with_update():
+    args = argparse.Namespace(update=True, dry_run=False, edge="nps-america", json=True)
+
+    assert _dispatch_client_list(args) == 2
+
+
+def test_empty_cluster_json_exits_nonzero(monkeypatch, capsys):
+    class EmptyCluster(FakeCluster):
+        edge_names = []
+
+    monkeypatch.setattr(cmd_hosts, "NPSCluster", lambda config: EmptyCluster())
+
+    code = cmd_hosts.cmd_hosts(
+        argparse.Namespace(config="ignored", edge=None, all=False, json=True)
+    )
+
+    assert code == 1
+    assert json.loads(capsys.readouterr().out) == {"error": "No edges configured"}
