@@ -552,6 +552,10 @@ def _add_tunnel_v2(
     }
     if server_ip:
         data["server_ip"] = server_ip
+    if flow_limit:
+        data["flow_limit_total_bytes"] = int(flow_limit) * 1024 * 1024
+    if time_limit:
+        data["expire_at"] = time_limit
     if local_proxy:
         data["local_proxy"] = bool(local_proxy)
     if local_path:
@@ -590,6 +594,10 @@ def _edit_tunnel_v2(
     }
     if server_ip:
         data["server_ip"] = server_ip
+    if flow_limit:
+        data["flow_limit_total_bytes"] = int(flow_limit) * 1024 * 1024
+    if time_limit:
+        data["expire_at"] = time_limit
     if local_proxy:
         data["local_proxy"] = bool(local_proxy)
     if local_path:

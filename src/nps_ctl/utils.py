@@ -105,10 +105,12 @@ def extract_api_item(resp: dict[str, Any]) -> dict[str, Any] | None:
     data = resp.get("data")
     if not isinstance(data, dict):
         return None
-    for key in ("item", "data"):
-        nested = data.get(key)
-        if isinstance(nested, dict) and set(data) <= {key, "meta"}:
-            return nested
+    nested = data.get("item")
+    if isinstance(nested, dict):
+        return nested
+    inner = data.get("data")
+    if isinstance(inner, dict) and set(data) <= {"data", "meta"}:
+        return inner
     return data
 
 

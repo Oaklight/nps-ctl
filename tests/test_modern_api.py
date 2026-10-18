@@ -201,7 +201,13 @@ class WrappedItemNPS:
         self.item = item
 
     def api_request(self, method, path, params=None, data=None):
-        return {"data": {"item": self.item}}
+        return {
+            "data": {
+                "config_epoch": "epoch-1",
+                "generated_at": 1792000000,
+                "item": self.item,
+            }
+        }
 
 
 def test_get_host_accepts_wrapped_item_envelope():
@@ -261,3 +267,33 @@ def test_get_tunnel_accepts_wrapped_item_envelope():
     assert result["Mode"] == "tcp"
     assert result["Port"] == 8080
     assert result["Target"]["TargetStr"] == "127.0.0.1:80"
+
+
+def test_tunnel_quotas_map_to_modern_fields():
+    nps = ModernNPS()
+
+    assert tunnel.add_tunnel(
+        nps,
+        client_id=1,
+        tunnel_type="tcp",
+        port=8080,
+        target="127.0.0.1:80",
+        flow_limit="100",
+        time_limit="30d",
+    )
+    assert tunnel.edit_tunnel(
+        nps,
+        tunnel_id=9,
+        client_id=1,
+        tunnel_type="tcp",
+        port=8080,
+        target="127.0.0.1:80",
+        flow_limit="250",
+        time_limit="7d",
+    )
+
+    add_call, edit_call = nps.calls
+    assert add_call[3]["flow_limit_total_bytes"] == 100 * 1024 * 1024
+    assert add_call[3]["expire_at"] == "30d"
+    assert edit_call[3]["flow_limit_total_bytes"] == 250 * 1024 * 1024
+    assert edit_call[3]["expire_at"] == "7d"
