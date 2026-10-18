@@ -19,6 +19,7 @@ A Python library and CLI tool for managing [NPS](https://github.com/djylb/nps) p
 - **Cluster Sync**: Synchronize clients, tunnels, and hosts across edge nodes
 - **NPC Deployment**: Install, configure, and manage NPC clients via SSH
 - **CLI Tool**: Rich terminal interface for all operations
+- **Machine-readable Output**: JSON mode and non-TTY-safe tables for scripts and agents
 - **Minimal Dependencies**: Only requires [rich](https://github.com/Textualize/rich) for CLI output
 
 ## Installation
@@ -58,49 +59,68 @@ client.add_client(remark="my-server", vkey="unique-key")
 ### As a CLI Tool
 
 ```bash
-# View all edge nodes status
-nps-ctl status
+# List every configured edge without contacting it
+nps-ctl edge list
 
-# List clients on a specific edge
+# Check every edge
+nps-ctl edge status
+
+# Read commands default to all edges; -e narrows to one
+nps-ctl client list
 nps-ctl client list --edge nps-asia
 
-# Sync configuration from one edge to all others
-nps-ctl sync --from nps-asia
+# Sync configuration from one edge to the others
+nps-ctl edge sync --from nps-asia
 
-# Add a host mapping to all edges
-nps-ctl add-host --domain app.example.com --client my-server --target :8080
+# Write commands require an explicit target: -a for all edges, -e for one
+nps-ctl host add -a -d app.example.com -c my-server -T :8080
+nps-ctl host add -e nps-asia -d app.example.com -c my-server -T :8080
 
 # Push client configs from clients.toml to edges
-nps-ctl npc client-push
+nps-ctl client push
 
 # Check NPC client status across machines
-nps-ctl npc status
+nps-ctl client status
+
+# Machine-readable inventory
+nps-ctl edge list --json
 ```
+
+Read commands (`client list`, `host list`, `tunnel list`) default to all configured edges. `-e/--edge` narrows to one edge; `-a/--all` is an explicit all-edges alias. Mutating commands (`host/tunnel add|del|edit`, `client del`) require one of `-e` or `-a`; there is no silent cluster-wide default.
+
+Piped output has no ANSI styling. Add `--no-color` to disable it on a terminal. `--json` is available on `edge list`, `edge status`, and `client/host/tunnel list`.
 
 ## Configuration
 
 Create a `config/edges.toml` file:
 
 ```toml
-[edges.nps-asia]
+[[edges]]
+name = "nps-asia"
 api_url = "https://nps-asia.example.com"
 auth_key = "your_auth_key"
 region = "Asia"
+ssh_host = "cloud.jpn1"
 
-[edges.nps-us]
+[[edges]]
+name = "nps-us"
 api_url = "https://nps-us.example.com"
 auth_key = "your_auth_key"
 region = "US"
+ssh_host = "cloud.usa1"
 ```
 
 Optionally, create `config/clients.toml` for NPC client management:
 
 ```toml
-[clients.my-server]
+[[clients]]
+name = "my-server"
 ssh_host = "user@my-server.example.com"
 vkey = "unique-verify-key"
 edges = ["nps-asia", "nps-us"]
 ```
+
+The config directory is resolved from `./config`, then `~/.config/nps-ctl`, then `/etc/nps-ctl`. Use `--config` to point at a specific `edges.toml`.
 
 ## API Reference
 
@@ -121,7 +141,8 @@ Single NPS server client.
 
 Multi-node manager.
 
-- `get_all_clients()` - Get clients from all nodes
+- `edge_names` - Configured edge names in file order
+- `get_all_clients()` / `get_all_tunnels()` / `get_all_hosts()` - Fetch from every edge. Returns an `EdgeResults` mapping; a failed edge has an empty list and its reason in `.errors`
 - `sync_from()` - Sync configuration from a source edge to targets
 - `broadcast_host()` - Add a host mapping to all nodes
 

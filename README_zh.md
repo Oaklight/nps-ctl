@@ -19,6 +19,7 @@
 - **集群同步**：跨边缘节点同步客户端、隧道和域名映射
 - **NPC 部署**：通过 SSH 安装、配置和管理 NPC 客户端
 - **命令行工具**：Rich 终端界面，支持所有操作
+- **机器可读输出**：JSON 模式和无终端环境的表格输出，便于脚本和 Agent 使用
 - **最小依赖**：仅需 [rich](https://github.com/Textualize/rich) 用于终端输出
 
 ## 安装
@@ -58,49 +59,68 @@ client.add_client(remark="my-server", vkey="unique-key")
 ### 作为命令行工具
 
 ```bash
-# 查看所有边缘节点状态
-nps-ctl status
+# 列出所有已配置的边缘节点（不访问网络）
+nps-ctl edge list
 
-# 列出指定边缘节点的客户端
+# 检查所有边缘节点状态
+nps-ctl edge status
+
+# 读取命令默认作用于所有边缘节点；-e 缩小到单个节点
+nps-ctl client list
 nps-ctl client list --edge nps-asia
 
-# 从一个边缘节点同步配置到其他所有节点
-nps-ctl sync --from nps-asia
+# 从一个边缘节点同步配置到其他节点
+nps-ctl edge sync --from nps-asia
 
-# 向所有边缘节点添加域名映射
-nps-ctl add-host --domain app.example.com --client my-server --target :8080
+# 写入命令必须显式指定目标：-a 表示所有节点，-e 表示单个节点
+nps-ctl host add -a -d app.example.com -c my-server -T :8080
+nps-ctl host add -e nps-asia -d app.example.com -c my-server -T :8080
 
 # 从 clients.toml 推送客户端配置到边缘节点
-nps-ctl npc client-push
+nps-ctl client push
 
 # 检查各机器上的 NPC 客户端状态
-nps-ctl npc status
+nps-ctl client status
+
+# 机器可读的节点清单
+nps-ctl edge list --json
 ```
+
+读取命令（`client list`、`host list`、`tunnel list`）默认作用于所有已配置的边缘节点。`-e/--edge` 缩小到单个节点，`-a/--all` 显式表示所有节点。写入命令（`host/tunnel add|del|edit`、`client del`）必须提供 `-e` 或 `-a` 之一，不存在静默的全集群默认行为。
+
+输出到管道时不包含 ANSI 样式。在终端中可用 `--no-color` 显式关闭颜色。`edge list`、`edge status` 以及 `client/host/tunnel list` 支持 `--json`。
 
 ## 配置
 
 创建 `config/edges.toml` 文件：
 
 ```toml
-[edges.nps-asia]
+[[edges]]
+name = "nps-asia"
 api_url = "https://nps-asia.example.com"
 auth_key = "your_auth_key"
 region = "Asia"
+ssh_host = "cloud.jpn1"
 
-[edges.nps-us]
+[[edges]]
+name = "nps-us"
 api_url = "https://nps-us.example.com"
 auth_key = "your_auth_key"
 region = "US"
+ssh_host = "cloud.usa1"
 ```
 
 可选，创建 `config/clients.toml` 用于 NPC 客户端管理：
 
 ```toml
-[clients.my-server]
+[[clients]]
+name = "my-server"
 ssh_host = "user@my-server.example.com"
 vkey = "unique-verify-key"
 edges = ["nps-asia", "nps-us"]
 ```
+
+配置目录按 `./config`、`~/.config/nps-ctl`、`/etc/nps-ctl` 的顺序查找。使用 `--config` 可以指定具体的 `edges.toml`。
 
 ## API 参考
 
@@ -121,7 +141,8 @@ edges = ["nps-asia", "nps-us"]
 
 多节点管理器。
 
-- `get_all_clients()` - 从所有节点获取客户端
+- `edge_names` - 按文件顺序返回已配置的边缘节点名称
+- `get_all_clients()` / `get_all_tunnels()` / `get_all_hosts()` - 从所有节点获取数据。返回 `EdgeResults` 映射；失败的节点对应空列表，原因记录在 `.errors` 中
 - `sync_from()` - 从源边缘节点同步配置到目标节点
 - `broadcast_host()` - 向所有节点添加域名映射
 
