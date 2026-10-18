@@ -96,7 +96,52 @@ def create_parser() -> argparse.ArgumentParser:
     # ========== util commands ==========
     _add_util_commands(subparsers)
 
+    # ========== web dashboard ==========
+    _add_web_command(subparsers)
+
     return parser
+
+
+def _add_web_command(subparsers) -> None:
+    """Add the top-level web dashboard command.
+
+    Args:
+        subparsers: Parent subparsers object.
+    """
+    web_parser = subparsers.add_parser(
+        "web",
+        help="Run the read-only cluster dashboard",
+        description=(
+            "Serve a read-only web dashboard for all configured edges. "
+            "Binds to loopback by default; set --username/--password before "
+            "exposing it."
+        ),
+    )
+    web_parser.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="Bind address (default: 127.0.0.1)",
+    )
+    web_parser.add_argument(
+        "--port",
+        type=int,
+        default=8080,
+        help="Bind port (default: 8080; 0 chooses an ephemeral port)",
+    )
+    web_parser.add_argument(
+        "--username",
+        help="HTTP Basic Auth username",
+    )
+    web_parser.add_argument(
+        "--password",
+        help="HTTP Basic Auth password (or set NPS_WEB_PASSWORD)",
+    )
+    web_parser.add_argument(
+        "--insecure",
+        action="store_true",
+        help="Allow a non-loopback bind without authentication",
+    )
+    web_parser.set_defaults(requires_config=True)
 
 
 def _add_client_commands(subparsers) -> None:

@@ -211,6 +211,10 @@ def _dispatch(args) -> int:
         cmd_tunnels,
     )
     from .cmd_utils import cmd_generate_auth_key
+    from .cmd_web import cmd_web
+
+    if args.command == "web":
+        return cmd_web(args)
 
     # Command dispatch table: (command, subcommand) -> handler
     dispatch_table: dict[tuple[str, str], Callable[..., int]] = {
