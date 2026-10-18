@@ -116,6 +116,62 @@ def test_client_status_missing_config_exits_nonzero(monkeypatch, capsys):
     assert "ok: 0, failed: 1" in out
 
 
+def test_parse_not_running_reports_stopped():
+    stdout = (
+        "=== NPC Version ===\nv0.26.0\n"
+        "=== Service Status ===\nNot running or not installed\n"
+    )
+
+    status, details, healthy = cmd_npc._parse_npc_status_output(stdout)
+
+    assert "Stopped" in status
+    assert "Running" not in status
+    assert "Not running or not installed" in details
+    assert healthy is False
+
+
+def test_client_status_stopped_npc_exits_nonzero(monkeypatch, capsys):
+    cluster = FakeNPCCluster(["alpha"])
+    monkeypatch.setattr(cmd_npc, "NPSCluster", lambda config: cluster)
+
+    stopped = SimpleNamespace(
+        success=True,
+        stdout=(
+            "=== NPC Version ===\nv0.26.0\n"
+            "=== Service Status ===\nNot running or not installed\n"
+        ),
+        message="",
+    )
+    monkeypatch.setattr(cmd_npc, "check_npc_status", lambda **kwargs: stopped)
+
+    assert cmd_npc.cmd_npc_status(_npc_args()) == 1
+
+    out = capsys.readouterr().out
+    assert "Stopped" in out
+    assert "ok: 0, failed: 1" in out
+
+
+def test_client_status_not_installed_exits_nonzero(monkeypatch, capsys):
+    cluster = FakeNPCCluster(["alpha"])
+    monkeypatch.setattr(cmd_npc, "NPSCluster", lambda config: cluster)
+
+    not_installed = SimpleNamespace(
+        success=True,
+        stdout=(
+            "=== NPC Version ===\nNot installed\n"
+            "=== Service Status ===\nNot running or not installed\n"
+        ),
+        message="",
+    )
+    monkeypatch.setattr(cmd_npc, "check_npc_status", lambda **kwargs: not_installed)
+
+    assert cmd_npc.cmd_npc_status(_npc_args()) == 1
+
+    out = capsys.readouterr().out
+    assert "Not Installed" in out
+    assert "ok: 0, failed: 1" in out
+
+
 def test_edge_sync_all_ok_exits_zero(monkeypatch, capsys):
     cluster = FakeSyncCluster({"nps-good": {"client alpha": True}})
     monkeypatch.setattr(cmd_sync, "NPSCluster", lambda *args, **kwargs: cluster)
