@@ -15,6 +15,7 @@ from .helpers import (
     console,
     create_table,
     edge_region,
+    normalize_auth,
     print_edge_summary,
     print_error,
     print_json,
@@ -256,7 +257,7 @@ def cmd_add_host(args: argparse.Namespace) -> int:
     # Normalize auth: comma-separated -> newline-separated for NPS API
     auth_str = ""
     if args.auth:
-        auth_str = args.auth.replace(",", "\n")
+        auth_str = normalize_auth(args.auth)
 
     # Confirm
     if not args.yes:
@@ -707,7 +708,7 @@ def _apply_host_edit(
     user_auth = current.get("UserAuth", {})
     current_auth = user_auth.get("Content", "") if user_auth else ""
     if new_auth is not None:
-        updated_auth = new_auth.replace(",", "\n")
+        updated_auth = normalize_auth(new_auth)
     else:
         updated_auth = current_auth
 

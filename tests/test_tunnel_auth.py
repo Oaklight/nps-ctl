@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from nps_ctl import tunnel
 from nps_ctl.cli.cmd_tunnels import _apply_tunnel_edit, _print_tunnels
-from nps_ctl.cli.helpers import redact_user_auth
+from nps_ctl.cli.helpers import normalize_auth, redact_user_auth
 from nps_ctl.cli.parser import create_parser
+from nps_ctl.logging import _mask_sensitive_data
 
 
 class FakeNPS:
@@ -102,17 +103,40 @@ def test_tunnel_add_and_edit_parsers_accept_auth():
 
 def test_redact_user_auth_replaces_credentials():
     rows = [
-        {"Id": 1, "UserAuth": {"Content": "admin=secret"}},
+        {
+            "Id": 1,
+            "UserAuth": {
+                "Content": "admin=secret",
+                "AccountMap": {"admin": "secret"},
+            },
+        },
         {"Id": 2, "UserAuth": {"Content": ""}},
         {"Id": 3},
     ]
 
     redacted = redact_user_auth(rows)
 
-    assert redacted[0]["UserAuth"]["Content"] == "**redacted**"
+    assert redacted[0]["UserAuth"] == {
+        "Content": "**redacted**",
+        "AccountMap": {},
+    }
     assert redacted[1]["UserAuth"]["Content"] == ""
     assert redacted[2] == {"Id": 3}
-    assert rows[0]["UserAuth"]["Content"] == "admin=secret"
+    assert rows[0]["UserAuth"]["AccountMap"] == {"admin": "secret"}
+
+
+def test_normalize_auth_splits_pairs_and_keeps_password_commas():
+    assert normalize_auth("u1=p1,u2=p2") == "u1=p1\nu2=p2"
+    assert normalize_auth("u1=p1, u2=p2") == "u1=p1\nu2=p2"
+    assert normalize_auth("user=pa,ss") == "user=pa,ss"
+    assert normalize_auth("u1=p1\nu2=p2") == "u1=p1\nu2=p2"
+
+
+def test_request_logging_masks_auth():
+    masked = _mask_sensitive_data({"auth": "user=secretpw", "remark": "web"})
+
+    assert masked["auth"] == "***"
+    assert masked["remark"] == "web"
 
 
 def test_print_tunnels_marks_protected_tunnels(capsys):

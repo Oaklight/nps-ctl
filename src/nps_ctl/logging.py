@@ -351,6 +351,7 @@ def _mask_sensitive_data(data: dict[str, Any]) -> dict[str, Any]:
         A new dictionary with sensitive fields masked.
     """
     sensitive_keys = {
+        "auth",
         "auth_key",
         "password",
         "p",

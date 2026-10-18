@@ -7,6 +7,7 @@ argument definitions for the CLI parser.
 
 import argparse
 import json
+import re
 import sys
 from collections.abc import Callable, Mapping
 from pathlib import Path
@@ -399,6 +400,24 @@ def edge_region(cluster: Any, name: str) -> str:
     return edge.region if edge else ""
 
 
+def normalize_auth(value: str) -> str:
+    """Normalize HTTP Basic Auth credentials for the NPS API.
+
+    Accepts newline-separated ``user=pass`` pairs, or comma-separated pairs
+    where the comma is followed by another ``user=`` pair. Consecutive pairs
+    are joined with newlines, which is the format NPS expects. A comma inside
+    a password is preserved unless it looks like the start of a new pair.
+
+    Args:
+        value: Raw ``--auth`` argument.
+
+    Returns:
+        Newline-separated credentials.
+    """
+    parts = re.split(r",\s*(?=[^,=\s]+=)", value)
+    return "\n".join(part.strip() for part in parts if part.strip())
+
+
 def redact_user_auth(items: list[Any]) -> list[Any]:
     """Return copies with HTTP Basic Auth content redacted.
 
@@ -415,7 +434,7 @@ def redact_user_auth(items: list[Any]) -> list[Any]:
             user_auth = item.get("UserAuth")
             if user_auth and user_auth.get("Content"):
                 copy = dict(item)
-                copy["UserAuth"] = {**user_auth, "Content": "**redacted**"}
+                copy["UserAuth"] = {"Content": "**redacted**", "AccountMap": {}}
                 redacted.append(copy)
                 continue
         redacted.append(item)
