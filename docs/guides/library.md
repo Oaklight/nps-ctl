@@ -38,6 +38,10 @@ add_client(nps, remark="my-server", vkey="unique-key-123")
 包含 `Id`、`Remark`、`VerifyKey`、`Status`、`IsConnect`、`Addr`、`RateLimit`、
 `MaxConn` 和 `NowConn` 等键。
 
+三个列表辅助函数（`list_clients`、`list_hosts`、`list_tunnels`）都会自动
+跟随服务端分页并返回全部行。传入 `paginate=False` 可只请求单页，或通过
+`limit`/`offset` 调整底层分页请求。
+
 ### 域名映射管理
 
 ```python

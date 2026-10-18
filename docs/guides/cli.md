@@ -13,7 +13,11 @@ nps-ctl 提供了丰富的命令行界面，按五个命令组进行组织。每
 | `--socks-proxy URL` | SOCKS5 代理 URL |
 | `--auto-proxy HOST` | 通过指定主机自动创建 SSH SOCKS 代理 |
 | `--no-ssl-verify` | 禁用 SSL 证书验证 |
+| `--json` | 输出机器可读的 JSON（列表、状态和 `edge list`） |
+| `--no-color` | 禁用彩色输出 |
 | `-V`, `--version` | 显示版本并退出 |
+
+读取类命令（`client list`、`host list`、`tunnel list`）默认作用于**所有**已配置的边缘节点；`-e/--edge` 缩小到单个边缘节点，`-a/--all` 是显式的全边缘别名。变更类命令（`client del`、`host/tunnel add|del|edit`）必须提供 `-e` 或 `-a` 之一，不存在隐式的全集群默认值。
 
 ## 命令组
 
@@ -29,15 +33,18 @@ nps-ctl 将命令组织为五个组：`client`、`edge`、`tunnel`、`host` 和 
 
 | 选项 | 说明 |
 | --- | --- |
-| `-e`, `--edge` EDGE | 要查询客户端的边缘节点名称 |
-| `-a`, `--all` | 显示所有边缘节点的客户端 |
+| `-e`, `--edge` EDGE | 要查询客户端的边缘节点名称（默认：所有边缘节点） |
+| `-a`, `--all` | 显式的全边缘别名（默认行为） |
+| `--json` | 输出机器可读的 JSON |
+| `--no-color` | 禁用彩色输出 |
 | `--update` | 用获取的客户端信息更新 `clients.toml` |
 | `--dry-run` | 显示将要写入的内容，但不修改 `clients.toml` |
 
 ```bash
-nps-ctl client list                   # First edge
+nps-ctl client list                   # All edges
 nps-ctl client list -e nps-us         # Specific edge
-nps-ctl client list -a                # All edges
+nps-ctl client list -a                # All edges (explicit)
+nps-ctl client list --json            # Machine-readable output
 nps-ctl client list -e nps-us --update  # Fetch and update clients.toml
 ```
 
@@ -86,12 +93,13 @@ nps-ctl client add --name my-server --ssh-host 10.0.0.5   # Partially pre-filled
 | --- | --- |
 | `--id` ID | 客户端 ID（边缘节点特定，需要 `-e`） |
 | `-r`, `--remark` NAME | 客户端备注名称（可跨所有边缘节点操作） |
-| `-e`, `--edge` EDGE | 边缘节点名称（`--id` 时必需，`--remark` 时默认所有边缘节点） |
+| `-e`, `--edge` EDGE | 边缘节点名称（`--id` 时必需；`--remark` 时除非使用 `-a/--all` 否则也必需） |
+| `-a`, `--all` | 从所有已配置边缘节点删除指定客户端 |
 | `-y`, `--yes` | 跳过确认提示 |
 
 ```bash
 nps-ctl client del --id 3 -e nps-us -y          # Delete by edge-specific ID
-nps-ctl client del -r my-server                  # Delete by remark across all edges
+nps-ctl client del -r my-server -a               # Delete by remark across all edges
 ```
 
 ### `client install`
@@ -174,6 +182,8 @@ nps-ctl client status -c my-server               # Check specific client
 nps-ctl client status --parallel                 # Parallel check
 ```
 
+最后一行输出 `ok: N, failed: N`。只要任一 SSH 检查失败，或任一客户端的 NPC 未安装/未运行，命令就以 1 退出；全部正常运行时退出 0。
+
 ### `client restart`
 
 在客户端机器上重启 NPC 服务。
@@ -192,13 +202,35 @@ nps-ctl client restart -c my-server
 
 ## `edge` — NPS 边缘节点管理
 
+### `edge list`
+
+列出 `edges.toml` 中配置的所有边缘节点，不需要网络访问。
+
+| 选项 | 说明 |
+| --- | --- |
+| `--json` | 输出机器可读的 JSON |
+| `--no-color` | 禁用彩色输出 |
+
+```bash
+nps-ctl edge list
+nps-ctl edge list --json
+```
+
 ### `edge status`
 
 显示所有已配置边缘节点的状态。
 
+| 选项 | 说明 |
+| --- | --- |
+| `--json` | 输出机器可读的 JSON |
+| `--no-color` | 禁用彩色输出 |
+
 ```bash
 nps-ctl edge status
+nps-ctl edge status --json
 ```
+
+只要有任一节点离线，命令就以 1 退出。
 
 ### `edge install`
 
@@ -286,18 +318,20 @@ nps-ctl edge sync -f nps-asia --to nps-us             # Sync to specific edge
 nps-ctl edge sync -f nps-asia -t tunnels --parallel   # Sync only tunnels, parallel
 ```
 
+最后一行输出 `edges ok: N, failed: N`。只要有任一目标边缘节点无法连接，或任一同步操作失败，命令就以 1 退出。
+
 ### `edge export`
 
 将边缘节点配置导出到文件。
 
 | 选项 | 说明 |
 | --- | --- |
-| `-e`, `--edge` EDGE | 要导出的边缘节点名称（默认：所有边缘节点） |
+| `-e`, `--edge` EDGE | 要导出的边缘节点名称（默认：第一个已配置边缘节点） |
 | `-o`, `--output` PATH | 输出文件路径 |
 
 ```bash
 nps-ctl edge export -e nps-us -o backup.json
-nps-ctl edge export                                   # Export all edges
+nps-ctl edge export                                   # First configured edge
 ```
 
 ---
@@ -310,15 +344,19 @@ nps-ctl edge export                                   # Export all edges
 
 | 选项 | 说明 |
 | --- | --- |
-| `-e`, `--edge` EDGE | 要查询的边缘节点名称（默认：第一个边缘节点） |
+| `-e`, `--edge` EDGE | 要查询的边缘节点名称（默认：所有边缘节点） |
 | `-t`, `--type` {tcp,udp,socks5,httpProxy,secret,p2p,file} | 按隧道类型过滤 |
-| `-a`, `--all` | 显示所有边缘节点的隧道 |
+| `-a`, `--all` | 显式的全边缘别名（默认行为） |
+| `--json` | 输出机器可读的 JSON |
+| `--no-color` | 禁用彩色输出 |
 
 ```bash
-nps-ctl tunnel list                       # First edge
-nps-ctl tunnel list -a                    # All edges
+nps-ctl tunnel list                       # All edges
+nps-ctl tunnel list -a                    # All edges (explicit)
+nps-ctl tunnel list -e nps-us             # Specific edge
 nps-ctl tunnel list -t tcp                # Only TCP tunnels
 nps-ctl tunnel list -e nps-us -t udp      # UDP tunnels on specific edge
+nps-ctl tunnel list --json                # Machine-readable output
 ```
 
 ### `tunnel add`
@@ -331,13 +369,14 @@ nps-ctl tunnel list -e nps-us -t udp      # UDP tunnels on specific edge
 | `-t`, `--type` {tcp,udp,socks5,httpProxy} | 隧道类型（默认：tcp） |
 | `-p`, `--port` PORT | 服务器端口 |
 | `-T`, `--target` ADDR | 目标地址（host:port） |
-| `-e`, `--edge` EDGE | 要添加隧道的边缘节点名称（默认：所有边缘节点） |
+| `-e`, `--edge` EDGE | 要添加隧道的边缘节点名称（除非使用 `-a/--all`，否则必需） |
+| `-a`, `--all` | 向所有已配置边缘节点添加隧道 |
 | `-r`, `--remark` TEXT | 隧道备注 |
 | `-y`, `--yes` | 跳过确认提示 |
 
 ```bash
-nps-ctl tunnel add -c my-server -t tcp -p 8080 -T 127.0.0.1:80
-nps-ctl tunnel add -c my-server -t udp -p 5353 -T 127.0.0.1:53 -r "dns"
+nps-ctl tunnel add -c my-server -t tcp -p 8080 -T 127.0.0.1:80 -a
+nps-ctl tunnel add -c my-server -t udp -p 5353 -T 127.0.0.1:53 -a -r "dns"
 nps-ctl tunnel add -c my-server -t socks5 -p 1080 -e nps-us
 ```
 
@@ -351,13 +390,14 @@ nps-ctl tunnel add -c my-server -t socks5 -p 1080 -e nps-us
 | `-r`, `--remark` TEXT | 隧道备注（可跨所有边缘节点操作）— 与 `--id` 互斥 |
 | `-p`, `--port` PORT | 服务器端口（与 `-t/--type` 配合使用以跨边缘节点定位隧道） |
 | `-t`, `--type` {tcp,udp,socks5,httpProxy} | 隧道类型（与 `-p/--port` 配合使用以跨边缘节点定位隧道） |
-| `-e`, `--edge` EDGE | 边缘节点名称（`--id` 时必需，`--remark`/`--port`+`--type` 时可选） |
+| `-e`, `--edge` EDGE | 边缘节点名称（使用 `--id` 时必需；否则需提供此项或 `-a/--all`） |
+| `-a`, `--all` | 从所有已配置边缘节点删除匹配的隧道 |
 | `-y`, `--yes` | 跳过确认提示 |
 
 ```bash
 nps-ctl tunnel del --id 5 -e nps-us -y           # By edge-specific ID
-nps-ctl tunnel del -r "dns"                       # By remark across all edges
-nps-ctl tunnel del -p 8080 -t tcp                 # By port+type across all edges
+nps-ctl tunnel del -r "dns" -a                    # By remark across all edges
+nps-ctl tunnel del -p 8080 -t tcp -a              # By port+type across all edges
 ```
 
 !!! note "多匹配安全机制"
@@ -375,7 +415,8 @@ nps-ctl tunnel del -p 8080 -t tcp                 # By port+type across all edge
 | `-r`, `--remark` TEXT | 要定位的隧道备注（可跨所有边缘节点操作）— 与 `--id` 互斥 |
 | `-p`, `--port` PORT | 要定位的服务器端口（与 `-t/--type` 配合使用以跨边缘节点定位） |
 | `-t`, `--type` {tcp,udp,socks5,httpProxy} | 要定位的隧道类型（与 `-p/--port` 配合使用以跨边缘节点定位） |
-| `-e`, `--edge` EDGE | 边缘节点名称（`--id` 时必需，`--remark`/`--port`+`--type` 时可选） |
+| `-e`, `--edge` EDGE | 边缘节点名称（使用 `--id` 时必需；否则需提供此项或 `-a/--all`） |
+| `-a`, `--all` | 在所有已配置边缘节点上编辑匹配的隧道 |
 
 **值选项（要修改的内容）：**
 
@@ -387,8 +428,8 @@ nps-ctl tunnel del -p 8080 -t tcp                 # By port+type across all edge
 | `-y`, `--yes` | 跳过确认提示 |
 
 ```bash
-nps-ctl tunnel edit -r "dns" --new-target 10.0.0.1:53
-nps-ctl tunnel edit -p 8080 -t tcp --new-port 9090
+nps-ctl tunnel edit -r "dns" -a --new-target 10.0.0.1:53
+nps-ctl tunnel edit -p 8080 -t tcp -a --new-port 9090
 nps-ctl tunnel edit --id 5 -e nps-us --new-remark "web-proxy"
 ```
 
@@ -428,14 +469,21 @@ nps-ctl tunnel stop --id 5 -e nps-us
 
 | 选项 | 说明 |
 | --- | --- |
-| `-e`, `--edge` EDGE | 要查询的边缘节点名称（默认：第一个边缘节点） |
-| `-a`, `--all` | 显示所有边缘节点的域名映射 |
+| `-e`, `--edge` EDGE | 要查询的边缘节点名称（默认：所有边缘节点） |
+| `-a`, `--all` | 显式的全边缘别名（默认行为） |
+| `--matrix` | 域名与边缘节点的存在性矩阵 |
+| `--json` | 输出机器可读的 JSON |
+| `--no-color` | 禁用彩色输出 |
 
 ```bash
 nps-ctl host list
 nps-ctl host list -a
 nps-ctl host list -e nps-us
+nps-ctl host list --matrix          # Presence of every domain on every edge
+nps-ctl host list --matrix --json
 ```
+
+矩阵以所有域名的并集为行、已配置边缘节点为列。单元格含义：`✓` 存在、`-` 缺失、`!` 获取失败；失败的边缘节点还会在表格下方显示原因。只要有任一节点获取失败，命令就以 1 退出。
 
 ### `host add`
 
@@ -446,15 +494,16 @@ nps-ctl host list -e nps-us
 | `-d`, `--domain` DOMAIN | 域名（必需） |
 | `-c`, `--client` NAME | 客户端名称或 ID（必需） |
 | `-T`, `--target` ADDR | 目标地址（host:port）（必需） |
-| `-e`, `--edge` EDGE | 要添加域名映射的边缘节点名称（默认：所有边缘节点） |
+| `-e`, `--edge` EDGE | 要添加域名映射的边缘节点名称（除非使用 `-a/--all`，否则必需） |
+| `-a`, `--all` | 向所有已配置边缘节点添加域名映射 |
 | `-r`, `--remark` TEXT | 域名映射备注 |
 | `--auth` TEXT | HTTP Basic Auth（`"user=pass"` 或 `"user1=pass1,user2=pass2"`） |
 | `-y`, `--yes` | 跳过确认提示 |
 
 ```bash
-nps-ctl host add -d app.example.com -c my-server -T :8080
-nps-ctl host add -d api.example.com -c my-server -T 127.0.0.1:3000 -r "api"
-nps-ctl host add -d private.example.com -c my-server -T :8080 --auth "admin=secret"
+nps-ctl host add -d app.example.com -c my-server -T :8080 -a
+nps-ctl host add -d api.example.com -c my-server -T 127.0.0.1:3000 -a -r "api"
+nps-ctl host add -d private.example.com -c my-server -T :8080 -a --auth "admin=secret"
 ```
 
 ### `host del`
@@ -466,13 +515,14 @@ nps-ctl host add -d private.example.com -c my-server -T :8080 --auth "admin=secr
 | `--id` ID | 域名映射 ID（边缘节点特定，需要 `-e`） |
 | `-d`, `--domain` DOMAIN | 域名（可跨所有边缘节点操作） |
 | `-r`, `--remark` TEXT | 域名映射备注（可跨所有边缘节点操作） |
-| `-e`, `--edge` EDGE | 边缘节点名称（`--id` 时必需，`--domain`/`--remark` 时可选） |
+| `-e`, `--edge` EDGE | 边缘节点名称（使用 `--id` 时必需；否则需提供此项或 `-a/--all`） |
+| `-a`, `--all` | 从所有已配置边缘节点删除匹配的域名映射 |
 | `-y`, `--yes` | 跳过确认提示 |
 
 ```bash
 nps-ctl host del --id 2 -e nps-us -y             # By edge-specific ID
-nps-ctl host del -d app.example.com               # By domain across all edges
-nps-ctl host del -r "api"                         # By remark across all edges
+nps-ctl host del -d app.example.com -a            # By domain across all edges
+nps-ctl host del -r "api" -a                      # By remark across all edges
 ```
 
 !!! note "多匹配安全机制"
@@ -489,7 +539,8 @@ nps-ctl host del -r "api"                         # By remark across all edges
 | `--id` ID | 要编辑的域名映射 ID（边缘节点特定，需要 `-e`）— 与 `--domain` 和 `--remark` 互斥 |
 | `-d`, `--domain` DOMAIN | 要定位的域名（可跨所有边缘节点操作） |
 | `-r`, `--remark` TEXT | 要定位的域名映射备注（可跨所有边缘节点操作） |
-| `-e`, `--edge` EDGE | 边缘节点名称（`--id` 时必需，`--domain`/`--remark` 时可选） |
+| `-e`, `--edge` EDGE | 边缘节点名称（使用 `--id` 时必需；否则需提供此项或 `-a/--all`） |
+| `-a`, `--all` | 在所有已配置边缘节点上编辑匹配的域名映射 |
 
 **值选项（要修改的内容）：**
 
@@ -502,10 +553,10 @@ nps-ctl host del -r "api"                         # By remark across all edges
 | `-y`, `--yes` | 跳过确认提示 |
 
 ```bash
-nps-ctl host edit -d app.example.com --new-target :9090
-nps-ctl host edit -r "api" --new-domain api-v2.example.com
+nps-ctl host edit -d app.example.com -a --new-target :9090
+nps-ctl host edit -r "api" -a --new-domain api-v2.example.com
 nps-ctl host edit --id 2 -e nps-us --new-remark "web-app"
-nps-ctl host edit -d private.example.com --auth ""   # clear auth
+nps-ctl host edit -d private.example.com -a --auth ""   # clear auth
 ```
 
 ---
