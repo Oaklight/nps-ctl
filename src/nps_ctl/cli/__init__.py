@@ -67,7 +67,7 @@ def _dispatch_client_list(args) -> int:
                 "Error: -e/--edge is required when using --update or --dry-run",
                 file=sys.stderr,
             )
-            return 1
+            return 2
 
         from ..cluster import NPSCluster
 

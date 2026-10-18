@@ -35,3 +35,11 @@ def test_writes_reject_both_targets():
 
     assert targets is None
     assert code == 2
+
+
+def test_writes_reject_empty_cluster(capsys):
+    targets, code = resolve_write_edges(_args(all=True), [])
+
+    assert targets is None
+    assert code == 1
+    assert "No edges configured" in capsys.readouterr().out

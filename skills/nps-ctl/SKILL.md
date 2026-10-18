@@ -61,8 +61,8 @@ nps-ctl host list                             # all edges
 nps-ctl host list --edge nps-america          # single edge
 nps-ctl host add -e nps-america -d myapp.service.oaklight.cn -c cloud.usa2 -t :8080
 nps-ctl host add -a -d myapp.service.oaklight.cn -c cloud.usa2 -t :8080  # every edge
-nps-ctl host del --host myapp.service.oaklight.cn -a -y   # delete from all edges
-nps-ctl host del --edge nps-america --host myapp.service.oaklight.cn -y  # single edge
+nps-ctl host del --domain myapp.service.oaklight.cn -a -y   # delete from all edges
+nps-ctl host del --edge nps-america --domain myapp.service.oaklight.cn -y  # single edge
 nps-ctl host edit --edge nps-america --id 42 --target :9090
 ```
 
@@ -83,7 +83,7 @@ nps-ctl tunnel stop --edge nps-america --id 5
 ### Migrate a service to a different client
 
 ```bash
-nps-ctl host del --host myapp.service.oaklight.cn -a -y
+nps-ctl host del --domain myapp.service.oaklight.cn -a -y
 nps-ctl host add -e nps-america -d myapp.service.oaklight.cn -c <new-client> -t :<port>
 ```
 

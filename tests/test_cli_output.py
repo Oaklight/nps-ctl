@@ -7,7 +7,9 @@ import re
 from types import SimpleNamespace
 
 import nps_ctl.cli.cmd_hosts as cmd_hosts
+import nps_ctl.cli.cmd_status as cmd_status
 from nps_ctl.cli.cmd_status import cmd_edge_list
+from nps_ctl.exceptions import NPSError
 from nps_ctl.types import EdgeResults, HostInfo
 
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
@@ -89,9 +91,80 @@ def test_host_del_id_with_all_is_rejected(monkeypatch):
         id=1,
         domain=None,
         remark=None,
-        edge=None,
+        edge="nps-america",
         all=True,
         yes=True,
     )
 
     assert cmd_hosts.cmd_host_del(args) == 2
+
+
+def test_host_del_id_without_edge_is_rejected(monkeypatch):
+    monkeypatch.setattr(
+        cmd_hosts,
+        "NPSCluster",
+        lambda config: SimpleNamespace(edge_names=["nps-america"]),
+    )
+    args = argparse.Namespace(
+        config="ignored",
+        id=1,
+        domain=None,
+        remark=None,
+        edge=None,
+        all=False,
+        yes=True,
+    )
+
+    assert cmd_hosts.cmd_host_del(args) == 2
+
+
+def test_host_list_rejects_edge_and_all(monkeypatch):
+    monkeypatch.setattr(cmd_hosts, "NPSCluster", lambda config: FakeCluster())
+
+    code = cmd_hosts.cmd_hosts(
+        argparse.Namespace(config="ignored", edge="nps-america", all=True)
+    )
+
+    assert code == 2
+
+
+class FakeStatusCluster:
+    """Cluster stub for edge status tests."""
+
+    def __init__(self, edge_names, failing=()):
+        self.edge_names = edge_names
+        self.failing = set(failing)
+
+    def get_edge(self, name):
+        return SimpleNamespace(region="region", api_url="https://example.invalid")
+
+    def get_client(self, name):
+        return SimpleNamespace(name=name)
+
+
+def test_edge_status_exits_zero_when_all_online(monkeypatch):
+    cluster = FakeStatusCluster(["a", "b"])
+    monkeypatch.setattr(cmd_status, "NPSCluster", lambda config: cluster)
+    monkeypatch.setattr(cmd_status.client_mgmt, "list_clients", lambda nps, limit=1: [])
+
+    assert cmd_status.cmd_status(argparse.Namespace(config="ignored")) == 0
+
+
+def test_edge_status_exits_nonzero_when_an_edge_is_offline(monkeypatch):
+    cluster = FakeStatusCluster(["a", "b"], failing={"b"})
+
+    def fake_list(nps, limit=1):
+        if nps.name in cluster.failing:
+            raise NPSError("connection refused")
+        return []
+
+    monkeypatch.setattr(cmd_status, "NPSCluster", lambda config: cluster)
+    monkeypatch.setattr(cmd_status.client_mgmt, "list_clients", fake_list)
+
+    assert cmd_status.cmd_status(argparse.Namespace(config="ignored")) == 1
+
+
+def test_edge_status_exits_nonzero_with_no_edges(monkeypatch):
+    monkeypatch.setattr(cmd_status, "NPSCluster", lambda config: FakeStatusCluster([]))
+
+    assert cmd_status.cmd_status(argparse.Namespace(config="ignored")) == 1
