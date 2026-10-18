@@ -303,11 +303,26 @@ cp /tmp/nps /usr/bin/nps
 CERT_BACKUP=/tmp/nps-certs-preserve
 rm -rf "$CERT_BACKUP"
 mkdir -p "$CERT_BACKUP"
+chmod 700 "$CERT_BACKUP"
 for cert in server.key server.pem; do
     if [ -f "/etc/nps/conf/$cert" ]; then
         cp -p "/etc/nps/conf/$cert" "$CERT_BACKUP/$cert"
     fi
 done
+
+# Restore on normal exit and on timeout/interrupt, since the SSH session can
+# disappear while nps install is running.
+restore_certs() (
+    for cert in server.key server.pem; do
+        if [ ! -f "/etc/nps/conf/$cert" ] && [ -f "$CERT_BACKUP/$cert" ]; then
+            cp -p "$CERT_BACKUP/$cert" "/etc/nps/conf/$cert"
+            echo "Restored TLS certificate: $cert"
+        fi
+    done
+    rm -rf "$CERT_BACKUP"
+)
+trap restore_certs EXIT
+trap 'exit 1' HUP INT TERM
 
 echo "Running NPS install..."
 NPS_INSTALL_OUTPUT=$(/tmp/nps install 2>&1) || true
@@ -316,14 +331,8 @@ if echo "$NPS_INSTALL_OUTPUT" | grep -qi "failed"; then
     echo "Warning: nps install reported issues, will verify and apply fallback if needed"
 fi
 
-# Restore certificates when nps install left them as .bak only.
-for cert in server.key server.pem; do
-    if [ ! -f "/etc/nps/conf/$cert" ] && [ -f "$CERT_BACKUP/$cert" ]; then
-        cp -p "$CERT_BACKUP/$cert" "/etc/nps/conf/$cert"
-        echo "Restored TLS certificate: $cert"
-    fi
-done
-rm -rf "$CERT_BACKUP"
+restore_certs
+trap - EXIT HUP INT TERM
 
 echo "Cleaning up..."
 rm -f /tmp/nps.tar.gz /tmp/nps
