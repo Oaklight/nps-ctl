@@ -28,6 +28,13 @@ they are never the inventory.
 - Write commands require an explicit target: `-e <edge>` for one edge or
   `-a/--all` for every configured edge. There is no silent cluster-wide default.
 - `nps-ctl edge status` also lists every edge, but contacts each one.
+- Add `--json` for machine-readable output on `edge list`, `edge status`, and
+  `client/host/tunnel list`. Piped output has no ANSI styling; `--no-color`
+  disables it explicitly.
+
+```bash
+nps-ctl edge list --json      # stable inventory for scripts and agents
+```
 
 ## Edge (NPS server) management
 

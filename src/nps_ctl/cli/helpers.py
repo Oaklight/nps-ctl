@@ -6,7 +6,9 @@ argument definitions for the CLI parser.
 """
 
 import argparse
-from collections.abc import Mapping
+import json
+import sys
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -14,10 +16,11 @@ from rich.table import Table
 
 from ..logging import FlushingConsole, flush_output
 
-# Shared console instance for all CLI commands
-# Use force_terminal=True to ensure immediate output through proxies
-# Use FlushingConsole to auto-flush after every print
-console = FlushingConsole(force_terminal=True)
+# Shared console instance for all CLI commands.
+# FlushingConsole keeps output unbuffered through SSH/SOCKS proxies. When
+# stdout is not a terminal, use a wide layout so table cells are not
+# truncated, and let rich omit ANSI styling.
+console = FlushingConsole(width=None if sys.stdout.isatty() else 200)
 
 # Re-export flush_output for convenience
 __all__ = ["console", "flush_output", "FlushingConsole"]
@@ -265,8 +268,31 @@ def add_all_argument(
     )
 
 
-def validate_read_target(args: argparse.Namespace) -> int | None:
-    """Reject conflicting targets on a read command.
+def add_output_arguments(parser: argparse.ArgumentParser) -> None:
+    """Add --json and --no-color to a leaf parser.
+
+    The defaults use SUPPRESS so a global flag given before the subcommand is
+    not overwritten by the subparser's default.
+
+    Args:
+        parser: The leaf parser to add the arguments to.
+    """
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="Emit machine-readable JSON instead of tables",
+    )
+    parser.add_argument(
+        "--no-color",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="Disable colored output",
+    )
+
+
+def validate_read_target(args: argparse.Namespace) -> str | None:
+    """Return a usage error for conflicting targets on a read command.
 
     Reads default to all edges; ``-e`` narrows to one and ``-a`` requests all
     explicitly. Passing both is ambiguous and matches the mutation rule.
@@ -275,11 +301,10 @@ def validate_read_target(args: argparse.Namespace) -> int | None:
         args: Parsed command line arguments.
 
     Returns:
-        2 on a usage error, otherwise None.
+        An error message on a usage error, otherwise None.
     """
     if getattr(args, "edge", None) and getattr(args, "all", False):
-        print_error("Use either -e/--edge or -a/--all, not both")
-        return 2
+        return "Use either -e/--edge or -a/--all, not both"
     return None
 
 
@@ -343,6 +368,70 @@ def print_edge_summary(results: Mapping[str, Any], errors: Mapping[str, str]) ->
         return 1
     console.print(f"[dim]{total} edges: {total} ok[/dim]")
     return 0
+
+
+def print_json(data: Any) -> None:
+    """Write JSON to stdout without rich formatting.
+
+    Args:
+        data: JSON-serializable payload.
+    """
+    print(json.dumps(data, indent=2, ensure_ascii=False, default=str))
+
+
+def set_no_color() -> None:
+    """Disable color on the shared console."""
+    console.no_color = True
+
+
+def edge_region(cluster: Any, name: str) -> str:
+    """Return the region for an edge, or an empty string if absent.
+
+    Args:
+        cluster: NPSCluster instance.
+        name: Edge name.
+
+    Returns:
+        Region label.
+    """
+    edge = cluster.get_edge(name)
+    return edge.region if edge else ""
+
+
+def build_edge_results_payload(
+    results: Mapping[str, list[Any]],
+    errors: Mapping[str, str],
+    region_for: Callable[[str], str],
+) -> dict[str, Any]:
+    """Build the JSON payload for a multi-edge list command.
+
+    Args:
+        results: Mapping of edge name to items.
+        errors: Mapping of failed edge name to error message.
+        region_for: Callable returning an edge's region.
+
+    Returns:
+        Payload with ``edges`` and ``summary`` keys.
+    """
+    edges = [
+        {
+            "edge": name,
+            "region": region_for(name),
+            "ok": name not in errors,
+            "error": errors.get(name),
+            "items": items,
+        }
+        for name, items in results.items()
+    ]
+    failed = sum(1 for edge in edges if not edge["ok"])
+    return {
+        "edges": edges,
+        "summary": {
+            "configured": len(edges),
+            "ok": len(edges) - failed,
+            "failed": failed,
+        },
+    }
 
 
 def get_template_path() -> Path:

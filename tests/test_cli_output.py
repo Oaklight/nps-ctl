@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import re
 from types import SimpleNamespace
 
@@ -168,3 +169,92 @@ def test_edge_status_exits_nonzero_with_no_edges(monkeypatch):
     monkeypatch.setattr(cmd_status, "NPSCluster", lambda config: FakeStatusCluster([]))
 
     assert cmd_status.cmd_status(argparse.Namespace(config="ignored")) == 1
+
+
+def test_edge_list_json(tmp_path, capsys):
+    config = tmp_path / "edges.toml"
+    config.write_text(EDGES_TOML, encoding="utf-8")
+
+    assert cmd_edge_list(argparse.Namespace(config=str(config), json=True)) == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    assert [edge["edge"] for edge in payload["edges"]] == [
+        "nps-america",
+        "nps-america2",
+    ]
+    assert payload["summary"] == {"configured": 2}
+
+
+def test_host_list_json_reports_partial_failure(monkeypatch, capsys):
+    monkeypatch.setattr(cmd_hosts, "NPSCluster", lambda config: FakeCluster())
+
+    code = cmd_hosts.cmd_hosts(
+        argparse.Namespace(config="ignored", edge=None, all=False, json=True)
+    )
+
+    assert code == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["summary"] == {"configured": 2, "ok": 1, "failed": 1}
+    failed = [edge for edge in payload["edges"] if not edge["ok"]]
+    assert failed == [
+        {
+            "edge": "nps-america2",
+            "region": "北美",
+            "ok": False,
+            "error": "connection refused",
+            "items": [],
+        }
+    ]
+
+
+def test_edge_status_json(monkeypatch, capsys):
+    cluster = FakeStatusCluster(["a", "b"], failing={"b"})
+
+    def fake_list(nps, limit=1):
+        if nps.name in cluster.failing:
+            raise NPSError("connection refused")
+        return []
+
+    monkeypatch.setattr(cmd_status, "NPSCluster", lambda config: cluster)
+    monkeypatch.setattr(cmd_status.client_mgmt, "list_clients", fake_list)
+
+    code = cmd_status.cmd_status(argparse.Namespace(config="ignored", json=True))
+
+    assert code == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["summary"] == {"configured": 2, "online": 1, "offline": 1}
+    assert [edge["online"] for edge in payload["edges"]] == [True, False]
+
+
+def test_piped_table_has_no_ansi(monkeypatch, capsys):
+    monkeypatch.setattr(cmd_hosts, "NPSCluster", lambda config: FakeCluster())
+
+    code = cmd_hosts.cmd_hosts(
+        argparse.Namespace(config="ignored", edge=None, all=False)
+    )
+
+    assert code == 1
+    assert "\x1b" not in capsys.readouterr().out
+
+
+def test_long_host_name_is_not_truncated(monkeypatch, capsys):
+    class LongHostCluster(FakeCluster):
+        def get_all_hosts(self):
+            hosts: list[HostInfo] = [
+                {
+                    "Id": 1,
+                    "Host": "monitor.service.oaklight.cn",
+                    "Target": {"TargetStr": ":18092"},
+                    "Client": {"Remark": "homelab.tempest"},
+                }
+            ]
+            return EdgeResults({"nps-america": hosts}, errors={})
+
+    monkeypatch.setattr(cmd_hosts, "NPSCluster", lambda config: LongHostCluster())
+
+    code = cmd_hosts.cmd_hosts(
+        argparse.Namespace(config="ignored", edge=None, all=False)
+    )
+
+    assert code == 0
+    assert "monitor.service.oaklight.cn" in _plain(capsys.readouterr().out)

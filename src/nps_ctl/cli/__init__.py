@@ -121,6 +121,11 @@ def main() -> int:
     debug = getattr(args, "debug", False)
     setup_logging(verbose=verbose, debug=debug)
 
+    if getattr(args, "no_color", False):
+        from .helpers import set_no_color
+
+        set_no_color()
+
     # Check if this command requires config
     requires_config = getattr(args, "requires_config", True)
 
