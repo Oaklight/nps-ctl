@@ -13,7 +13,15 @@ nps-ctl provides a rich command-line interface organized into five command group
 | `--socks-proxy URL` | SOCKS5 proxy URL |
 | `--auto-proxy HOST` | Auto-create SSH SOCKS proxy via specified host |
 | `--no-ssl-verify` | Disable SSL certificate verification |
+| `--json` | Emit machine-readable JSON (list, status, and `edge list`) |
+| `--no-color` | Disable colored output |
 | `-V`, `--version` | Show version and exit |
+
+Read commands (`client list`, `host list`, `tunnel list`) default to **all**
+configured edges; `-e/--edge` narrows to one edge and `-a/--all` is an
+explicit all-edges alias. Mutating commands (`client del`, `host/tunnel
+add|del|edit`) require one of `-e` or `-a`; there is no silent cluster-wide
+default.
 
 ## Command Groups
 
@@ -29,15 +37,18 @@ List clients from NPS API and optionally update `clients.toml`.
 
 | Option | Description |
 | --- | --- |
-| `-e`, `--edge` EDGE | Edge name to query clients from |
-| `-a`, `--all` | Show clients from all edges |
+| `-e`, `--edge` EDGE | Edge name to query clients from (default: all edges) |
+| `-a`, `--all` | Explicit all-edges alias (the default) |
+| `--json` | Emit machine-readable JSON |
+| `--no-color` | Disable colored output |
 | `--update` | Update `clients.toml` with fetched client info |
 | `--dry-run` | Show what would be written without modifying `clients.toml` |
 
 ```bash
-nps-ctl client list                   # First edge
+nps-ctl client list                   # All edges
 nps-ctl client list -e nps-us         # Specific edge
-nps-ctl client list -a                # All edges
+nps-ctl client list -a                # All edges (explicit)
+nps-ctl client list --json            # Machine-readable output
 nps-ctl client list -e nps-us --update  # Fetch and update clients.toml
 ```
 
@@ -86,12 +97,13 @@ Delete a client from edge(s). Requires one of `--id` or `-r/--remark` (mutually 
 | --- | --- |
 | `--id` ID | Client ID (edge-specific, requires `-e`) |
 | `-r`, `--remark` NAME | Client remark name (can operate across all edges) |
-| `-e`, `--edge` EDGE | Edge name (required for `--id`, default: all edges for `--remark`) |
+| `-e`, `--edge` EDGE | Edge name (required for `--id`; required for `--remark` unless `-a/--all`) |
+| `-a`, `--all` | Delete the named client from every configured edge |
 | `-y`, `--yes` | Skip confirmation prompts |
 
 ```bash
 nps-ctl client del --id 3 -e nps-us -y          # Delete by edge-specific ID
-nps-ctl client del -r my-server                  # Delete by remark across all edges
+nps-ctl client del -r my-server -a               # Delete by remark across all edges
 ```
 
 ### `client install`
@@ -174,6 +186,10 @@ nps-ctl client status -c my-server               # Check specific client
 nps-ctl client status --parallel                 # Parallel check
 ```
 
+The final line reports `ok: N, failed: N`. The command exits 1 if any SSH
+check fails or any client's NPC is not installed and running; a running
+service exits 0.
+
 ### `client restart`
 
 Restart NPC service on client machines.
@@ -192,13 +208,35 @@ nps-ctl client restart -c my-server
 
 ## `edge` — NPS Edge Node Management
 
+### `edge list`
+
+List every edge configured in `edges.toml` without network access.
+
+| Option | Description |
+| --- | --- |
+| `--json` | Emit machine-readable JSON |
+| `--no-color` | Disable colored output |
+
+```bash
+nps-ctl edge list
+nps-ctl edge list --json
+```
+
 ### `edge status`
 
 Show status of all configured edge nodes.
 
+| Option | Description |
+| --- | --- |
+| `--json` | Emit machine-readable JSON |
+| `--no-color` | Disable colored output |
+
 ```bash
 nps-ctl edge status
+nps-ctl edge status --json
 ```
+
+Exits 1 if any edge is offline.
 
 ### `edge install`
 
@@ -286,18 +324,21 @@ nps-ctl edge sync -f nps-asia --to nps-us             # Sync to specific edge
 nps-ctl edge sync -f nps-asia -t tunnels --parallel   # Sync only tunnels, parallel
 ```
 
+The final line reports `edges ok: N, failed: N`. The command exits 1 if any
+target edge cannot be reached or any synced operation fails.
+
 ### `edge export`
 
 Export edge configuration to a file.
 
 | Option | Description |
 | --- | --- |
-| `-e`, `--edge` EDGE | Edge name to export (default: all edges) |
+| `-e`, `--edge` EDGE | Edge name to export (default: first configured edge) |
 | `-o`, `--output` PATH | Output file path |
 
 ```bash
 nps-ctl edge export -e nps-us -o backup.json
-nps-ctl edge export                                   # Export all edges
+nps-ctl edge export                                   # First configured edge
 ```
 
 ---
@@ -310,15 +351,19 @@ List tunnels on edge nodes.
 
 | Option | Description |
 | --- | --- |
-| `-e`, `--edge` EDGE | Edge name to query (default: first edge) |
+| `-e`, `--edge` EDGE | Edge name to query (default: all edges) |
 | `-t`, `--type` {tcp,udp,socks5,httpProxy,secret,p2p,file} | Filter by tunnel type |
-| `-a`, `--all` | Show tunnels from all edges |
+| `-a`, `--all` | Explicit all-edges alias (the default) |
+| `--json` | Emit machine-readable JSON |
+| `--no-color` | Disable colored output |
 
 ```bash
-nps-ctl tunnel list                       # First edge
-nps-ctl tunnel list -a                    # All edges
+nps-ctl tunnel list                       # All edges
+nps-ctl tunnel list -a                    # All edges (explicit)
+nps-ctl tunnel list -e nps-us             # Specific edge
 nps-ctl tunnel list -t tcp                # Only TCP tunnels
 nps-ctl tunnel list -e nps-us -t udp      # UDP tunnels on specific edge
+nps-ctl tunnel list --json                # Machine-readable output
 ```
 
 ### `tunnel add`
@@ -331,13 +376,14 @@ Add a new tunnel to edge nodes.
 | `-t`, `--type` {tcp,udp,socks5,httpProxy} | Tunnel type (default: tcp) |
 | `-p`, `--port` PORT | Server port |
 | `-T`, `--target` ADDR | Target address (host:port) |
-| `-e`, `--edge` EDGE | Edge name to add tunnel to (default: all edges) |
+| `-e`, `--edge` EDGE | Edge name to add tunnel to (required unless `-a/--all`) |
+| `-a`, `--all` | Add the tunnel to every configured edge |
 | `-r`, `--remark` TEXT | Tunnel remark |
 | `-y`, `--yes` | Skip confirmation prompts |
 
 ```bash
-nps-ctl tunnel add -c my-server -t tcp -p 8080 -T 127.0.0.1:80
-nps-ctl tunnel add -c my-server -t udp -p 5353 -T 127.0.0.1:53 -r "dns"
+nps-ctl tunnel add -c my-server -t tcp -p 8080 -T 127.0.0.1:80 -a
+nps-ctl tunnel add -c my-server -t udp -p 5353 -T 127.0.0.1:53 -a -r "dns"
 nps-ctl tunnel add -c my-server -t socks5 -p 1080 -e nps-us
 ```
 
@@ -351,13 +397,14 @@ Delete a tunnel from edge node(s). Locate by `--id`, `-r/--remark`, or `-p/--por
 | `-r`, `--remark` TEXT | Tunnel remark (can operate across all edges) — mutually exclusive with `--id` |
 | `-p`, `--port` PORT | Server port (use with `-t/--type` to locate tunnel across edges) |
 | `-t`, `--type` {tcp,udp,socks5,httpProxy} | Tunnel type (use with `-p/--port` to locate tunnel across edges) |
-| `-e`, `--edge` EDGE | Edge name (required for `--id`, optional for `--remark`/`--port`+`--type`) |
+| `-e`, `--edge` EDGE | Edge name (required with `--id`; otherwise use this or `-a/--all`) |
+| `-a`, `--all` | Delete the matching tunnel from every configured edge |
 | `-y`, `--yes` | Skip confirmation prompts |
 
 ```bash
 nps-ctl tunnel del --id 5 -e nps-us -y           # By edge-specific ID
-nps-ctl tunnel del -r "dns"                       # By remark across all edges
-nps-ctl tunnel del -p 8080 -t tcp                 # By port+type across all edges
+nps-ctl tunnel del -r "dns" -a                    # By remark across all edges
+nps-ctl tunnel del -p 8080 -t tcp -a              # By port+type across all edges
 ```
 
 !!! note "Multi-match safety"
@@ -375,7 +422,8 @@ Edit an existing tunnel on edge node(s). Locator arguments (`--id`, `-r/--remark
 | `-r`, `--remark` TEXT | Tunnel remark to locate (can operate across all edges) — mutually exclusive with `--id` |
 | `-p`, `--port` PORT | Server port to locate (use with `-t/--type` across edges) |
 | `-t`, `--type` {tcp,udp,socks5,httpProxy} | Tunnel type to locate (use with `-p/--port` across edges) |
-| `-e`, `--edge` EDGE | Edge name (required for `--id`, optional for `--remark`/`--port`+`--type`) |
+| `-e`, `--edge` EDGE | Edge name (required with `--id`; otherwise use this or `-a/--all`) |
+| `-a`, `--all` | Edit the matching tunnel on every configured edge |
 
 **Value options (what to change):**
 
@@ -387,8 +435,8 @@ Edit an existing tunnel on edge node(s). Locator arguments (`--id`, `-r/--remark
 | `-y`, `--yes` | Skip confirmation prompts |
 
 ```bash
-nps-ctl tunnel edit -r "dns" --new-target 10.0.0.1:53
-nps-ctl tunnel edit -p 8080 -t tcp --new-port 9090
+nps-ctl tunnel edit -r "dns" -a --new-target 10.0.0.1:53
+nps-ctl tunnel edit -p 8080 -t tcp -a --new-port 9090
 nps-ctl tunnel edit --id 5 -e nps-us --new-remark "web-proxy"
 ```
 
@@ -428,14 +476,24 @@ List host mappings on edge nodes.
 
 | Option | Description |
 | --- | --- |
-| `-e`, `--edge` EDGE | Edge name to query (default: first edge) |
-| `-a`, `--all` | Show host mappings from all edges |
+| `-e`, `--edge` EDGE | Edge name to query (default: all edges) |
+| `-a`, `--all` | Explicit all-edges alias (the default) |
+| `--matrix` | Domain-by-edge presence matrix |
+| `--json` | Emit machine-readable JSON |
+| `--no-color` | Disable colored output |
 
 ```bash
 nps-ctl host list
 nps-ctl host list -a
 nps-ctl host list -e nps-us
+nps-ctl host list --matrix          # Presence of every domain on every edge
+nps-ctl host list --matrix --json
 ```
+
+The matrix shows the union of domains as rows and configured edges as
+columns. Cells are `✓` present, `-` missing, and `!` fetch failed; failed
+edges also show their error under the table. The command exits 1 when any
+edge could not be fetched.
 
 ### `host add`
 
@@ -446,15 +504,16 @@ Add a new host mapping to edge nodes.
 | `-d`, `--domain` DOMAIN | Domain name (required) |
 | `-c`, `--client` NAME | Client name or ID (required) |
 | `-T`, `--target` ADDR | Target address (host:port) (required) |
-| `-e`, `--edge` EDGE | Edge name to add host mapping to (default: all edges) |
+| `-e`, `--edge` EDGE | Edge name to add host mapping to (required unless `-a/--all`) |
+| `-a`, `--all` | Add the host mapping to every configured edge |
 | `-r`, `--remark` TEXT | Host mapping remark |
 | `--auth` TEXT | HTTP Basic Auth (`"user=pass"` or `"user1=pass1,user2=pass2"`) |
 | `-y`, `--yes` | Skip confirmation prompts |
 
 ```bash
-nps-ctl host add -d app.example.com -c my-server -T :8080
-nps-ctl host add -d api.example.com -c my-server -T 127.0.0.1:3000 -r "api"
-nps-ctl host add -d private.example.com -c my-server -T :8080 --auth "admin=secret"
+nps-ctl host add -d app.example.com -c my-server -T :8080 -a
+nps-ctl host add -d api.example.com -c my-server -T 127.0.0.1:3000 -a -r "api"
+nps-ctl host add -d private.example.com -c my-server -T :8080 -a --auth "admin=secret"
 ```
 
 ### `host del`
@@ -466,13 +525,14 @@ Delete a host mapping from edge node(s). Requires one of `--id`, `-d/--domain`, 
 | `--id` ID | Host ID (edge-specific, requires `-e`) |
 | `-d`, `--domain` DOMAIN | Host domain name (can operate across all edges) |
 | `-r`, `--remark` TEXT | Host remark (can operate across all edges) |
-| `-e`, `--edge` EDGE | Edge name (required for `--id`, optional for `--domain`/`--remark`) |
+| `-e`, `--edge` EDGE | Edge name (required with `--id`; otherwise use this or `-a/--all`) |
+| `-a`, `--all` | Delete the matching host mapping from every configured edge |
 | `-y`, `--yes` | Skip confirmation prompts |
 
 ```bash
 nps-ctl host del --id 2 -e nps-us -y             # By edge-specific ID
-nps-ctl host del -d app.example.com               # By domain across all edges
-nps-ctl host del -r "api"                         # By remark across all edges
+nps-ctl host del -d app.example.com -a            # By domain across all edges
+nps-ctl host del -r "api" -a                      # By remark across all edges
 ```
 
 !!! note "Multi-match safety"
@@ -489,7 +549,8 @@ Edit an existing host mapping on edge node(s). Locator arguments identify the ho
 | `--id` ID | Host ID to edit (edge-specific, requires `-e`) — mutually exclusive with `--domain` and `--remark` |
 | `-d`, `--domain` DOMAIN | Host domain to locate (can operate across all edges) |
 | `-r`, `--remark` TEXT | Host remark to locate (can operate across all edges) |
-| `-e`, `--edge` EDGE | Edge name (required for `--id`, optional for `--domain`/`--remark`) |
+| `-e`, `--edge` EDGE | Edge name (required with `--id`; otherwise use this or `-a/--all`) |
+| `-a`, `--all` | Edit the matching host mapping on every configured edge |
 
 **Value options (what to change):**
 
@@ -502,10 +563,10 @@ Edit an existing host mapping on edge node(s). Locator arguments identify the ho
 | `-y`, `--yes` | Skip confirmation prompts |
 
 ```bash
-nps-ctl host edit -d app.example.com --new-target :9090
-nps-ctl host edit -r "api" --new-domain api-v2.example.com
+nps-ctl host edit -d app.example.com -a --new-target :9090
+nps-ctl host edit -r "api" -a --new-domain api-v2.example.com
 nps-ctl host edit --id 2 -e nps-us --new-remark "web-app"
-nps-ctl host edit -d private.example.com --auth ""   # clear auth
+nps-ctl host edit -d private.example.com -a --auth ""   # clear auth
 ```
 
 ---

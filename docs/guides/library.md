@@ -41,6 +41,11 @@ add_client(nps, remark="my-server", vkey="unique-key-123")
 with keys like `Id`, `Remark`, `VerifyKey`, `Status`, `IsConnect`, `Addr`,
 `RateLimit`, `MaxConn`, and `NowConn`.
 
+All three list helpers (`list_clients`, `list_hosts`, `list_tunnels`) follow
+the server's pagination automatically and return every row. Pass
+`paginate=False` to make a single request, or tune `limit`/`offset` on the
+underlying page request.
+
 ### Host management
 
 ```python

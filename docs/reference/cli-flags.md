@@ -18,12 +18,19 @@ nps-ctl [global options] <command> <subcommand> [options]
 | | `--socks-proxy` | SOCKS5 proxy URL |
 | | `--auto-proxy` | Auto-create SSH SOCKS proxy via specified host |
 | | `--no-ssl-verify` | Disable SSL certificate verification |
+| | `--json` | Emit machine-readable JSON (list, status, and `edge list`) |
+| | `--no-color` | Disable colored output |
+
+Read commands default to all configured edges. `-e/--edge` narrows to one
+edge and `-a/--all` is an explicit all-edges alias; mutating commands
+(`client del`, `host/tunnel add|del|edit`) require one of them.
 
 ## Short flag reference
 
 | Short | Long | Used in | Description |
 |-------|------|---------|-------------|
-| `-a` | `--all` | `client list`, `tunnel list`, `host list` | Show items from all edges |
+| `-a` | `--all` | `client list/del`, `tunnel list/add/del/edit`, `host list/add/del/edit` | Explicit all-edges scope (default for reads, required alternative for mutations) |
+| | `--matrix` | `host list` | Domain-by-edge presence matrix |
 | `-c` | `--client` | `client del/push/install/upgrade/reconfig/uninstall/status/restart`, `tunnel add`, `host add` | Client name (remark) or numeric ID |
 | `-d` | `--domain` | `host add/del/edit` | Domain name |
 | `-e` | `--edge` | Most commands | Scope operation to a specific edge |
@@ -49,7 +56,7 @@ nps-ctl [global options] <command> <subcommand> [options]
 | Group | Subcommands |
 |-------|-------------|
 | `client` | `list`, `push`, `add`, `install`, `upgrade`, `reconfig`, `uninstall`, `status`, `restart`, `del` |
-| `edge` | `status`, `install`, `upgrade`, `reconfig`, `uninstall`, `sync`, `export` |
+| `edge` | `list`, `status`, `install`, `upgrade`, `reconfig`, `uninstall`, `sync`, `export` |
 | `tunnel` | `list`, `add`, `del`, `edit`, `start`, `stop` |
 | `host` | `list`, `add`, `del`, `edit` |
 | `util` | `generate-auth-key` |
