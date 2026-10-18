@@ -84,6 +84,7 @@ class TunnelInfo(TypedDict, total=False):
     LocalPath: str
     StripPre: str
     Target: dict[str, Any]
+    UserAuth: dict[str, Any]
 
 
 class HostInfo(TypedDict, total=False):
