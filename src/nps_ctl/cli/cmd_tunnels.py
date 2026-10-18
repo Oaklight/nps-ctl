@@ -14,6 +14,7 @@ from .helpers import (
     print_edge_summary,
     print_error,
     print_json,
+    redact_user_auth,
     resolve_write_edges,
     validate_read_target,
 )
@@ -79,7 +80,7 @@ def cmd_tunnels(args: argparse.Namespace) -> int:
         if json_mode:
             print_json(
                 build_edge_results_payload(
-                    {edge_name: tunnels},
+                    {edge_name: redact_user_auth(tunnels)},
                     {},
                     lambda name: edge_region(cluster, name),
                     configured=len(cluster.edge_names),
@@ -97,7 +98,7 @@ def cmd_tunnels(args: argparse.Namespace) -> int:
     if json_mode:
         print_json(
             build_edge_results_payload(
-                all_tunnels,
+                {name: redact_user_auth(items) for name, items in all_tunnels.items()},
                 all_tunnels.errors,
                 lambda name: edge_region(cluster, name),
             )
@@ -221,6 +222,7 @@ def _print_tunnels(tunnels: list[TunnelInfo]) -> None:
     table.add_column("Target", style="green", overflow="fold")
     table.add_column("Client")
     table.add_column("Status")
+    table.add_column("Auth", style="dim")
 
     for t in tunnels:
         client_info = t.get("Client", {})
@@ -229,6 +231,8 @@ def _print_tunnels(tunnels: list[TunnelInfo]) -> None:
         status = "[green]Running[/green]" if is_running else "[red]Stopped[/red]"
         target = t.get("Target", {})
         target_addr = target.get("TargetStr", "") if target else t.get("TargetAddr", "")
+        user_auth = t.get("UserAuth", {})
+        auth_display = "✓" if user_auth and user_auth.get("Content") else ""
 
         table.add_row(
             str(t.get("Id", "")),
@@ -237,6 +241,7 @@ def _print_tunnels(tunnels: list[TunnelInfo]) -> None:
             target_addr,
             client_name,
             status,
+            auth_display,
         )
 
     console.print(table, crop=False)

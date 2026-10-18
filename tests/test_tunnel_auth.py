@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from nps_ctl import tunnel
-from nps_ctl.cli.cmd_tunnels import _apply_tunnel_edit
+from nps_ctl.cli.cmd_tunnels import _apply_tunnel_edit, _print_tunnels
+from nps_ctl.cli.helpers import redact_user_auth
 from nps_ctl.cli.parser import create_parser
 
 
@@ -97,3 +98,45 @@ def test_tunnel_add_and_edit_parsers_accept_auth():
 
     assert add_args.auth == "u=p"
     assert edit_args.auth == "u=p"
+
+
+def test_redact_user_auth_replaces_credentials():
+    rows = [
+        {"Id": 1, "UserAuth": {"Content": "admin=secret"}},
+        {"Id": 2, "UserAuth": {"Content": ""}},
+        {"Id": 3},
+    ]
+
+    redacted = redact_user_auth(rows)
+
+    assert redacted[0]["UserAuth"]["Content"] == "**redacted**"
+    assert redacted[1]["UserAuth"]["Content"] == ""
+    assert redacted[2] == {"Id": 3}
+    assert rows[0]["UserAuth"]["Content"] == "admin=secret"
+
+
+def test_print_tunnels_marks_protected_tunnels(capsys):
+    _print_tunnels(
+        [
+            {
+                "Id": 1,
+                "Mode": "tcp",
+                "Port": 8080,
+                "Status": True,
+                "RunStatus": True,
+                "UserAuth": {"Content": "admin=secret"},
+            },
+            {
+                "Id": 2,
+                "Mode": "tcp",
+                "Port": 8081,
+                "Status": True,
+                "RunStatus": True,
+                "UserAuth": {"Content": ""},
+            },
+        ]
+    )
+
+    out = capsys.readouterr().out
+    assert "Auth" in out
+    assert out.count("✓") == 1
