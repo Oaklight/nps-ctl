@@ -8,6 +8,21 @@ All notable changes to nps-ctl are documented here. This project follows [Keep a
 
 ---
 
+## v0.8.0 — 2026-10-18
+
+### Added
+
+- **`host status`**: per-edge reachability, online/total clients, host-mapping count, and distinct target-port count, with `-e/--edge`, `-a/--all`, `--json`, and `--no-color`
+- Shared edge status collector backing both `host status` and `edge status`, with `None`/`null` counts for failed fetches
+- Cluster subset fetching: `get_all_clients()` and `get_all_hosts()` accept `edge_names`, and an unknown edge reports a clean `Edge '<name>' not found` error
+
+### Changed
+
+- **`edge status`** now reports client, host, and target-port counts alongside reachability; it exits 1 on any client or host fetch failure, not only unreachable edges
+- `edge status` JSON keeps `summary: {configured, online, offline}` and adds per-edge counts plus a top-level `totals`
+
+---
+
 ## v0.7.0 — 2026-10-08
 
 ### Added

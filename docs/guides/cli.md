@@ -224,7 +224,9 @@ nps-ctl edge list --json
 
 ### `edge status`
 
-Show status of all configured edge nodes.
+Show reachability and inventory for every configured edge. This fetches the
+full client and host lists, so its cost grows with the cluster: it is an
+inventory command, not a lightweight health probe.
 
 | Option | Description |
 | --- | --- |
@@ -236,7 +238,22 @@ nps-ctl edge status
 nps-ctl edge status --json
 ```
 
-Exits 1 if any edge is offline.
+Columns are `Edge`, `Region`, `API URL`, `Status`, `Clients`, `Hosts`, and
+`Ports`. `Clients` is `<online>/<total>`; `Hosts` counts host mappings and
+`Ports` counts distinct target ports parsed from `Target.TargetStr`. A count
+that could not be fetched is shown as `-`.
+
+Status values:
+
+- `✓ Online` — both the client and host fetches succeeded.
+- `⚠ Partial` — one of the two fetches failed; the other counts are shown.
+- `✗ Offline` — neither fetch succeeded.
+
+JSON keeps `summary: {configured, online, offline}` and adds per-edge `ok`,
+`partial`, `clients_total`, `clients_online`, `hosts_total`, `ports`, and
+`error`, plus a top-level `totals`. Failed counts are `null`, never `0`.
+
+Exits 1 if any edge is offline, or if any client or host fetch failed.
 
 ### `edge install`
 
@@ -494,6 +511,32 @@ The matrix shows the union of domains as rows and configured edges as
 columns. Cells are `✓` present, `-` missing, and `!` fetch failed; failed
 edges also show their error under the table. The command exits 1 when any
 edge could not be fetched.
+
+### `host status`
+
+Show client liveness and host inventory for selected edges.
+
+| Option | Description |
+| --- | --- |
+| `-e`, `--edge` EDGE | Edge name to query (default: all edges) |
+| `-a`, `--all` | Explicit all-edges alias (the default) |
+| `--json` | Emit machine-readable JSON |
+| `--no-color` | Disable colored output |
+
+```bash
+nps-ctl host status
+nps-ctl host status -e nps-us
+nps-ctl host status -a --json
+```
+
+Columns are `Edge`, `Region`, `Status`, `Clients`, `Hosts`, and `Ports`, with
+the same status and count rules as `edge status`. The summary line reports
+online edges, online/total clients, host mappings, and distinct target ports.
+Unknown counts render as `-` in tables and `null` in JSON.
+
+The command exits 0 only when every selected edge's client and host fetches
+succeed, 1 on any fetch or configuration failure (including an unknown `-e`),
+and 2 when `-e` and `-a` are combined.
 
 ### `host add`
 
