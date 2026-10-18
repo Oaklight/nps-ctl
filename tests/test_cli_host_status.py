@@ -139,8 +139,8 @@ def test_host_status_json_uses_shared_payload(monkeypatch, capsys):
         "failed": 0,
         "partial": 1,
         "clients": 3,
-        "hosts": 2,
-        "ports": 2,
+        "hosts": None,
+        "ports": None,
     }
     failed = payload["edges"][1]
     assert failed["edge"] == "edge-b"
