@@ -127,8 +127,11 @@ def fetch_all_api_pages(
 
         {"data": [...], "meta": {"pagination": {"total": N, "has_more": bool}}}
 
-    When ``total`` is present it is authoritative; otherwise a short page
-    ends the walk. The server must honour ``offset``.
+    When ``total`` is present it is authoritative; ``has_more`` is honoured
+    when present; otherwise a short page ends the walk. The server must
+    honour ``offset``. If the server reports neither ``total`` nor
+    ``has_more`` and clamps ``limit`` below the requested size, the walk
+    ends early and the caller cannot distinguish that from a complete list.
 
     Args:
         nps: NPSClient instance.
