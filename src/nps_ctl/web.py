@@ -377,7 +377,7 @@ class _AdminHandler(BaseHTTPRequestHandler):
     server_version = "nps-ctl-web"
 
     def do_GET(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
-        if not self._check_auth():
+        if not self._check_host() or not self._check_auth():
             return
 
         path = urlparse(self.path).path.rstrip("/") or "/"
@@ -413,7 +413,7 @@ class _AdminHandler(BaseHTTPRequestHandler):
             self._send_json({"error": "Internal server error"}, status=500)
 
     def do_POST(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
-        if not self._check_auth():
+        if not self._check_host() or not self._check_auth():
             return
         server = cast("AdminServer", self.server)
         path = urlparse(self.path).path.rstrip("/")
@@ -476,6 +476,22 @@ class _AdminHandler(BaseHTTPRequestHandler):
         logger.info("Dashboard action %s: %s", path, json.dumps(result.get("results")))
         self._send_json(result)
 
+    def _check_host(self) -> bool:
+        """Reject non-loopback Host headers when no auth is configured.
+
+        Without Basic Auth the only gate is the loopback bind, which a DNS
+        rebinding page defeats: the browser sends ``Host: evil.example`` to
+        127.0.0.1, so ``Origin`` matches ``Host`` and the page can read the
+        CSRF token. Pinning ``Host`` to loopback names closes that.
+        """
+        if getattr(self.server, "auth_header", ""):
+            return True
+        host = urlparse("//" + (self.headers.get("Host") or "")).hostname or ""
+        if host in LOOPBACK_HOSTS:
+            return True
+        self._send_json({"error": "Host not allowed"}, status=403)
+        return False
+
     def _check_auth(self) -> bool:
         expected = getattr(self.server, "auth_header", "")
         if not expected:
@@ -514,8 +530,9 @@ class _AdminHandler(BaseHTTPRequestHandler):
         self.send_header(
             "Content-Security-Policy",
             "default-src 'none'; script-src 'unsafe-inline'; "
-            "style-src 'unsafe-inline'; connect-src 'self'",
+            "style-src 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'",
         )
+        self.send_header("X-Frame-Options", "DENY")
 
     def log_message(self, format: str, *args: Any) -> None:
         logger.info("%s - %s", self.address_string(), format % args)
