@@ -7,7 +7,7 @@ from rich.markup import escape
 from .. import client_mgmt, tunnel
 from ..cluster import NPSCluster
 from ..exceptions import NPSError
-from ..status import build_status_payload, collect_edge_status
+from ..status import build_status_payload, collect_edge_status, extract_tunnel_ports
 from ..types import TunnelInfo
 from .helpers import (
     build_edge_results_payload,
@@ -104,7 +104,7 @@ def cmd_tunnels(args: argparse.Namespace) -> int:
         _print_tunnels(tunnels)
         return 0
 
-    all_tunnels = cluster.get_all_tunnels()
+    all_tunnels = cluster.get_all_tunnels(tunnel_type=tunnel_type)
     if json_mode:
         print_json(
             build_edge_results_payload(
@@ -519,7 +519,8 @@ def _find_tunnels(
         return [
             t
             for t in all_tunnels
-            if t.get("Port") == port and t.get("Mode") == tunnel_type
+            if port in extract_tunnel_ports(t)
+            and tunnel.tunnel_matches_type(t, tunnel_type)
         ]
     return []
 
@@ -783,6 +784,9 @@ def _apply_tunnel_edit(
     )
     client_id = client_obj.get("Id", 0) if client_obj else 0
     tunnel_type = current.get("Mode", "tcp")
+    proxy_mode = (
+        tunnel_type == tunnel.MIX_PROXY or tunnel_type in tunnel.MIX_PROXY_ALIASES
+    )
 
     return tunnel.edit_tunnel(
         nps,
@@ -793,6 +797,8 @@ def _apply_tunnel_edit(
         target=updated_target,
         remark=updated_remark,
         auth=updated_auth,
+        enable_socks5=current.get("Socks5Proxy") if proxy_mode else None,
+        enable_http=current.get("HttpProxy") if proxy_mode else None,
     )
 
 

@@ -10,6 +10,7 @@ import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
+from functools import partial
 from pathlib import Path
 from threading import Lock
 from typing import Any, TypeVar
@@ -441,6 +442,7 @@ class NPSCluster:
         self,
         max_workers: int = 4,
         edge_names: list[str] | None = None,
+        tunnel_type: str = "",
     ) -> EdgeResults[TunnelInfo]:
         """Get tunnels from all or selected edges in parallel.
 
@@ -448,6 +450,7 @@ class NPSCluster:
             max_workers: Maximum number of parallel workers.
             edge_names: Edges to fetch. ``None`` means every configured edge;
                 an empty list means none.
+            tunnel_type: Filter by tunnel type. Empty means every type.
 
         Returns:
             Mapping of edge names to tunnel lists, in configured edge order.
@@ -457,8 +460,13 @@ class NPSCluster:
         op_logger.operation_start(ctx)
         start_time = time.perf_counter()
 
+        fetch_tunnels = (
+            partial(tunnel.list_tunnels, tunnel_type=tunnel_type)
+            if tunnel_type
+            else tunnel.list_tunnels
+        )
         raw_results = self._parallel_fetch(
-            tunnel.list_tunnels,
+            fetch_tunnels,
             "list_tunnels",
             edge_names=edge_names,
             max_workers=max_workers,

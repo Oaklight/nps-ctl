@@ -95,7 +95,8 @@ nps-ctl tunnel stop --edge nps-america --id 5
 ```
 
 Tunnel counts include `mixProxy`, where djylb/nps stores socks5 and httpProxy
-tunnels.
+tunnels. `tunnel list -t socks5|httpProxy` matches those rows; `-t mixProxy`
+matches both.
 
 ## Common tasks
 

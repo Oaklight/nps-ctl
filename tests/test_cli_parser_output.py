@@ -65,6 +65,31 @@ def test_tunnel_status_accepts_edge_and_all():
     assert args.all is True
 
 
+def test_tunnel_type_filters_accept_mixproxy():
+    args = create_parser().parse_args(["tunnel", "list", "-t", "mixProxy"])
+    assert args.type == "mixProxy"
+
+    args = create_parser().parse_args(
+        ["tunnel", "del", "-p", "1080", "-t", "mixProxy", "-a", "-y"]
+    )
+    assert args.type == "mixProxy"
+
+    args = create_parser().parse_args(
+        [
+            "tunnel",
+            "edit",
+            "-p",
+            "1080",
+            "-t",
+            "mixProxy",
+            "-a",
+            "--new-target",
+            "127.0.0.1:1080",
+        ]
+    )
+    assert args.type == "mixProxy"
+
+
 def test_edge_status_accepts_edge_and_all():
     args = create_parser().parse_args(["edge", "status", "-e", "edge-a"])
     assert args.edge == "edge-a"

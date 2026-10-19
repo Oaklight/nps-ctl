@@ -656,7 +656,16 @@ def _add_tunnel_commands(subparsers) -> None:
     list_parser.add_argument(
         "-t",
         "--type",
-        choices=["tcp", "udp", "socks5", "httpProxy", "secret", "p2p", "file"],
+        choices=[
+            "tcp",
+            "udp",
+            "socks5",
+            "httpProxy",
+            "mixProxy",
+            "secret",
+            "p2p",
+            "file",
+        ],
         help="Filter by tunnel type",
     )
     list_parser.add_argument(
@@ -746,7 +755,7 @@ def _add_tunnel_commands(subparsers) -> None:
     tunnel_del_parser.add_argument(
         "-t",
         "--type",
-        choices=["tcp", "udp", "socks5", "httpProxy"],
+        choices=["tcp", "udp", "socks5", "httpProxy", "mixProxy"],
         help="Tunnel type (use with -p/--port to locate tunnel across edges)",
     )
     add_edge_argument(
@@ -790,7 +799,7 @@ def _add_tunnel_commands(subparsers) -> None:
     tunnel_edit_parser.add_argument(
         "-t",
         "--type",
-        choices=["tcp", "udp", "socks5", "httpProxy"],
+        choices=["tcp", "udp", "socks5", "httpProxy", "mixProxy"],
         help="Tunnel type to locate (use with -p/--port across edges)",
     )
     add_edge_argument(

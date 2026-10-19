@@ -85,6 +85,8 @@ class TunnelInfo(TypedDict, total=False):
     StripPre: str
     Target: dict[str, Any]
     UserAuth: dict[str, Any]
+    Socks5Proxy: bool
+    HttpProxy: bool
 
 
 class HostInfo(TypedDict, total=False):

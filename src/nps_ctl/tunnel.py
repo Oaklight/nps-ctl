@@ -40,6 +40,53 @@ TUNNEL_TYPES = (
     "file",
 )
 
+MIX_PROXY = "mixProxy"
+
+# Types that djylb/nps stores under the ``mixProxy`` mode.
+MIX_PROXY_ALIASES = ("socks5", "httpProxy")
+
+
+def tunnel_matches_type(tunnel: TunnelInfo, tunnel_type: str) -> bool:
+    """Return whether a tunnel matches a type filter.
+
+    ``socks5`` and ``httpProxy`` tunnels are stored as ``mixProxy`` by
+    djylb/nps. When the server reports the ``Socks5Proxy``/``HttpProxy``
+    flags they distinguish the two; when neither is set, a ``mixProxy`` row
+    matches either alias.
+    """
+    if not tunnel_type:
+        return True
+    mode = tunnel.get("Mode", "")
+    if mode == tunnel_type:
+        return True
+    if mode != MIX_PROXY:
+        return False
+    if tunnel_type == MIX_PROXY:
+        return True
+    if tunnel_type not in MIX_PROXY_ALIASES:
+        return False
+    if not (tunnel.get("Socks5Proxy") or tunnel.get("HttpProxy")):
+        return True
+    if tunnel_type == "socks5":
+        return bool(tunnel.get("Socks5Proxy"))
+    return bool(tunnel.get("HttpProxy"))
+
+
+def _filter_tunnels(tunnels: list[TunnelInfo], tunnel_type: str) -> list[TunnelInfo]:
+    """Filter by type and drop duplicate IDs from a multi-query merge."""
+    seen: set[int] = set()
+    filtered: list[TunnelInfo] = []
+    for tunnel in tunnels:
+        if not tunnel_matches_type(tunnel, tunnel_type):
+            continue
+        tunnel_id = tunnel.get("Id")
+        if tunnel_id:
+            if tunnel_id in seen:
+                continue
+            seen.add(tunnel_id)
+        filtered.append(tunnel)
+    return filtered
+
 
 # --- Public API (dispatch to v1/v2) ---
 
@@ -187,6 +234,9 @@ def edit_tunnel(
     local_path: str = "",
     strip_pre: str = "",
     auth: str = "",
+    *,
+    enable_socks5: bool | None = None,
+    enable_http: bool | None = None,
 ) -> bool:
     """Edit an existing tunnel.
 
@@ -206,6 +256,8 @@ def edit_tunnel(
         local_path: Local path (for file service).
         strip_pre: URL prefix stripping.
         auth: HTTP Basic Auth credentials (format: "user1=pass1\\nuser2=pass2").
+        enable_socks5: Keep the socks5 flag for proxy modes (None to omit).
+        enable_http: Keep the HTTP proxy flag for proxy modes (None to omit).
 
     Returns:
         True if successful.
@@ -227,6 +279,8 @@ def edit_tunnel(
             local_path,
             strip_pre,
             auth,
+            enable_socks5,
+            enable_http,
         )
     return _edit_tunnel_v1(
         nps,
@@ -244,6 +298,8 @@ def edit_tunnel(
         local_path,
         strip_pre,
         auth,
+        enable_socks5,
+        enable_http,
     )
 
 
@@ -330,15 +386,25 @@ def _list_tunnels_v1(
     paginate: bool,
 ) -> list[TunnelInfo]:
     if tunnel_type:
-        return _list_tunnels_by_type_v1(
-            nps,
-            tunnel_type,
-            client_id=client_id,
-            search=search,
-            offset=offset,
-            limit=limit,
-            paginate=paginate,
-        )
+        types = [tunnel_type]
+        if tunnel_type in MIX_PROXY_ALIASES:
+            # djylb/nps stores socks5/httpProxy as mixProxy; query both so
+            # the same filter also works on older ehang-io servers.
+            types.append(MIX_PROXY)
+        rows: list[TunnelInfo] = []
+        for kind in types:
+            rows.extend(
+                _list_tunnels_by_type_v1(
+                    nps,
+                    kind,
+                    client_id=client_id,
+                    search=search,
+                    offset=offset,
+                    limit=limit,
+                    paginate=paginate,
+                )
+            )
+        return _filter_tunnels(rows, tunnel_type)
     # Query all tunnel types and merge results (8 requests); mixProxy covers
     # socks5/httpProxy tunnels on djylb/nps.
     all_tunnels: list[TunnelInfo] = []
@@ -353,7 +419,7 @@ def _list_tunnels_v1(
             paginate=paginate,
         )
         all_tunnels.extend(tunnels)
-    return all_tunnels
+    return _filter_tunnels(all_tunnels, "")
 
 
 def _get_tunnel_v1(nps: NPSClient, tunnel_id: int) -> TunnelInfo | None:
@@ -420,6 +486,8 @@ def _edit_tunnel_v1(
     local_path: str,
     strip_pre: str,
     auth: str,
+    enable_socks5: bool | None,
+    enable_http: bool | None,
 ) -> bool:
     data: dict[str, Any] = {
         "id": tunnel_id,
@@ -443,6 +511,10 @@ def _edit_tunnel_v1(
         data["local_path"] = local_path
     if strip_pre:
         data["strip_pre"] = strip_pre
+    if enable_socks5 is not None:
+        data["enable_socks5"] = enable_socks5
+    if enable_http is not None:
+        data["enable_http"] = enable_http
     result = nps.request("/index/edit", method="POST", data=data)
     return result.get("status") == 1
 
@@ -507,6 +579,12 @@ def _normalize_tunnel(item: dict[str, Any]) -> TunnelInfo:
         "LocalPath": item.get("local_path", ""),
         "StripPre": item.get("strip_pre", ""),
         "Ports": _normalize_ports(item.get("ports", "")),
+        "Socks5Proxy": item.get(
+            "enable_socks5", item.get("socks5_proxy", item.get("Socks5Proxy", False))
+        ),
+        "HttpProxy": item.get(
+            "enable_http", item.get("http_proxy", item.get("HttpProxy", False))
+        ),
         "Flow": {
             "InletFlow": item.get("service_in_bytes", 0),
             "ExportFlow": item.get("service_out_bytes", 0),
@@ -538,13 +616,20 @@ def _list_tunnels_v2(
         params["search"] = search
     if client_id is not None:
         params["client_id"] = client_id
-    if tunnel_type:
+    alias_filter = tunnel_type in MIX_PROXY_ALIASES or tunnel_type == MIX_PROXY
+    if tunnel_type and not alias_filter:
         params["mode"] = tunnel_type
     if not paginate:
         resp = nps.api_request("GET", "/api/tunnels", params=params)
-        return [_normalize_tunnel(i) for i in extract_api_items(resp)]
-    rows = fetch_all_api_pages(nps, "/api/tunnels", params, limit=limit)
-    return [_normalize_tunnel(i) for i in rows]
+        rows = [_normalize_tunnel(i) for i in extract_api_items(resp)]
+    else:
+        rows = [
+            _normalize_tunnel(i)
+            for i in fetch_all_api_pages(nps, "/api/tunnels", params, limit=limit)
+        ]
+    # Filter proxy modes locally so socks5/httpProxy/mixProxy resolve the
+    # same way whether the server stores the mode or its alias.
+    return _filter_tunnels(rows, tunnel_type)
 
 
 def _get_tunnel_v2(nps: NPSClient, tunnel_id: int) -> TunnelInfo | None:
@@ -612,6 +697,8 @@ def _edit_tunnel_v2(
     local_path: str,
     strip_pre: str,
     auth: str,
+    enable_socks5: bool | None,
+    enable_http: bool | None,
 ) -> bool:
     data: dict[str, Any] = {
         "client_id": client_id,
@@ -634,6 +721,10 @@ def _edit_tunnel_v2(
         data["local_path"] = local_path
     if strip_pre:
         data["strip_pre"] = strip_pre
+    if enable_socks5 is not None:
+        data["enable_socks5"] = enable_socks5
+    if enable_http is not None:
+        data["enable_http"] = enable_http
     resp = nps.api_request(
         "POST", f"/api/tunnels/{tunnel_id}/actions/update", data=data
     )
