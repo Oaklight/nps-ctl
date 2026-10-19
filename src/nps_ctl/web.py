@@ -483,8 +483,15 @@ class _AdminHandler(BaseHTTPRequestHandler):
         rebinding page defeats: the browser sends ``Host: evil.example`` to
         127.0.0.1, so ``Origin`` matches ``Host`` and the page can read the
         CSRF token. Pinning ``Host`` to loopback names closes that.
+
+        A non-loopback bind without auth is the explicit ``--insecure`` mode:
+        writes are refused there, and the operator has already accepted
+        unauthenticated network access, so Host pinning would only break the
+        documented remote read-only dashboard.
         """
         if getattr(self.server, "auth_header", ""):
+            return True
+        if getattr(self.server, "bind_host", "127.0.0.1") not in LOOPBACK_HOSTS:
             return True
         host = urlparse("//" + (self.headers.get("Host") or "")).hostname or ""
         if host in LOOPBACK_HOSTS:
@@ -552,6 +559,7 @@ class AdminServer(ThreadingHTTPServer):
     ) -> None:
         super().__init__(address, _AdminHandler)
         self.cluster = cluster
+        self.bind_host = address[0]
         self.auth_header = auth_header
         self.allow_writes = allow_writes
         self.csrf_token = secrets.token_urlsafe(32)
