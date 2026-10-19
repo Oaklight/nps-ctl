@@ -218,6 +218,81 @@ def _fetch_resources(
         return {name: future.result() for name, future in futures.items()}
 
 
+def client_identity(client: Any) -> str:
+    """Return a cross-edge identity for a client.
+
+    Client IDs are assigned per edge, so replicas are matched on VerifyKey
+    (as ``sync_from`` does), falling back to the remark.
+    """
+    if not isinstance(client, dict):
+        return ""
+    vkey = client.get("VerifyKey") or ""
+    if vkey:
+        return f"vkey:{vkey}"
+    return f"remark:{client.get('Remark', '')}"
+
+
+def tunnel_identity(tunnel: Any) -> tuple[str, str, int | None]:
+    """Return a cross-edge identity for a tunnel: owner, mode, server port."""
+    if not isinstance(tunnel, dict):
+        return ("", "", None)
+    return (
+        client_identity(tunnel.get("Client") or {}),
+        str(tunnel.get("Mode", "")),
+        _coerce_port(tunnel.get("Port")),
+    )
+
+
+def host_identity(entry: Any) -> tuple[str, str]:
+    """Return a cross-edge identity for a host mapping: domain and location."""
+    if not isinstance(entry, dict):
+        return ("", "")
+    return (str(entry.get("Host", "")), str(entry.get("Location") or "/"))
+
+
+RESOURCE_IDENTITIES: dict[str, Any] = {
+    "clients": client_identity,
+    "tunnels": tunnel_identity,
+    "hosts": host_identity,
+}
+
+
+@dataclass(frozen=True)
+class ClusterStatus:
+    """Per-edge status plus cross-edge inventory.
+
+    Edges are usually replicas of one another, so summing per-edge counts
+    overstates the cluster. ``unique`` counts distinct resources across the
+    edges that answered (``None`` when no edge answered, absent when the
+    resource was not requested). ``missing`` maps each answering edge to how
+    many of those distinct resources it lacks.
+    """
+
+    rows: list[EdgeStatus]
+    unique: dict[str, int | None]
+    missing: dict[str, dict[str, int]]
+
+
+def _inventory(
+    fetched: dict[str, Any], known: list[str]
+) -> tuple[dict[str, int | None], dict[str, dict[str, int]]]:
+    """Compute distinct resource counts and per-edge gaps."""
+    unique: dict[str, int | None] = {}
+    missing: dict[str, dict[str, int]] = {name: {} for name in known}
+    for resource, results in fetched.items():
+        identity = RESOURCE_IDENTITIES[resource]
+        per_edge = {
+            name: {identity(item) for item in results.get(name, [])}
+            for name in known
+            if name not in results.errors
+        }
+        union: set[Any] = set().union(*per_edge.values())
+        unique[resource] = len(union) if per_edge else None
+        for name, keys in per_edge.items():
+            missing[name][resource] = len(union - keys)
+    return unique, missing
+
+
 def collect_edge_status(
     cluster: NPSCluster,
     edge_names: list[str] | None = None,
@@ -227,6 +302,28 @@ def collect_edge_status(
     include_tunnels: bool = False,
 ) -> list[EdgeStatus]:
     """Collect status for all or selected edges.
+
+    See :func:`collect_cluster_status` for arguments; this returns only the
+    per-edge rows.
+    """
+    return collect_cluster_status(
+        cluster,
+        edge_names,
+        max_workers,
+        include_hosts=include_hosts,
+        include_tunnels=include_tunnels,
+    ).rows
+
+
+def collect_cluster_status(
+    cluster: NPSCluster,
+    edge_names: list[str] | None = None,
+    max_workers: int = 4,
+    *,
+    include_hosts: bool = True,
+    include_tunnels: bool = False,
+) -> ClusterStatus:
+    """Collect per-edge status and cross-edge inventory.
 
     Args:
         cluster: NPSCluster instance.
@@ -340,7 +437,8 @@ def collect_edge_status(
             )
         )
 
-    return rows
+    unique, missing = _inventory(fetched, known)
+    return ClusterStatus(rows=rows, unique=unique, missing=missing)
 
 
 def sum_counts(values: list[int | None]) -> int | None:
