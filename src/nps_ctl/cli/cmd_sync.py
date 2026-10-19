@@ -7,7 +7,7 @@ import sys
 from .. import client_mgmt, host, tunnel
 from ..cluster import NPSCluster
 from ..exceptions import NPSError
-from .helpers import console
+from .helpers import console, print_error
 
 
 def cmd_sync(args: argparse.Namespace) -> int:
@@ -19,14 +19,24 @@ def cmd_sync(args: argparse.Namespace) -> int:
     try:
         cluster = NPSCluster(args.config, proxy=proxy, socks_proxy=socks_proxy)
     except FileNotFoundError as e:
-        console.print(f"[red]Error: {e}[/red]", file=sys.stderr)
+        print_error(str(e))
         return 1
 
-    source = args.source
+    source = args.source or cluster.primary_edge
+    if not source:
+        configured = cluster.configured_primary
+        if configured:
+            message = f"Primary edge '{configured}' is not a configured edge"
+        else:
+            message = (
+                "No source edge: pass -f/--from or set one with 'edge primary NAME'"
+            )
+        print_error(message)
+        return 2
+    if not args.source:
+        console.print(f"[dim]Using primary edge as source: {source}[/dim]")
     if source not in cluster.edge_names:
-        console.print(
-            f"[red]Error: Source edge '{source}' not found[/red]", file=sys.stderr
-        )
+        print_error(f"Source edge '{source}' not found")
         return 1
 
     # Determine what to sync
@@ -40,10 +50,7 @@ def cmd_sync(args: argparse.Namespace) -> int:
         # Validate target edges
         invalid = [t for t in target_edges if t not in cluster.edge_names]
         if invalid:
-            console.print(
-                f"[red]Error: Unknown target edges: {', '.join(invalid)}[/red]",
-                file=sys.stderr,
-            )
+            print_error(f"Unknown target edges: {', '.join(invalid)}")
             return 1
         if source in target_edges:
             target_edges = [t for t in target_edges if t != source]
@@ -51,7 +58,7 @@ def cmd_sync(args: argparse.Namespace) -> int:
         target_edges = [n for n in cluster.edge_names if n != source]
 
     if not target_edges:
-        console.print("[red]Error: No target edges to sync to[/red]", file=sys.stderr)
+        print_error("No target edges to sync to")
         return 1
 
     # Get options
@@ -93,7 +100,7 @@ def cmd_sync(args: argparse.Namespace) -> int:
             _print_detailed_results(results)
 
     except NPSError as e:
-        console.print(f"[red]Error: {e}[/red]", file=sys.stderr)
+        print_error(str(e))
         return 1
 
     failed_targets = [

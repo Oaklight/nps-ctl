@@ -109,6 +109,7 @@ class NPSCluster:
     _edges: dict[str, EdgeConfig] = field(default_factory=dict, init=False)
     _clients: dict[str, NPSClient] = field(default_factory=dict, init=False)
     _npc_clients: dict[str, NPCClientConfig] = field(default_factory=dict, init=False)
+    _primary: str = field(default="", init=False)
 
     def __post_init__(self) -> None:
         """Load configuration and initialize clients."""
@@ -142,6 +143,7 @@ class NPSCluster:
         with open(path, "rb") as f:
             config = tomllib.load(f)
 
+        self._primary = str(config.get("primary", "") or "")
         edges = config.get("edges", [])
         for edge in edges:
             edge_config = EdgeConfig(
@@ -223,6 +225,20 @@ class NPSCluster:
     def edge_names(self) -> list[str]:
         """Get list of all edge names."""
         return list(self._edges.keys())
+
+    @property
+    def primary_edge(self) -> str | None:
+        """Configured primary edge, or None when unset or not a known edge.
+
+        The primary is the source of truth that ``edge sync`` aligns the
+        other edges with when no explicit source is given.
+        """
+        return self._primary if self._primary in self._edges else None
+
+    @property
+    def configured_primary(self) -> str:
+        """Raw ``primary`` value from edges.toml (may name an unknown edge)."""
+        return self._primary
 
     @property
     def npc_client_names(self) -> list[str]:

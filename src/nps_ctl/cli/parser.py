@@ -558,9 +558,11 @@ def _add_edge_commands(subparsers) -> None:
     sync_parser.add_argument(
         "-f",
         "--from",
-        required=True,
         dest="source",
-        help="Source edge name to sync from",
+        help=(
+            "Source edge name to sync from "
+            "(default: the primary edge set in edges.toml)"
+        ),
     )
     # edge sync uses --to as an alias alongside -e/--edge
     sync_parser.add_argument(
@@ -596,6 +598,47 @@ def _add_edge_commands(subparsers) -> None:
         help="Number of parallel workers",
     )
     sync_parser.set_defaults(requires_config=True)
+
+    # edge primary
+    primary_parser = edge_sub.add_parser(
+        "primary",
+        help="Show or set the primary edge",
+        description=(
+            "Show the primary edge, or set it in edges.toml. The primary is "
+            "the default source for 'edge sync'."
+        ),
+    )
+    primary_parser.add_argument(
+        "name",
+        nargs="?",
+        help="Edge to mark as primary (omit to show the current primary)",
+    )
+    add_output_arguments(primary_parser)
+    primary_parser.set_defaults(requires_config=True)
+
+    # edge add
+    edge_add_parser = edge_sub.add_parser(
+        "add",
+        help="Add an edge entry to edges.toml",
+        description=(
+            "Append a new edge to edges.toml. The API auth key is read from "
+            "NPS_EDGE_AUTH_KEY or prompted for; it is never taken on the "
+            "command line."
+        ),
+    )
+    edge_add_parser.add_argument("name", help="New edge name")
+    edge_add_parser.add_argument(
+        "--api-url", required=True, help="Edge API URL (https://...)"
+    )
+    edge_add_parser.add_argument("--region", help="Display region")
+    edge_add_parser.add_argument("--ssh-host", help="SSH host alias")
+    edge_add_parser.add_argument(
+        "--no-auth-key",
+        action="store_true",
+        help="Do not prompt for an auth key (modern-auth or unauthenticated edges)",
+    )
+    add_yes_argument(edge_add_parser)
+    edge_add_parser.set_defaults(requires_config=True)
 
     # edge export
     export_parser = edge_sub.add_parser(
