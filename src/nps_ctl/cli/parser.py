@@ -110,7 +110,7 @@ def _add_web_command(subparsers) -> None:
     """
     web_parser = subparsers.add_parser(
         "web",
-        help="Run the read-only cluster dashboard",
+        help="Run the cluster dashboard (read-only unless --allow-writes)",
         description=(
             "Serve a read-only web dashboard for all configured edges. "
             "Binds to loopback by default; set --username/--password before "
@@ -140,6 +140,14 @@ def _add_web_command(subparsers) -> None:
         "--insecure",
         action="store_true",
         help="Allow a non-loopback bind without authentication",
+    )
+    web_parser.add_argument(
+        "--allow-writes",
+        action="store_true",
+        help=(
+            "Enable add/sync actions in the dashboard "
+            "(requires auth on non-loopback binds)"
+        ),
     )
     web_parser.set_defaults(requires_config=True, leaf_command=True)
 
