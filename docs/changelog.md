@@ -25,7 +25,7 @@ All notable changes to nps-ctl are documented here. This project follows [Keep a
 - `edge status` JSON adds `clients_ok`, `hosts_ok`, `tunnels_ok`, `tunnels_total`, `tunnels_running`, `tunnel_ports`, and tunnel totals; unrequested resources are `null`
 - `GET /api/overview` now defines `online` as client-list liveness, adds `ok`/`partial`, and reports unavailable counts as `null` instead of `0`
 - Status footers add an `N partial` count when a selected edge returned a partial result; `host status` error lines are now prefixed with `✗`
-- `totals.ok`, `totals.partial`, and `totals.failed` now partition the selected edges instead of counting a client-list failure in both `failed` and `partial`
+- `totals.ok`, `totals.partial`, and `totals.failed` now partition the selected edges instead of counting a client-list failure in both `failed` and `partial`; `summary.offline` remains the client-liveness counter
 - Tunnel port ranges are parsed like the server's `common.GetPorts`: comma-separated, with reversed ranges swapped
 
 ---
