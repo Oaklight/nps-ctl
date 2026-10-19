@@ -603,6 +603,8 @@ Clean up all `NPSClient` instances. Called automatically via context manager.
 | `RunStatus` | `bool` | Currently running |
 | `Client` | `ClientInfo` | Associated client |
 | `Ports` | `str` | Additional port spec (comma/range); modern `ports` values are normalized to this string |
+| `Socks5Proxy` | `bool` | socks5 proxy flag (mapped from modern `enable_socks5`) |
+| `HttpProxy` | `bool` | HTTP proxy flag (mapped from modern `enable_http`) |
 | `Flow` | `dict` | Traffic flow data |
 | `Password` | `str` | Tunnel password |
 | `Remark` | `str` | Tunnel remark |

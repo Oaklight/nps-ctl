@@ -28,6 +28,9 @@ All notable changes to nps-ctl are documented here. This project follows [Keep a
 - `totals.ok`, `totals.partial`, and `totals.failed` now partition the selected edges instead of counting a client-list failure in both `failed` and `partial`; `summary.offline` remains the client-liveness counter
 - Tunnel port ranges are parsed like the server's `common.GetPorts`: comma-separated, with reversed ranges swapped
 - `tunnel list -t/--type` now filters across all edges (previously it was ignored without `-e`) and resolves `socks5`/`httpProxy` to `mixProxy`; `mixProxy` is accepted by the list/del/edit type filters
+- Tunnel listings filter and dedupe locally, so exact-type filters stay correct when a server ignores the `type` parameter
+- `tunnel del`/`tunnel edit` port locators match the tunnel's `Port` or any port in its `Ports` range
+- `tunnel edit` preserves a proxy tunnel's socks5/HTTP flags instead of clearing both on djylb/nps
 
 ---
 

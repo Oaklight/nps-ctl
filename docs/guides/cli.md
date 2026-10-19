@@ -426,7 +426,9 @@ nps-ctl tunnel list --json                # Machine-readable output
 ```
 
 `mixProxy` matches both proxy kinds. `socks5` and `httpProxy` also match
-`mixProxy` rows, which is how djylb/nps stores those tunnels.
+`mixProxy` rows, which is how djylb/nps stores those tunnels. The table shows
+each row's stored `Mode`, so on djylb/nps a proxy filter prints rows labelled
+`mixProxy`; the filter, not the label, identifies the matched proxy kind.
 
 ### `tunnel add`
 
@@ -471,6 +473,9 @@ nps-ctl tunnel del -p 8080 -t tcp -a              # By port+type across all edge
 
 !!! note "Multi-match safety"
     If multiple tunnels match the locator, the command errors out. Use `--id` with `-e` for precision.
+
+!!! note "Port ranges"
+    `-p/--port` matches the tunnel's `Port` or any port in its `Ports` range.
 
 ### `tunnel edit`
 
