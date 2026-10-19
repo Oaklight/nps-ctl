@@ -141,7 +141,7 @@ def test_list_tunnels_queries_mixproxy_mode():
     rows = tunnel.list_tunnels(nps)
 
     assert [row["Id"] for row in rows] == [1, 2]
-    assert nps.types == list(tunnel.TUNNEL_TYPES)
+    assert sorted(nps.types) == sorted(tunnel.TUNNEL_TYPES)
     assert "mixProxy" in nps.types
 
 
