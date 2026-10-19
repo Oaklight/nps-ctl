@@ -40,6 +40,53 @@ TUNNEL_TYPES = (
     "file",
 )
 
+MIX_PROXY = "mixProxy"
+
+# Types that djylb/nps stores under the ``mixProxy`` mode.
+MIX_PROXY_ALIASES = ("socks5", "httpProxy")
+
+
+def tunnel_matches_type(tunnel: TunnelInfo, tunnel_type: str) -> bool:
+    """Return whether a tunnel matches a type filter.
+
+    ``socks5`` and ``httpProxy`` tunnels are stored as ``mixProxy`` by
+    djylb/nps. When the server reports the ``Socks5Proxy``/``HttpProxy``
+    flags they distinguish the two; when neither is set, a ``mixProxy`` row
+    matches either alias.
+    """
+    if not tunnel_type:
+        return True
+    mode = tunnel.get("Mode", "")
+    if mode == tunnel_type:
+        return True
+    if mode != MIX_PROXY:
+        return False
+    if tunnel_type == MIX_PROXY:
+        return True
+    if tunnel_type not in MIX_PROXY_ALIASES:
+        return False
+    if not (tunnel.get("Socks5Proxy") or tunnel.get("HttpProxy")):
+        return True
+    if tunnel_type == "socks5":
+        return bool(tunnel.get("Socks5Proxy"))
+    return bool(tunnel.get("HttpProxy"))
+
+
+def _filter_tunnels(tunnels: list[TunnelInfo], tunnel_type: str) -> list[TunnelInfo]:
+    """Filter by type and drop duplicate IDs from a multi-query merge."""
+    seen: set[int] = set()
+    filtered: list[TunnelInfo] = []
+    for tunnel in tunnels:
+        if not tunnel_matches_type(tunnel, tunnel_type):
+            continue
+        tunnel_id = tunnel.get("Id")
+        if tunnel_id is not None:
+            if tunnel_id in seen:
+                continue
+            seen.add(tunnel_id)
+        filtered.append(tunnel)
+    return filtered
+
 
 # --- Public API (dispatch to v1/v2) ---
 
@@ -330,15 +377,25 @@ def _list_tunnels_v1(
     paginate: bool,
 ) -> list[TunnelInfo]:
     if tunnel_type:
-        return _list_tunnels_by_type_v1(
-            nps,
-            tunnel_type,
-            client_id=client_id,
-            search=search,
-            offset=offset,
-            limit=limit,
-            paginate=paginate,
-        )
+        types = [tunnel_type]
+        if tunnel_type in MIX_PROXY_ALIASES:
+            # djylb/nps stores socks5/httpProxy as mixProxy; query both so
+            # the same filter also works on older ehang-io servers.
+            types.append(MIX_PROXY)
+        rows: list[TunnelInfo] = []
+        for kind in types:
+            rows.extend(
+                _list_tunnels_by_type_v1(
+                    nps,
+                    kind,
+                    client_id=client_id,
+                    search=search,
+                    offset=offset,
+                    limit=limit,
+                    paginate=paginate,
+                )
+            )
+        return _filter_tunnels(rows, tunnel_type) if len(types) > 1 else rows
     # Query all tunnel types and merge results (8 requests); mixProxy covers
     # socks5/httpProxy tunnels on djylb/nps.
     all_tunnels: list[TunnelInfo] = []
@@ -507,6 +564,8 @@ def _normalize_tunnel(item: dict[str, Any]) -> TunnelInfo:
         "LocalPath": item.get("local_path", ""),
         "StripPre": item.get("strip_pre", ""),
         "Ports": _normalize_ports(item.get("ports", "")),
+        "Socks5Proxy": item.get("socks5_proxy", item.get("Socks5Proxy", False)),
+        "HttpProxy": item.get("http_proxy", item.get("HttpProxy", False)),
         "Flow": {
             "InletFlow": item.get("service_in_bytes", 0),
             "ExportFlow": item.get("service_out_bytes", 0),
@@ -538,13 +597,20 @@ def _list_tunnels_v2(
         params["search"] = search
     if client_id is not None:
         params["client_id"] = client_id
-    if tunnel_type:
+    alias_filter = tunnel_type in MIX_PROXY_ALIASES or tunnel_type == MIX_PROXY
+    if tunnel_type and not alias_filter:
         params["mode"] = tunnel_type
     if not paginate:
         resp = nps.api_request("GET", "/api/tunnels", params=params)
-        return [_normalize_tunnel(i) for i in extract_api_items(resp)]
-    rows = fetch_all_api_pages(nps, "/api/tunnels", params, limit=limit)
-    return [_normalize_tunnel(i) for i in rows]
+        rows = [_normalize_tunnel(i) for i in extract_api_items(resp)]
+    else:
+        rows = [
+            _normalize_tunnel(i)
+            for i in fetch_all_api_pages(nps, "/api/tunnels", params, limit=limit)
+        ]
+    # Filter proxy modes locally so socks5/httpProxy/mixProxy resolve the
+    # same way whether the server stores the mode or its alias.
+    return _filter_tunnels(rows, tunnel_type) if alias_filter else rows
 
 
 def _get_tunnel_v2(nps: NPSClient, tunnel_id: int) -> TunnelInfo | None:

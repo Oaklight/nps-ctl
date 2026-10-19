@@ -104,7 +104,7 @@ def cmd_tunnels(args: argparse.Namespace) -> int:
         _print_tunnels(tunnels)
         return 0
 
-    all_tunnels = cluster.get_all_tunnels()
+    all_tunnels = cluster.get_all_tunnels(tunnel_type=tunnel_type)
     if json_mode:
         print_json(
             build_edge_results_payload(
@@ -519,7 +519,7 @@ def _find_tunnels(
         return [
             t
             for t in all_tunnels
-            if t.get("Port") == port and t.get("Mode") == tunnel_type
+            if t.get("Port") == port and tunnel.tunnel_matches_type(t, tunnel_type)
         ]
     return []
 

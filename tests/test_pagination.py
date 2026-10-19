@@ -142,6 +142,78 @@ def test_list_tunnels_queries_mixproxy_mode():
     assert "mixProxy" in nps.types
 
 
+MIX_PROXY_ROWS = [
+    {
+        "Id": 1,
+        "Mode": "mixProxy",
+        "Socks5Proxy": True,
+        "HttpProxy": False,
+        "Port": 1080,
+    },
+    {
+        "Id": 2,
+        "Mode": "mixProxy",
+        "Socks5Proxy": False,
+        "HttpProxy": True,
+        "Port": 8080,
+    },
+    {"Id": 3, "Mode": "tcp", "Port": 9000},
+]
+
+
+def test_list_tunnels_socks5_alias_selects_mixproxy_rows():
+    nps = TypeFilteringNPS(MIX_PROXY_ROWS)
+
+    rows = tunnel.list_tunnels(nps, tunnel_type="socks5")
+
+    assert [row["Id"] for row in rows] == [1]
+    assert nps.types == ["socks5", "mixProxy"]
+
+
+def test_list_tunnels_httpproxy_alias_selects_mixproxy_rows():
+    nps = TypeFilteringNPS(MIX_PROXY_ROWS)
+
+    rows = tunnel.list_tunnels(nps, tunnel_type="httpProxy")
+
+    assert [row["Id"] for row in rows] == [2]
+    assert nps.types == ["httpProxy", "mixProxy"]
+
+
+def test_list_tunnels_mixproxy_filter_returns_both_proxy_kinds():
+    nps = TypeFilteringNPS(MIX_PROXY_ROWS)
+
+    rows = tunnel.list_tunnels(nps, tunnel_type="mixProxy")
+
+    assert [row["Id"] for row in rows] == [1, 2]
+    assert nps.types == ["mixProxy"]
+
+
+def test_list_tunnels_alias_without_flags_matches_either_proxy():
+    nps = TypeFilteringNPS([{"Id": 1, "Mode": "mixProxy", "Port": 1080}])
+
+    socks = tunnel.list_tunnels(nps, tunnel_type="socks5")
+    http = tunnel.list_tunnels(nps, tunnel_type="httpProxy")
+
+    assert [row["Id"] for row in socks] == [1]
+    assert [row["Id"] for row in http] == [1]
+
+
+def test_list_tunnels_alias_dedupes_overlapping_queries():
+    class AllRowsNPS(TypeFilteringNPS):
+        """Ignore the type filter and return every row."""
+
+        def request(self, path, method="POST", data=None):
+            data = data or {}
+            self.types.append(data.get("type", ""))
+            return {"rows": self.rows, "total": len(self.rows)}
+
+    nps = AllRowsNPS(MIX_PROXY_ROWS)
+
+    rows = tunnel.list_tunnels(nps, tunnel_type="socks5")
+
+    assert [row["Id"] for row in rows] == [1]
+
+
 class FakeModernNPS:
     """Serve a paginated modern /api/* list endpoint."""
 
@@ -152,9 +224,11 @@ class FakeModernNPS:
         self.total = len(rows) if total is None else total
         self.page_cap = page_cap
         self.requests = []
+        self.params = []
 
     def api_request(self, method, path, params=None, data=None):
         params = params or {}
+        self.params.append(dict(params))
         offset = int(params.get("offset", 0))
         limit = int(params.get("limit", 100))
         if self.page_cap is not None:
@@ -195,6 +269,40 @@ def test_modern_list_tunnels_uses_single_endpoint_and_pages():
         ("/api/tunnels", 100, 100),
         ("/api/tunnels", 200, 100),
     ]
+
+
+def test_modern_list_tunnels_filters_proxy_aliases_locally():
+    nps = FakeModernNPS(
+        [
+            {"id": 1, "mode": "mixProxy", "socks5_proxy": True, "http_proxy": False},
+            {"id": 2, "mode": "mixProxy", "socks5_proxy": False, "http_proxy": True},
+            {"id": 3, "mode": "tcp"},
+        ]
+    )
+
+    rows = tunnel.list_tunnels(nps, tunnel_type="socks5")
+
+    assert [row["Id"] for row in rows] == [1]
+    assert "mode" not in nps.params[0]
+
+
+def test_modern_list_tunnels_alias_without_flags_matches_either():
+    nps = FakeModernNPS([{"id": 1, "mode": "mixProxy"}])
+
+    socks = tunnel.list_tunnels(nps, tunnel_type="socks5")
+    http = tunnel.list_tunnels(nps, tunnel_type="httpProxy")
+
+    assert [row["Id"] for row in socks] == [1]
+    assert [row["Id"] for row in http] == [1]
+
+
+def test_modern_list_tunnels_sends_mode_for_exact_types():
+    nps = FakeModernNPS([{"id": 3, "mode": "tcp"}])
+
+    rows = tunnel.list_tunnels(nps, tunnel_type="tcp")
+
+    assert nps.params[0]["mode"] == "tcp"
+    assert [row["Id"] for row in rows] == [3]
 
 
 def test_modern_list_hosts_paginate_false_single_request():

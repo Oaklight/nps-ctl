@@ -108,6 +108,22 @@ def test_get_all_tunnels_limits_to_requested_edges(tmp_path, monkeypatch):
     assert called == ["edge-b"]
 
 
+def test_get_all_tunnels_passes_type_filter(tmp_path, monkeypatch):
+    cluster = _cluster(tmp_path, ["edge-a"])
+    calls = []
+
+    def fake_list(nps, tunnel_type=""):
+        calls.append((nps.name, tunnel_type))
+        return []
+
+    monkeypatch.setattr(cluster_module.tunnel, "list_tunnels", fake_list)
+
+    result = cluster.get_all_tunnels(tunnel_type="tcp")
+
+    assert result == {"edge-a": []}
+    assert calls == [("edge-a", "tcp")]
+
+
 def test_get_all_tunnels_empty_selection_makes_no_calls(tmp_path, monkeypatch):
     cluster = _cluster(tmp_path, ["edge-a", "edge-b"])
     called = []
