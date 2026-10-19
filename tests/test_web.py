@@ -209,9 +209,11 @@ def test_overview_reports_partial_and_null_counts():
 
 
 def test_dashboard_summary_renders_ok_and_partial():
-    assert "edges ok" in _DASHBOARD_HTML
-    assert "s.ok + '/' + s.edges" in _DASHBOARD_HTML
-    assert "s.partial" in _DASHBOARD_HTML
+    assert "card(s.ok + '/' + s.edges, 'edges ok')" in _DASHBOARD_HTML
+    assert (
+        "if (s.partial) cards.splice(1, 0, card(s.partial, 'partial'));"
+        in _DASHBOARD_HTML
+    )
 
 
 def test_edge_resources_redact_credentials(server):
