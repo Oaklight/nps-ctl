@@ -16,7 +16,7 @@ from urllib.parse import unquote, urlparse
 
 from . import client_mgmt, host, tunnel
 from .exceptions import NPSError
-from .status import build_status_payload, collect_edge_status
+from .status import build_status_payload, collect_cluster_status
 
 if TYPE_CHECKING:
     from .cluster import NPSCluster
@@ -70,13 +70,15 @@ def build_auth_header(username: str, password: str) -> str:
 
 def _overview(cluster: NPSCluster) -> dict[str, Any]:
     """Collect edge status and resource counts for the dashboard."""
-    rows = collect_edge_status(
+    status = collect_cluster_status(
         cluster,
         include_hosts=True,
         include_tunnels=True,
     )
+    rows = status.rows
     payload = build_status_payload(rows)
     totals = payload["totals"]
+    unique = status.unique
     return {
         "edges": [
             {
@@ -94,6 +96,7 @@ def _overview(cluster: NPSCluster) -> dict[str, Any]:
                 "hosts": row.hosts_total,
                 "ports": row.ports,
                 "tunnel_ports": row.tunnel_ports,
+                "missing": status.missing.get(row.edge),
             }
             for row in rows
         ],
@@ -102,9 +105,19 @@ def _overview(cluster: NPSCluster) -> dict[str, Any]:
             "online": payload["summary"]["online"],
             "ok": totals["ok"],
             "partial": totals["partial"],
-            "clients": totals["clients"],
-            "tunnels": totals["tunnels"],
-            "hosts": totals["hosts"],
+            "clients": unique.get("clients"),
+            "tunnels": unique.get("tunnels"),
+            "hosts": unique.get("hosts"),
+            "in_sync": sum(
+                1
+                for missing in status.missing.values()
+                if missing and not any(missing.values())
+            ),
+            "replicated": {
+                "clients": totals["clients"],
+                "tunnels": totals["tunnels"],
+                "hosts": totals["hosts"],
+            },
         },
     }
 
@@ -291,53 +304,110 @@ _DASHBOARD_HTML = """<!doctype html>
 <style>
   :root { color-scheme: light dark; --fg: #1f2328; --bg: #f6f8fa;
           --card: #ffffff; --muted: #656d76; --line: #d0d7de;
-          --ok: #1a7f37; --bad: #cf222e; --warn: #9a6700; }
+          --hover: #f6f8fa; --accent: #0969da; --sel: #ddf4ff;
+          --ok: #1a7f37; --ok-bg: #dafbe1; --bad: #cf222e; --bad-bg: #ffebe9;
+          --warn: #9a6700; --warn-bg: #fff8c5; --muted-bg: #eaeef2; }
   @media (prefers-color-scheme: dark) {
     :root { --fg: #e6edf3; --bg: #0d1117; --card: #161b22;
-            --muted: #8d96a0; --line: #30363d; --ok: #3fb950; --bad: #f85149;
-            --warn: #d29922; }
+            --muted: #8d96a0; --line: #30363d; --hover: #1c2128;
+            --accent: #4493f8; --sel: #121d2f;
+            --ok: #3fb950; --ok-bg: rgba(46, 160, 67, 0.15);
+            --bad: #f85149; --bad-bg: rgba(248, 81, 73, 0.15);
+            --warn: #d29922; --warn-bg: rgba(187, 128, 9, 0.15);
+            --muted-bg: #21262d; }
   }
   * { box-sizing: border-box; }
-  body { margin: 0; padding: 24px; font: 15px/1.5 system-ui, sans-serif;
+  body { margin: 0; padding: 24px; font: 14px/1.5 system-ui, sans-serif;
          color: var(--fg); background: var(--bg); }
-  h1 { font-size: 22px; margin: 0 0 16px; }
-  h2 { font-size: 17px; margin: 24px 0 8px; }
-  .cards { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 20px; }
+  main { max-width: 1280px; margin: 0 auto; }
+  header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+           margin-bottom: 16px; }
+  h1 { font-size: 20px; margin: 0; flex: 1; }
+  h2 { font-size: 16px; margin: 0; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+           gap: 12px; margin-bottom: 20px; }
   .card { background: var(--card); border: 1px solid var(--line);
-          border-radius: 8px; padding: 12px 16px; min-width: 120px; }
-  .card .num { font-size: 24px; font-weight: 600; }
+          border-radius: 8px; padding: 12px 16px; }
+  .card .num { font-size: 24px; font-weight: 600; font-variant-numeric: tabular-nums; }
   .card .label { color: var(--muted); font-size: 12px; text-transform: uppercase; }
-  table { width: 100%; border-collapse: collapse; background: var(--card);
-          border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
-  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line);
-           vertical-align: top; }
-  tr:last-child td { border-bottom: 0; }
-  th { color: var(--muted); font-size: 12px; text-transform: uppercase; }
-  .ok { color: var(--ok); } .bad { color: var(--bad); }
-  .warn { color: var(--warn); }
-  button { font: inherit; padding: 4px 10px; margin-right: 4px;
+  .card .note { color: var(--muted); font-size: 12px; }
+  .card.warn .num { color: var(--warn); }
+  .scroll { overflow-x: auto; background: var(--card); border: 1px solid var(--line);
+            border-radius: 8px; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line);
+           vertical-align: top; white-space: nowrap; }
+  tbody tr:last-child td { border-bottom: 0; }
+  th { color: var(--muted); font-size: 12px; font-weight: 600;
+       text-transform: uppercase; background: var(--card); }
+  th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .sub { color: var(--muted); font-size: 12px; }
+  .muted { color: var(--muted); }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+  .name { font-weight: 600; }
+  .badge { display: inline-block; padding: 0 8px; border-radius: 999px;
+           font-size: 12px; font-weight: 600; line-height: 20px; }
+  .badge.ok { color: var(--ok); background: var(--ok-bg); }
+  .badge.bad { color: var(--bad); background: var(--bad-bg); }
+  .badge.warn { color: var(--warn); background: var(--warn-bg); }
+  .badge.muted { color: var(--muted); background: var(--muted-bg); }
+  button { font: inherit; font-size: 13px; padding: 4px 10px;
            border: 1px solid var(--line); border-radius: 6px;
            background: var(--card); color: var(--fg); cursor: pointer; }
   button:hover { border-color: var(--muted); }
+  button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent);
+                                color: #ffffff; }
+  button:disabled { opacity: 0.6; cursor: progress; }
+  button:focus-visible, input:focus-visible, tr.item:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: -2px; }
+  .chips { display: flex; gap: 4px; }
+  tr.selected td { background: var(--sel); }
   #detail { margin-top: 24px; }
-  .empty, .error { color: var(--muted); padding: 8px 0; }
+  .detail-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+                 margin-bottom: 8px; }
+  .detail-head input { flex: 1; min-width: 180px; max-width: 320px; margin-left: auto;
+                       padding: 5px 10px; font: inherit; color: var(--fg);
+                       background: var(--card); border: 1px solid var(--line);
+                       border-radius: 6px; }
+  tr.item { cursor: pointer; }
+  tr.item:hover td { background: var(--hover); }
+  tr.item td:first-child::before { content: '▸'; display: inline-block; width: 1.2em;
+                                   color: var(--muted); }
+  tr.item.open td:first-child::before { content: '▾'; }
+  tr.raw td { background: var(--bg); white-space: normal; }
+  tr.raw pre { margin: 0; max-height: 360px; overflow: auto; font-size: 12px; }
+  .empty { color: var(--muted); padding: 12px; }
   .error { color: var(--bad); }
-  .mono { font-family: ui-monospace, monospace; font-size: 13px; }
+  td .error { white-space: normal; max-width: 360px; }
+  body.busy #summary, body.busy #edges { opacity: 0.6; transition: opacity 0.2s; }
+  @media (max-width: 640px) { body { padding: 16px; } }
 </style>
 </head>
 <body>
-<h1>NPS Cluster</h1>
+<main>
+<header>
+  <h1>NPS Cluster</h1>
+  <span id="updated" class="muted" aria-live="polite"></span>
+  <button id="refresh" type="button">Refresh</button>
+</header>
 <div class="cards" id="summary"></div>
+<div class="scroll">
 <table>
-  <thead><tr><th>Edge</th><th>Region</th><th>Status</th><th>Clients</th>
-  <th>Tunnels</th><th>Hosts</th><th></th></tr></thead>
-  <tbody id="edges"><tr><td colspan="7" class="empty">Loading…</td></tr></tbody>
+  <thead><tr><th>Edge</th><th>Region</th><th>Status</th><th class="num">Clients</th>
+  <th class="num">Tunnels</th><th class="num">Hosts</th><th>Sync</th><th>Browse</th></tr></thead>
+  <tbody id="edges"><tr><td colspan="8" class="empty">Loading edges…</td></tr></tbody>
 </table>
-<div id="detail"></div>
+</div>
+<section id="detail"></section>
+</main>
 <script>
 const summary = document.getElementById('summary');
 const edgesBody = document.getElementById('edges');
 const detail = document.getElementById('detail');
+const refreshButton = document.getElementById('refresh');
+const updated = document.getElementById('updated');
+const RESOURCES = ['clients', 'tunnels', 'hosts'];
+const state = { edges: null, edge: null, resource: null, items: [], filter: '' };
 
 function el(tag, text, cls) {
   const node = document.createElement(tag);
@@ -350,83 +420,247 @@ function display(value) {
   return value === null || value === undefined ? '—' : String(value);
 }
 
-function card(value, label) {
-  const box = el('div', undefined, 'card');
+function bytes(value) {
+  const n = Number(value);
+  if (value === null || value === undefined || value === '' || !isFinite(n)) return '—';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let size = n;
+  let unit = 0;
+  while (size >= 1024 && unit < units.length - 1) { size /= 1024; unit++; }
+  return (unit ? size.toFixed(1) : String(size)) + ' ' + units[unit];
+}
+
+function badge(text, tone) { return el('span', text, 'badge ' + tone); }
+function target(value) {
+  return value && typeof value === 'object' ? value.TargetStr || '' : value || '';
+}
+function owner(item) { return (item.Client || {}).Remark || ''; }
+function flow(item) {
+  const f = item.Flow || {};
+  return bytes(f.InletFlow) + ' / ' + bytes(f.ExportFlow);
+}
+
+const COLUMNS = {
+  clients: [
+    { label: 'ID', value: i => i.Id, cls: 'num' },
+    { label: 'Remark', value: i => i.Remark, cls: 'name' },
+    { label: 'Status', value: i => !i.Status ? badge('disabled', 'muted')
+        : i.IsConnect ? badge('online', 'ok') : badge('offline', 'bad') },
+    { label: 'Address', value: i => i.Addr, cls: 'mono' },
+    { label: 'Version', value: i => i.Version },
+    { label: 'In / out', value: i => bytes(i.InletFlow) + ' / ' + bytes(i.ExportFlow),
+      cls: 'num' },
+    { label: 'Last online', value: i => i.LastOnlineTime, cls: 'muted' },
+  ],
+  tunnels: [
+    { label: 'ID', value: i => i.Id, cls: 'num' },
+    { label: 'Remark', value: i => i.Remark, cls: 'name' },
+    { label: 'Mode', value: i => i.Mode },
+    { label: 'Port', value: i => i.Port, cls: 'num mono' },
+    { label: 'Target', value: i => target(i.Target), cls: 'mono' },
+    { label: 'Client', value: owner },
+    { label: 'Status', value: i => !i.Status ? badge('disabled', 'muted')
+        : i.RunStatus ? badge('running', 'ok') : badge('stopped', 'bad') },
+    { label: 'In / out', value: flow, cls: 'num' },
+  ],
+  hosts: [
+    { label: 'ID', value: i => i.Id, cls: 'num' },
+    { label: 'Host', value: i => i.Host, cls: 'name mono' },
+    { label: 'Location', value: i => i.Location, cls: 'mono' },
+    { label: 'Target', value: i => target(i.Target), cls: 'mono' },
+    { label: 'Client', value: owner },
+    { label: 'Remark', value: i => i.Remark, cls: 'muted' },
+    { label: 'Status', value: i => i.IsClose ? badge('closed', 'bad')
+        : badge('active', 'ok') },
+    { label: 'In / out', value: flow, cls: 'num' },
+  ],
+};
+
+function card(value, label, note, tone) {
+  const box = el('div', undefined, tone ? 'card ' + tone : 'card');
   box.append(el('div', display(value), 'num'), el('div', label, 'label'));
+  if (note) box.append(el('div', note, 'note'));
   return box;
 }
 
 function renderSummary(s) {
+  const replicated = s.replicated || {};
+  const note = key => {
+    const total = replicated[key];
+    return total === null || total === undefined || total === s[key]
+      ? '' : total + ' across all edges';
+  };
   const cards = [
     card(s.ok + '/' + s.edges, 'edges ok'),
-    card(s.clients, 'clients'),
-    card(s.tunnels, 'tunnels'),
-    card(s.hosts, 'hosts')
+    card(s.clients, 'unique clients', note('clients')),
+    card(s.tunnels, 'unique tunnels', note('tunnels')),
+    card(s.hosts, 'unique hosts', note('hosts')),
+    card(s.in_sync + '/' + s.edges, 'edges in sync', '',
+         s.in_sync < s.edges ? 'warn' : ''),
   ];
   if (s.partial) cards.splice(1, 0, card(s.partial, 'partial'));
   summary.replaceChildren(...cards);
 }
 
+function countCell(total, extra, label) {
+  const cell = el('td', display(total), 'num');
+  if (extra !== null && extra !== undefined) cell.append(el('div', extra + ' ' + label, 'sub'));
+  return cell;
+}
+
+function syncCell(edge) {
+  const cell = el('td');
+  const missing = edge.missing || {};
+  const gaps = Object.entries(missing).filter(entry => entry[1] > 0);
+  if (!Object.keys(missing).length) {
+    cell.append(el('span', '—', 'muted'));
+  } else if (!gaps.length) {
+    cell.append(badge('in sync', 'ok'));
+  } else {
+    cell.append(badge('drift', 'warn'));
+    cell.append(el('div', 'missing ' + gaps.map(e => e[1] + ' ' + e[0]).join(', '), 'sub'));
+  }
+  return cell;
+}
+
 function renderEdges(edges) {
+  if (!edges) return;
   edgesBody.replaceChildren();
   for (const edge of edges) {
     const row = document.createElement('tr');
-    row.append(el('td', edge.name, 'mono'), el('td', edge.region || '—'));
+    if (edge.name === state.edge) row.className = 'selected';
+    row.append(el('td', edge.name, 'mono name'), el('td', edge.region || '—'));
     const status = el('td');
-    const state = edge.ok ? ['online', 'ok']
-                : edge.partial ? ['partial', 'warn']
-                : ['offline', 'bad'];
-    status.append(el('span', state[0], state[1]));
+    status.append(edge.ok ? badge('online', 'ok')
+                  : edge.partial ? badge('partial', 'warn')
+                  : badge('offline', 'bad'));
     if (edge.error) status.append(el('div', edge.error, 'error mono'));
-    row.append(status, el('td', display(edge.clients)),
-               el('td', display(edge.tunnels)), el('td', display(edge.hosts)));
+    row.append(status,
+               countCell(edge.clients, edge.clients_online, 'online'),
+               countCell(edge.tunnels, edge.tunnels_running, 'running'),
+               countCell(edge.hosts),
+               syncCell(edge));
     const actions = el('td');
-    for (const resource of ['clients', 'tunnels', 'hosts']) {
+    const chips = el('div', undefined, 'chips');
+    for (const resource of RESOURCES) {
       const button = el('button', resource);
+      button.type = 'button';
+      button.setAttribute('aria-pressed',
+        String(edge.name === state.edge && resource === state.resource));
       button.onclick = () => loadResource(edge.name, resource);
-      actions.append(button);
+      chips.append(button);
     }
+    actions.append(chips);
     row.append(actions);
     edgesBody.append(row);
   }
 }
 
-async function loadResource(edgeName, resource) {
-  detail.replaceChildren(el('h2', edgeName + ' / ' + resource));
+function renderRows(tbody, count) {
+  const columns = COLUMNS[state.resource];
+  const needle = state.filter.trim().toLowerCase();
+  tbody.replaceChildren();
+  let shown = 0;
+  for (const item of state.items) {
+    const cells = columns.map(column => {
+      const value = column.value(item);
+      if (value instanceof Node) return value;
+      if (value === null || value === undefined || value === '') return el('span', '—', 'muted');
+      return document.createTextNode(String(value));
+    });
+    const text = cells.map(node => node.textContent).join(' ').toLowerCase();
+    if (needle && !text.includes(needle)) continue;
+    shown++;
+    const row = el('tr', undefined, 'item');
+    row.tabIndex = 0;
+    row.setAttribute('aria-expanded', 'false');
+    columns.forEach((column, index) => {
+      const cell = el('td', undefined, column.cls);
+      cell.append(cells[index]);
+      row.append(cell);
+    });
+    const raw = el('tr', undefined, 'raw');
+    raw.hidden = true;
+    const toggle = () => {
+      const open = raw.hidden;
+      if (open && !raw.firstChild) {
+        const cell = el('td');
+        cell.colSpan = columns.length;
+        cell.append(el('pre', JSON.stringify(item, null, 2), 'mono'));
+        raw.append(cell);
+      }
+      raw.hidden = !open;
+      row.classList.toggle('open', open);
+      row.setAttribute('aria-expanded', String(open));
+    };
+    row.onclick = toggle;
+    row.onkeydown = event => {
+      if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); toggle(); }
+    };
+    tbody.append(row, raw);
+  }
+  count.textContent = needle ? shown + ' of ' + state.items.length
+                             : state.items.length + ' total';
+  if (!shown) {
+    const row = document.createElement('tr');
+    const cell = el('td', needle ? 'No matches.' : 'No ' + state.resource + '.', 'empty');
+    cell.colSpan = columns.length;
+    row.append(cell);
+    tbody.append(row);
+  }
+}
+
+function closeDetail() {
+  state.edge = null;
+  state.resource = null;
+  detail.replaceChildren();
+  renderEdges(state.edges);
+}
+
+async function loadResource(edgeName, resource, keepFilter) {
+  state.edge = edgeName;
+  state.resource = resource;
+  state.items = [];
+  if (!keepFilter) state.filter = '';
+  renderEdges(state.edges);
+
+  const head = el('div', undefined, 'detail-head');
+  const title = el('h2');
+  title.append(el('span', edgeName, 'mono'), ' / ' + resource);
+  const count = el('span', '', 'muted');
+  const filter = el('input');
+  filter.type = 'search';
+  filter.value = state.filter;
+  filter.placeholder = 'Filter ' + resource + '…';
+  filter.setAttribute('aria-label', 'Filter ' + resource);
+  const close = el('button', 'Close');
+  close.type = 'button';
+  close.onclick = closeDetail;
+  head.append(title, count, filter, close);
   const box = el('div', 'Loading…', 'empty');
-  detail.append(box);
+  detail.replaceChildren(head, box);
+
   try {
     const response = await fetch('api/edges/' + encodeURIComponent(edgeName) +
                                  '/' + resource);
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || response.statusText);
-    if (!payload.items.length) {
-      box.textContent = 'No ' + resource + '.';
-      return;
-    }
-    const columns = Object.keys(payload.items[0]);
+    if (state.edge !== edgeName || state.resource !== resource) return;
+    state.items = payload.items;
     const table = el('table');
     const head = document.createElement('tr');
-    for (const column of columns) head.append(el('th', column));
+    for (const column of COLUMNS[resource]) {
+      head.append(el('th', column.label, column.cls && column.cls.startsWith('num') ? 'num' : ''));
+    }
     const thead = document.createElement('thead');
     thead.append(head);
-    table.append(thead);
     const tbody = document.createElement('tbody');
-    for (const item of payload.items) {
-      const row = document.createElement('tr');
-      for (const column of columns) {
-        let value = item[column];
-        if (value && typeof value === 'object') value = JSON.stringify(value);
-        const cell = el('td', value === undefined || value === null ? '' : String(value));
-        if (column === 'UserAuth' || column === 'Target' || column === 'Client') {
-          cell.className = 'mono';
-        }
-        row.append(cell);
-      }
-      tbody.append(row);
-    }
-    table.append(tbody);
-    box.replaceWith(table);
+    table.append(thead, tbody);
+    const wrap = el('div', undefined, 'scroll');
+    wrap.append(table);
+    box.replaceWith(wrap);
+    filter.oninput = () => { state.filter = filter.value; renderRows(tbody, count); };
+    renderRows(tbody, count);
   } catch (error) {
     box.className = 'error';
     box.textContent = 'Failed to load: ' + error.message;
@@ -434,19 +668,43 @@ async function loadResource(edgeName, resource) {
 }
 
 async function load() {
+  refreshButton.disabled = true;
+  refreshButton.textContent = 'Refreshing…';
+  document.body.classList.add('busy');
+  const started = performance.now();
   try {
     const response = await fetch('api/overview');
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || response.statusText);
+    state.edges = payload.edges;
     renderSummary(payload.summary);
     renderEdges(payload.edges);
+    const seconds = ((performance.now() - started) / 1000).toFixed(1);
+    updated.className = 'muted';
+    updated.textContent = 'Updated ' + new Date().toLocaleTimeString() +
+                          ' (' + seconds + 's)';
+    if (state.edge) loadResource(state.edge, state.resource, true);
   } catch (error) {
-    const row = document.createElement('tr');
-    row.append(el('td', 'Failed to load: ' + error.message, 'error'));
-    edgesBody.replaceChildren(row);
+    updated.className = 'error';
+    updated.textContent = 'Refresh failed: ' + error.message;
+    if (!state.edges) {
+      const row = document.createElement('tr');
+      const cell = el('td', 'Failed to load: ' + error.message, 'error');
+      cell.colSpan = 8;
+      row.append(cell);
+      edgesBody.replaceChildren(row);
+    }
+  } finally {
+    refreshButton.disabled = false;
+    refreshButton.textContent = 'Refresh';
+    document.body.classList.remove('busy');
   }
 }
 
+refreshButton.onclick = load;
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape' && state.edge && event.target.tagName !== 'INPUT') closeDetail();
+});
 load();
 </script>
 </body>

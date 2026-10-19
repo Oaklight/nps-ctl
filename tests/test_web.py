@@ -165,7 +165,10 @@ def test_overview_reports_edges_and_counts(server):
         "clients": 1,
         "tunnels": 1,
         "hosts": 1,
+        "in_sync": 1,
+        "replicated": {"clients": 1, "tunnels": 1, "hosts": 1},
     }
+    assert payload["edges"][0]["missing"] == {"clients": 0, "tunnels": 0, "hosts": 0}
     assert payload["edges"][0]["name"] == "edge-a"
     assert payload["edges"][0]["region"] == "Asia"
     assert payload["edges"][0]["online"] is True
@@ -179,11 +182,13 @@ def test_overview_reports_partial_and_null_counts():
     cluster = FakeCluster(
         edge_data={
             "edge-a": FakeNPS(
-                clients=[{"Id": 1}],
+                clients=[{"Id": 1, "VerifyKey": "vkey-a"}],
                 tunnels=[{"Id": 7, "Port": 8080, "RunStatus": True}],
-                hosts=[{"Id": 2}],
+                hosts=[{"Id": 2, "Host": "app.example.com"}],
             ),
-            "edge-b": FakeNPS(clients=[{"Id": 3}], tunnels=[], hosts=[]),
+            "edge-b": FakeNPS(
+                clients=[{"Id": 3, "VerifyKey": "vkey-b"}], tunnels=[], hosts=[]
+            ),
         },
         tunnel_errors={"edge-b": "timeout"},
     )
@@ -196,9 +201,13 @@ def test_overview_reports_partial_and_null_counts():
         "ok": 1,
         "partial": 1,
         "clients": 2,
-        "tunnels": None,
+        "tunnels": 1,
         "hosts": 1,
+        "in_sync": 0,
+        "replicated": {"clients": 2, "tunnels": None, "hosts": 1},
     }
+    assert payload["edges"][0]["missing"] == {"clients": 1, "tunnels": 0, "hosts": 0}
+    assert payload["edges"][1]["missing"] == {"clients": 1, "hosts": 1}
     edge_b = payload["edges"][1]
     assert edge_b["name"] == "edge-b"
     assert edge_b["online"] is True
