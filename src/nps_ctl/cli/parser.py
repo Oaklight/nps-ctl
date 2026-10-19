@@ -250,6 +250,11 @@ def _add_client_commands(subparsers) -> None:
         choices=["tls", "tcp", "kcp"],
         help="Connection type (default: tls)",
     )
+    add_parser.add_argument(
+        "--push",
+        action="store_true",
+        help="Also create the client on its edges via the NPS API",
+    )
     add_yes_argument(add_parser)
     add_parser.set_defaults(requires_config=True)
 
