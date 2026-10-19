@@ -283,13 +283,15 @@ list_tunnels(
 List tunnels. When `tunnel_type` is empty, queries all known types
 (`tcp`, `udp`, `socks5`, `httpProxy`, `mixProxy`, `secret`, `p2p`, `file`)
 and merges the results. `mixProxy` is required on djylb/nps, which stores
-socks5 and httpProxy tunnels under that mode.
+socks5 and httpProxy tunnels under that mode. Filtering by `socks5` or
+`httpProxy` also returns the corresponding `mixProxy` rows, distinguished by
+the `Socks5Proxy`/`HttpProxy` flags when the server reports them.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `nps` | `NPSClient` | *(required)* | API client instance |
 | `client_id` | `int \| None` | `None` | Filter by client ID (`None` for all) |
-| `tunnel_type` | `str` | `""` | Filter by type (empty = all types) |
+| `tunnel_type` | `str` | `""` | Filter by type (empty = all types; `socks5`/`httpProxy` also match `mixProxy`) |
 | `search` | `str` | `""` | Search keyword |
 | `offset` | `int` | `0` | Pagination offset |
 | `limit` | `int` | `100` | Maximum number of results per type |
@@ -462,10 +464,12 @@ name.
 get_all_tunnels(
     max_workers: int = 4,
     edge_names: list[str] | None = None,
+    tunnel_type: str = "",
 ) -> dict[str, list[TunnelInfo]]
 ```
 
-Fetch tunnels from all or selected edges in parallel.
+Fetch tunnels from all or selected edges in parallel. `tunnel_type` filters
+the results on every edge; empty means every type.
 
 #### get_all_hosts
 

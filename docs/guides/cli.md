@@ -411,7 +411,7 @@ List tunnels on edge nodes.
 | Option | Description |
 | --- | --- |
 | `-e`, `--edge` EDGE | Edge name to query (default: all edges) |
-| `-t`, `--type` {tcp,udp,socks5,httpProxy,secret,p2p,file} | Filter by tunnel type |
+| `-t`, `--type` {tcp,udp,socks5,httpProxy,mixProxy,secret,p2p,file} | Filter by tunnel type |
 | `-a`, `--all` | Explicit all-edges alias (the default) |
 | `--json` | Emit machine-readable JSON |
 | `--no-color` | Disable colored output |
@@ -424,6 +424,9 @@ nps-ctl tunnel list -t tcp                # Only TCP tunnels
 nps-ctl tunnel list -e nps-us -t udp      # UDP tunnels on specific edge
 nps-ctl tunnel list --json                # Machine-readable output
 ```
+
+`mixProxy` matches both proxy kinds. `socks5` and `httpProxy` also match
+`mixProxy` rows, which is how djylb/nps stores those tunnels.
 
 ### `tunnel add`
 
@@ -455,7 +458,7 @@ Delete a tunnel from edge node(s). Locate by `--id`, `-r/--remark`, or `-p/--por
 | `--id` ID | Tunnel ID (edge-specific, requires `-e`) — mutually exclusive with `--remark` |
 | `-r`, `--remark` TEXT | Tunnel remark (can operate across all edges) — mutually exclusive with `--id` |
 | `-p`, `--port` PORT | Server port (use with `-t/--type` to locate tunnel across edges) |
-| `-t`, `--type` {tcp,udp,socks5,httpProxy} | Tunnel type (use with `-p/--port` to locate tunnel across edges) |
+| `-t`, `--type` {tcp,udp,socks5,httpProxy,mixProxy} | Tunnel type (use with `-p/--port` to locate tunnel across edges) |
 | `-e`, `--edge` EDGE | Edge name (required with `--id`; otherwise use this or `-a/--all`) |
 | `-a`, `--all` | Delete the matching tunnel from every configured edge |
 | `-y`, `--yes` | Skip confirmation prompts |
@@ -480,7 +483,7 @@ Edit an existing tunnel on edge node(s). Locator arguments (`--id`, `-r/--remark
 | `--id` ID | Tunnel ID to edit (edge-specific, requires `-e`) — mutually exclusive with `--remark` |
 | `-r`, `--remark` TEXT | Tunnel remark to locate (can operate across all edges) — mutually exclusive with `--id` |
 | `-p`, `--port` PORT | Server port to locate (use with `-t/--type` across edges) |
-| `-t`, `--type` {tcp,udp,socks5,httpProxy} | Tunnel type to locate (use with `-p/--port` across edges) |
+| `-t`, `--type` {tcp,udp,socks5,httpProxy,mixProxy} | Tunnel type to locate (use with `-p/--port` across edges) |
 | `-e`, `--edge` EDGE | Edge name (required with `--id`; otherwise use this or `-a/--all`) |
 | `-a`, `--all` | Edit the matching tunnel on every configured edge |
 

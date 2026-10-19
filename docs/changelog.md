@@ -27,6 +27,7 @@ All notable changes to nps-ctl are documented here. This project follows [Keep a
 - Status footers add an `N partial` count when a selected edge returned a partial result; `host status` error lines are now prefixed with `✗`
 - `totals.ok`, `totals.partial`, and `totals.failed` now partition the selected edges instead of counting a client-list failure in both `failed` and `partial`; `summary.offline` remains the client-liveness counter
 - Tunnel port ranges are parsed like the server's `common.GetPorts`: comma-separated, with reversed ranges swapped
+- `tunnel list -t/--type` now filters across all edges (previously it was ignored without `-e`) and resolves `socks5`/`httpProxy` to `mixProxy`; `mixProxy` is accepted by the list/del/edit type filters
 
 ---
 
