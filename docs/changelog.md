@@ -28,6 +28,9 @@ nps-ctl 的所有重要变更均记录于此。本项目遵循 [Keep a Changelog
 - `totals.ok`、`totals.partial` 与 `totals.failed` 现在把选中的边缘划分为互斥的三类，客户端列表抓取失败不再同时计入 `failed` 与 `partial`；`summary.offline` 仍然表示客户端存活计数
 - 隧道端口范围按服务端 `common.GetPorts` 的规则解析：按逗号分隔，倒序范围会被交换
 - `tunnel list -t/--type` 现在会在所有边缘节点上过滤（此前不带 `-e` 时会被忽略），并把 `socks5`/`httpProxy` 解析为 `mixProxy`；list/del/edit 的类型过滤均接受 `mixProxy`
+- 隧道列表会在本地过滤并按 ID 去重，因此即使服务端忽略 `type` 参数，精确类型过滤仍然正确
+- `tunnel del`/`tunnel edit` 的端口定位会匹配隧道的 `Port` 或其 `Ports` 范围中的任意端口
+- `tunnel edit` 会保留代理隧道的 socks5/HTTP 标志，不再在 djylb/nps 上把两者都清除
 
 ---
 

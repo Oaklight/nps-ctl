@@ -414,7 +414,9 @@ nps-ctl tunnel list --json                # Machine-readable output
 ```
 
 `mixProxy` 同时匹配两种代理；`socks5` 与 `httpProxy` 也会匹配 `mixProxy`
-行，这是 djylb/nps 存储这两类隧道的方式。
+行，这是 djylb/nps 存储这两类隧道的方式。表格显示每行实际存储的 `Mode`，
+因此在 djylb/nps 上按代理类型过滤会看到标为 `mixProxy` 的行；匹配到的是哪种
+代理由过滤条件而非该标签决定。
 
 ### `tunnel add`
 
@@ -459,6 +461,9 @@ nps-ctl tunnel del -p 8080 -t tcp -a              # By port+type across all edge
 
 !!! note "多匹配安全机制"
     如果多个隧道匹配定位器，命令将报错退出。使用 `--id` 配合 `-e` 以精确定位。
+
+!!! note "端口范围"
+    `-p/--port` 会匹配隧道的 `Port` 或其 `Ports` 范围中的任意端口。
 
 ### `tunnel edit`
 

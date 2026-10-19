@@ -591,6 +591,8 @@ cleanup() -> None
 | `RunStatus` | `bool` | 当前是否运行中 |
 | `Client` | `ClientInfo` | 关联的客户端 |
 | `Ports` | `str` | 附加端口规格（逗号/范围）；现代 API 的 `ports` 会归一化为该字符串 |
+| `Socks5Proxy` | `bool` | socks5 代理标志（映射自现代 API 的 `enable_socks5`） |
+| `HttpProxy` | `bool` | HTTP 代理标志（映射自现代 API 的 `enable_http`） |
 | `Flow` | `dict` | 流量数据 |
 | `Password` | `str` | 隧道密码 |
 | `Remark` | `str` | 隧道备注 |
