@@ -271,3 +271,48 @@ def test_writes_require_auth_on_public_bind():
         create_server(
             FakeCluster(), "0.0.0.0", 0, allow_insecure=True, allow_writes=True
         )
+
+
+def _raw(server, method, path, host, body=None):
+    import http.client
+
+    conn = http.client.HTTPConnection(*server.server_address[:2], timeout=5)
+    headers = {"Host": host, "Content-Type": "application/json"}
+    if body is not None:
+        headers["X-CSRF-Token"] = server.csrf_token
+        headers["Origin"] = f"http://{host}"
+    conn.request(method, path, body=body, headers=headers)
+    response = conn.getresponse()
+    response.read()
+    conn.close()
+    return response.status
+
+
+def test_rebinding_host_rejected_without_auth():
+    server = create_server(FakeCluster(), "127.0.0.1", 0, allow_writes=True)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    port = server.server_address[1]
+    body = json.dumps(HOST_PAYLOAD)
+    try:
+        assert _raw(server, "GET", "/", f"evil.example:{port}") == 403
+        assert (
+            _raw(server, "POST", "/api/actions/hosts", f"evil.example:{port}", body)
+            == 403
+        )
+        assert _raw(server, "GET", "/", f"127.0.0.1:{port}") == 200
+        assert _raw(server, "GET", "/", f"localhost:{port}") == 200
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
+def test_page_forbids_framing(writable):
+    request = urllib.request.Request(
+        _url(writable, "/"),
+        headers={"Authorization": build_auth_header("admin", "secret")},
+    )
+    with urllib.request.urlopen(request, timeout=5) as response:
+        assert response.headers["X-Frame-Options"] == "DENY"
+        assert "frame-ancestors 'none'" in response.headers["Content-Security-Policy"]

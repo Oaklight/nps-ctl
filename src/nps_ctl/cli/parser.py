@@ -112,7 +112,8 @@ def _add_web_command(subparsers) -> None:
         "web",
         help="Run the cluster dashboard (read-only unless --allow-writes)",
         description=(
-            "Serve a read-only web dashboard for all configured edges. "
+            "Serve a web dashboard for all configured edges (read-only unless "
+            "--allow-writes). "
             "Binds to loopback by default; set --username/--password before "
             "exposing it."
         ),
