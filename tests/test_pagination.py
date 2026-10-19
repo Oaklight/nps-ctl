@@ -303,6 +303,19 @@ def test_modern_list_tunnels_filters_proxy_aliases_locally():
     assert "mode" not in nps.params[0]
 
 
+def test_modern_list_tunnels_httpproxy_alias_selects_only_http_rows():
+    nps = FakeModernNPS(
+        [
+            {"id": 1, "mode": "mixProxy", "enable_socks5": True, "enable_http": False},
+            {"id": 2, "mode": "mixProxy", "enable_socks5": False, "enable_http": True},
+        ]
+    )
+
+    rows = tunnel.list_tunnels(nps, tunnel_type="httpProxy")
+
+    assert [row["Id"] for row in rows] == [2]
+
+
 def test_modern_list_tunnels_mixproxy_filters_both_proxy_kinds():
     nps = FakeModernNPS(
         [

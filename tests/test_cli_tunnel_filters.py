@@ -184,6 +184,60 @@ def test_edit_tunnel_v1_sends_proxy_flags():
     assert nps.data["enable_http"] is False
 
 
+def test_edit_tunnel_v2_sends_proxy_flags():
+    class RecordingModernNPS:
+        is_modern = True
+
+        def __init__(self):
+            self.data = None
+
+        def api_request(self, method, path, params=None, data=None):
+            self.data = data
+            return {"data": {}}
+
+    nps = RecordingModernNPS()
+
+    assert tunnel_module.edit_tunnel(
+        nps,
+        tunnel_id=1,
+        client_id=5,
+        tunnel_type="mixProxy",
+        port=1080,
+        enable_socks5=False,
+        enable_http=True,
+    )
+    assert nps.data is not None
+    assert nps.data["enable_socks5"] is False
+    assert nps.data["enable_http"] is True
+
+
+def test_edit_tunnel_v1_omits_proxy_flags_for_tcp():
+    class RecordingNPS:
+        is_modern = False
+
+        def __init__(self):
+            self.data = None
+
+        def request(self, path, method="POST", data=None):
+            self.data = data
+            return {"status": 1}
+
+    nps = RecordingNPS()
+
+    assert tunnel_module.edit_tunnel(
+        nps,
+        tunnel_id=2,
+        client_id=5,
+        tunnel_type="tcp",
+        port=9000,
+        enable_socks5=None,
+        enable_http=None,
+    )
+    assert nps.data is not None
+    assert "enable_socks5" not in nps.data
+    assert "enable_http" not in nps.data
+
+
 class ClusterStub:
     """Cluster stub for the all-edges list path."""
 
