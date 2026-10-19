@@ -277,7 +277,7 @@ list_tunnels(
 ) -> list[TunnelInfo]
 ```
 
-列出隧道。当 `tunnel_type` 为空时，查询所有已知类型（`tcp`、`udp`、`socks5`、`httpProxy`、`secret`、`p2p`、`file`）并合并结果。
+列出隧道。当 `tunnel_type` 为空时，查询所有已知类型（`tcp`、`udp`、`socks5`、`httpProxy`、`mixProxy`、`secret`、`p2p`、`file`）并合并结果。`mixProxy` 在 djylb/nps 上是必需的，该版本用它存储 socks5 与 httpProxy 隧道。
 
 | 参数 | 类型 | 默认值 | 描述 |
 |------|------|--------|------|

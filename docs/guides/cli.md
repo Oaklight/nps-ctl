@@ -220,7 +220,9 @@ nps-ctl edge list --json
 
 显示全部或选定边缘节点的可达性与资源清单。该命令会抓取完整的客户端、域名映射
 和隧道列表，开销随集群规模增长，属于清单命令而非轻量健康探测。使用旧版 API 的
-边缘节点列出隧道时需要按隧道类型逐个请求（共 7 次）；新版 API 只需一次请求。
+边缘节点列出隧道时需要按隧道类型逐个请求（共 8 次）；新版 API 只需一次请求。
+第八种模式 `mixProxy` 是 djylb/nps 存储 socks5 与 httpProxy 隧道的方式，缺少它
+会导致这些隧道无法计入任何统计。
 
 | 选项 | 说明 |
 | --- | --- |
@@ -246,6 +248,9 @@ nps-ctl edge status -a --json
 - `✓ Online` — 所有请求的抓取均成功。
 - `⚠ Partial` — 至少一个请求的抓取成功，但并非全部成功。
 - `✗ Offline` — 所有请求的抓取均失败。
+
+当任一选中边缘返回部分结果时，汇总行会附加 `N partial`，随后是客户端、域名映射
+与隧道的汇总数量。
 
 JSON 保留 `summary: {configured, online, offline}`，并为每个边缘新增 `ok`、
 `partial`、`clients_ok`、`clients_total`、`clients_online`、`hosts_ok`、
@@ -380,8 +385,9 @@ nps-ctl tunnel status -a --json
 
 输出列为 `Edge`、`Region`、`Status`、`Clients`、`Tunnels`、`Running` 和
 `Ports`。`Clients` 为 `<在线>/<总数>`；`Ports` 统计 `Port`/`Ports` 中不同的
-服务端端口（自动分配或无效端口会被忽略）。该命令不抓取域名映射，因此 JSON 中
-的域名计数为 `null`。
+服务端端口，端口范围按服务端 `common.GetPorts` 的规则展开（包括交换倒序范围）。
+自动分配或无效端口会被忽略。所有隧道模式都会计入，包括 djylb/nps 上的
+`mixProxy`。该命令不抓取域名映射，因此 JSON 中的域名计数为 `null`。
 
 仅当所有选定边缘的客户端与隧道抓取均成功时退出码为 0；任一抓取或配置失败
 （包括未知的 `-e`）为 1；同时使用 `-e` 和 `-a` 为 2。
@@ -551,8 +557,9 @@ nps-ctl host status -a --json
 ```
 
 输出列为 `Edge`、`Region`、`Status`、`Clients`、`Hosts` 和 `Ports`，状态与
-数量规则与 `edge status` 相同。汇总行报告在线边缘数、在线/总客户端数、域名
-映射数和不同目标端口数。未知数量在表格中显示为 `-`，在 JSON 中为 `null`。
+数量规则与 `edge status` 相同。汇总行报告在线边缘数（适用时附加 `N partial`）、
+在线/总客户端数、域名映射数和不同目标端口数；错误行以 `✗` 为前缀。未知数量在
+表格中显示为 `-`，在 JSON 中为 `null`。
 
 仅当每个所选边缘的客户端与域名映射抓取都成功时命令才以 0 退出；任何抓取或
 配置失败（包括未知的 `-e`）退出 1；同时使用 `-e` 和 `-a` 退出 2。

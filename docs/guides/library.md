@@ -145,7 +145,8 @@ payload = build_status_payload(rows)  # edges、summary、totals
 均抓取成功）、`partial`（部分成功）、各资源的 `*_ok` 标志以及数量。抓取失败
 或未请求的资源数量为 `None`。`build_status_payload` 保留
 `summary: {configured, online, offline}`，并在 `totals` 中新增 `clients`、
-`hosts`、`ports`、`tunnels`、`tunnels_running` 和 `tunnel_ports`。
+`hosts`、`ports`、`tunnels`、`tunnels_running` 和 `tunnel_ports`；
+`totals.ok`、`totals.partial` 与 `totals.failed` 把各行划分为互斥的三类。
 
 ### 广播操作
 

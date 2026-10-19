@@ -16,6 +16,7 @@ nps-ctl 的所有重要变更均记录于此。本项目遵循 [Keep a Changelog
 - `edge status` 支持 `-e/--edge` 和 `-a/--all`
 - 供 `edge status`、`host status` 和 `tunnel status` 共用的状态渲染辅助函数
 - `get_all_tunnels()` 支持 `edge_names`；现代 API 的隧道 `ports` 会归一化到 `TunnelInfo.Ports`
+- 隧道列表与清单统计会查询 NPS 的 `mixProxy` 模式，djylb/nps 用它存储 socks5 与 httpProxy 隧道
 - Web 仪表盘概览改用共享状态收集器，并暴露 `ok`/`partial`
 
 ### 变更
@@ -23,6 +24,9 @@ nps-ctl 的所有重要变更均记录于此。本项目遵循 [Keep a Changelog
 - **`edge status`** 默认抓取隧道，并显示 `Hosts (ports)` 与 `Tunnels (running, ports)`；任一客户端、域名映射或隧道抓取失败时退出 1
 - `edge status` JSON 新增 `clients_ok`、`hosts_ok`、`tunnels_ok`、`tunnels_total`、`tunnels_running`、`tunnel_ports` 及隧道汇总；未请求的资源为 `null`
 - `GET /api/overview` 的 `online` 现在表示客户端列表抓取成功，新增 `ok`/`partial`，不可用的数量以 `null` 而非 `0` 返回
+- 存在部分结果时，状态汇总行会附加 `N partial`；`host status` 的错误行现在以 `✗` 为前缀
+- `totals.ok`、`totals.partial` 与 `totals.failed` 现在把选中的边缘划分为互斥的三类，客户端列表抓取失败不再同时计入 `failed` 与 `partial`
+- 隧道端口范围按服务端 `common.GetPorts` 的规则解析：按逗号分隔，倒序范围会被交换
 
 ---
 
