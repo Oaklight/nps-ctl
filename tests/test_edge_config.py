@@ -231,3 +231,21 @@ def test_sync_defaults_source_to_primary(tmp_path, monkeypatch):
 
     assert cmd_sync.cmd_sync(_sync_args(path)) == 0
     assert calls == {"source": "edge-b", "targets": ["edge-a"]}
+
+
+def test_write_follows_symlink(tmp_path):
+    real = _write(tmp_path)
+    link = tmp_path / "link.toml"
+    link.symlink_to(real)
+
+    cmd_edge_config.set_primary(link, "edge-a")
+
+    assert link.is_symlink()
+    assert tomllib.loads(real.read_text())["primary"] == "edge-a"
+
+
+def test_set_primary_rejects_unhandled_layout():
+    text = 'banner = """\n[not a table]\nprimary = "fake"\n"""\n' + CONFIG
+
+    with pytest.raises(ValueError, match="edit it by hand"):
+        set_primary_text(text, "edge-a")

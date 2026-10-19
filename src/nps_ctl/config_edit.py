@@ -71,7 +71,11 @@ def set_primary_text(text: str, edge_name: str) -> str:
         lines[insert_at:insert_at] = block
 
     result = "".join(lines)
-    _validated(result)
+    if _validated(result).get("primary") != edge_name:
+        raise ValueError(
+            "Could not set primary: edges.toml has a layout this editor does "
+            "not handle (e.g. a top-level multi-line string); edit it by hand"
+        )
     return result
 
 
@@ -122,7 +126,9 @@ def append_edge_text(
     if prefix.strip():
         prefix += "\n"
     result = prefix + block
-    _validated(result)
+    names = [edge.get("name") for edge in _validated(result).get("edges", [])]
+    if name not in names:
+        raise ValueError("Could not append the edge entry; edit edges.toml by hand")
     return result
 
 
@@ -130,12 +136,16 @@ def _write_atomic(path: Path, text: str) -> None:
     """Replace ``path`` with ``text`` atomically, keeping its file mode.
 
     The file holds every edge's auth key, so a crash or full disk must never
-    leave it truncated.
+    leave it truncated. Symlinks are resolved first so a linked config is
+    updated in place rather than replaced by a regular file.
     """
+    path = path.resolve()
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(text)
+            f.flush()
+            os.fsync(f.fileno())
         if path.exists():
             os.chmod(tmp, path.stat().st_mode & 0o777)
         os.replace(tmp, path)
