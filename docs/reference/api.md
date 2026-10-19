@@ -281,8 +281,9 @@ list_tunnels(
 ```
 
 List tunnels. When `tunnel_type` is empty, queries all known types
-(`tcp`, `udp`, `socks5`, `httpProxy`, `secret`, `p2p`, `file`) and merges
-the results.
+(`tcp`, `udp`, `socks5`, `httpProxy`, `mixProxy`, `secret`, `p2p`, `file`)
+and merges the results. `mixProxy` is required on djylb/nps, which stores
+socks5 and httpProxy tunnels under that mode.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|

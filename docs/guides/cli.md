@@ -227,8 +227,10 @@ nps-ctl edge list --json
 Show reachability and inventory for all or selected edges. This fetches the
 full client, host, and tunnel lists, so its cost grows with the cluster: it
 is an inventory command, not a lightweight health probe. On legacy API edges,
-listing tunnels requires one request per tunnel type (seven total); the modern
-API uses a single request.
+listing tunnels requires one request per tunnel type (eight total); the modern
+API uses a single request. The eighth mode, `mixProxy`, is how djylb/nps
+stores socks5 and httpProxy tunnels, so without it those tunnels would be
+missing from every count.
 
 | Option | Description |
 | --- | --- |
@@ -254,6 +256,9 @@ Status values:
 - `✓ Online` — all requested fetches succeeded.
 - `⚠ Partial` — at least one requested fetch succeeded, but not all.
 - `✗ Offline` — every requested fetch failed.
+
+The summary line reports online edges and adds `N partial` when any selected
+edge returned a partial result, followed by client, host, and tunnel totals.
 
 JSON keeps `summary: {configured, online, offline}` and adds per-edge `ok`,
 `partial`, `clients_ok`, `clients_total`, `clients_online`, `hosts_ok`,
@@ -389,8 +394,11 @@ nps-ctl tunnel status -a --json
 
 Columns are `Edge`, `Region`, `Status`, `Clients`, `Tunnels`, `Running`, and
 `Ports`. `Clients` is `<online>/<total>`; `Ports` counts distinct server ports
-from `Port` and `Ports` (auto-assigned or invalid ports are ignored). Hosts
-are not fetched, so host counts are `null` in JSON.
+from `Port` and `Ports`, expanding ranges the same way the server's
+`common.GetPorts` does (including swapping a reversed range). Auto-assigned
+or invalid ports are ignored. All tunnel modes are counted, including
+`mixProxy` on djylb/nps. Hosts are not fetched, so host counts are `null` in
+JSON.
 
 The command exits 0 only when every selected edge's client and tunnel fetches
 succeed, 1 on any fetch or configuration failure (including an unknown `-e`),
@@ -565,7 +573,8 @@ nps-ctl host status -a --json
 
 Columns are `Edge`, `Region`, `Status`, `Clients`, `Hosts`, and `Ports`, with
 the same status and count rules as `edge status`. The summary line reports
-online edges, online/total clients, host mappings, and distinct target ports.
+online edges (plus `N partial` when applicable), online/total clients, host
+mappings, and distinct target ports. Error lines are prefixed with `✗`.
 Unknown counts render as `-` in tables and `null` in JSON.
 
 The command exits 0 only when every selected edge's client and host fetches

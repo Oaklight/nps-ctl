@@ -16,6 +16,7 @@ All notable changes to nps-ctl are documented here. This project follows [Keep a
 - `edge status` supports `-e/--edge` and `-a/--all`
 - Shared status rendering helpers used by `edge status`, `host status`, and `tunnel status`
 - `get_all_tunnels()` accepts `edge_names`; modern tunnel `ports` values are normalized into `TunnelInfo.Ports`
+- Tunnel listings and inventory counts query NPS's `mixProxy` mode, where djylb/nps stores socks5 and httpProxy tunnels
 - The web dashboard overview is driven by the shared status collector and exposes `ok`/`partial`
 
 ### Changed
@@ -23,6 +24,9 @@ All notable changes to nps-ctl are documented here. This project follows [Keep a
 - **`edge status`** now fetches tunnels by default and reports `Hosts (ports)` and `Tunnels (running, ports)`; it exits 1 on any client, host, or tunnel fetch failure
 - `edge status` JSON adds `clients_ok`, `hosts_ok`, `tunnels_ok`, `tunnels_total`, `tunnels_running`, `tunnel_ports`, and tunnel totals; unrequested resources are `null`
 - `GET /api/overview` now defines `online` as client-list liveness, adds `ok`/`partial`, and reports unavailable counts as `null` instead of `0`
+- Status footers add an `N partial` count when a selected edge returned a partial result; `host status` error lines are now prefixed with `✗`
+- `totals.ok`, `totals.partial`, and `totals.failed` now partition the selected edges instead of counting a client-list failure in both `failed` and `partial`
+- Tunnel port ranges are parsed like the server's `common.GetPorts`: comma-separated, with reversed ranges swapped
 
 ---
 

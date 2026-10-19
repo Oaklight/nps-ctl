@@ -152,7 +152,8 @@ requested fetches succeeded), `partial` (some but not all), the per-resource
 `*_ok` flags, and counts. Counts are `None` when a fetch failed and when the
 resource was not requested. `build_status_payload` keeps
 `summary: {configured, online, offline}` and adds `totals` with `clients`,
-`hosts`, `ports`, `tunnels`, `tunnels_running`, and `tunnel_ports`.
+`hosts`, `ports`, `tunnels`, `tunnels_running`, and `tunnel_ports`;
+`totals.ok`, `totals.partial`, and `totals.failed` partition the rows.
 
 ### Broadcasting operations
 
