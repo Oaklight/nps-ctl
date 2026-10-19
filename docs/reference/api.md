@@ -277,13 +277,13 @@ list_tunnels(
 ) -> list[TunnelInfo]
 ```
 
-列出隧道。当 `tunnel_type` 为空时，查询所有已知类型（`tcp`、`udp`、`socks5`、`httpProxy`、`mixProxy`、`secret`、`p2p`、`file`）并合并结果。`mixProxy` 在 djylb/nps 上是必需的，该版本用它存储 socks5 与 httpProxy 隧道。
+列出隧道。当 `tunnel_type` 为空时，查询所有已知类型（`tcp`、`udp`、`socks5`、`httpProxy`、`mixProxy`、`secret`、`p2p`、`file`）并合并结果。`mixProxy` 在 djylb/nps 上是必需的，该版本用它存储 socks5 与 httpProxy 隧道。按 `socks5` 或 `httpProxy` 过滤时也会返回对应的 `mixProxy` 行；服务端提供 `Socks5Proxy`/`HttpProxy` 标志时据此区分两者。
 
 | 参数 | 类型 | 默认值 | 描述 |
 |------|------|--------|------|
 | `nps` | `NPSClient` | *（必填）* | API 客户端实例 |
 | `client_id` | `int \| None` | `None` | 按客户端 ID 过滤（`None` 表示全部） |
-| `tunnel_type` | `str` | `""` | 按类型过滤（空 = 所有类型） |
+| `tunnel_type` | `str` | `""` | 按类型过滤（空 = 所有类型；`socks5`/`httpProxy` 也会匹配 `mixProxy`） |
 | `search` | `str` | `""` | 搜索关键词 |
 | `offset` | `int` | `0` | 分页偏移量 |
 | `limit` | `int` | `100` | 每种类型的最大返回数量 |
@@ -454,10 +454,12 @@ get_all_clients(
 get_all_tunnels(
     max_workers: int = 4,
     edge_names: list[str] | None = None,
+    tunnel_type: str = "",
 ) -> dict[str, list[TunnelInfo]]
 ```
 
-并行获取全部或选定边缘节点的隧道。
+并行获取全部或选定边缘节点的隧道。`tunnel_type` 会在每个边缘节点上过滤结果；
+空字符串表示所有类型。
 
 #### get_all_hosts
 

@@ -399,7 +399,7 @@ nps-ctl tunnel status -a --json
 | 选项 | 说明 |
 | --- | --- |
 | `-e`, `--edge` EDGE | 要查询的边缘节点名称（默认：所有边缘节点） |
-| `-t`, `--type` {tcp,udp,socks5,httpProxy,secret,p2p,file} | 按隧道类型过滤 |
+| `-t`, `--type` {tcp,udp,socks5,httpProxy,mixProxy,secret,p2p,file} | 按隧道类型过滤 |
 | `-a`, `--all` | 显式的全边缘别名（默认行为） |
 | `--json` | 输出机器可读的 JSON |
 | `--no-color` | 禁用彩色输出 |
@@ -412,6 +412,9 @@ nps-ctl tunnel list -t tcp                # Only TCP tunnels
 nps-ctl tunnel list -e nps-us -t udp      # UDP tunnels on specific edge
 nps-ctl tunnel list --json                # Machine-readable output
 ```
+
+`mixProxy` 同时匹配两种代理；`socks5` 与 `httpProxy` 也会匹配 `mixProxy`
+行，这是 djylb/nps 存储这两类隧道的方式。
 
 ### `tunnel add`
 
@@ -443,7 +446,7 @@ nps-ctl tunnel add -c my-server -t socks5 -p 1080 -e nps-us
 | `--id` ID | 隧道 ID（边缘节点特定，需要 `-e`）— 与 `--remark` 互斥 |
 | `-r`, `--remark` TEXT | 隧道备注（可跨所有边缘节点操作）— 与 `--id` 互斥 |
 | `-p`, `--port` PORT | 服务器端口（与 `-t/--type` 配合使用以跨边缘节点定位隧道） |
-| `-t`, `--type` {tcp,udp,socks5,httpProxy} | 隧道类型（与 `-p/--port` 配合使用以跨边缘节点定位隧道） |
+| `-t`, `--type` {tcp,udp,socks5,httpProxy,mixProxy} | 隧道类型（与 `-p/--port` 配合使用以跨边缘节点定位隧道） |
 | `-e`, `--edge` EDGE | 边缘节点名称（使用 `--id` 时必需；否则需提供此项或 `-a/--all`） |
 | `-a`, `--all` | 从所有已配置边缘节点删除匹配的隧道 |
 | `-y`, `--yes` | 跳过确认提示 |
@@ -468,7 +471,7 @@ nps-ctl tunnel del -p 8080 -t tcp -a              # By port+type across all edge
 | `--id` ID | 要编辑的隧道 ID（边缘节点特定，需要 `-e`）— 与 `--remark` 互斥 |
 | `-r`, `--remark` TEXT | 要定位的隧道备注（可跨所有边缘节点操作）— 与 `--id` 互斥 |
 | `-p`, `--port` PORT | 要定位的服务器端口（与 `-t/--type` 配合使用以跨边缘节点定位） |
-| `-t`, `--type` {tcp,udp,socks5,httpProxy} | 要定位的隧道类型（与 `-p/--port` 配合使用以跨边缘节点定位） |
+| `-t`, `--type` {tcp,udp,socks5,httpProxy,mixProxy} | 要定位的隧道类型（与 `-p/--port` 配合使用以跨边缘节点定位） |
 | `-e`, `--edge` EDGE | 边缘节点名称（使用 `--id` 时必需；否则需提供此项或 `-a/--all`） |
 | `-a`, `--all` | 在所有已配置边缘节点上编辑匹配的隧道 |
 

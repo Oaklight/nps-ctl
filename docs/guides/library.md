@@ -119,6 +119,9 @@ all_hosts = cluster.get_all_hosts()
 
 # Restrict any fetch to a subset of edges
 selected_hosts = cluster.get_all_hosts(edge_names=["nps-america"])
+
+# Filter tunnels by type on every edge
+tcp_tunnels = cluster.get_all_tunnels(tunnel_type="tcp")
 ```
 
 ### 状态清单
