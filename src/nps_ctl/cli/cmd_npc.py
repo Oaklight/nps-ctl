@@ -723,6 +723,22 @@ def cmd_client_add(args: argparse.Namespace) -> int:
     console.print(
         f"\n[bold green]✓ Added client '{name}' to {clients_path}[/bold green]"
     )
+    if not getattr(args, "push", False):
+        console.print(
+            f"[dim]Create it on the edges with: nps-ctl client push -c {name}[/dim]"
+        )
+        return 0
+
+    # Reload so the new entry is visible, then push only this client.
+    cluster = NPSCluster(args.config)
+    push_args = argparse.Namespace(
+        client=name,
+        edge=None,
+        dry_run=False,
+        update=False,
+        yes=getattr(args, "yes", False),
+    )
+    handle_client_push(push_args, cluster)
     return 0
 
 
