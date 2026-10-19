@@ -175,9 +175,11 @@ def cmd_status(args: argparse.Namespace) -> int:
         if tunnels_total is not None
         else "- tunnels"
     )
+    partial = sum(1 for row in rows if row.partial)
+    partial_text = f", {partial} partial" if partial else ""
     console.print(
-        f"[dim]{online}/{len(rows)} edges online; clients {clients_text} online, "
-        f"{hosts_text}, {tunnels_text}[/dim]"
+        f"[dim]{online}/{len(rows)} edges online{partial_text}; "
+        f"clients {clients_text} online, {hosts_text}, {tunnels_text}[/dim]"
     )
     print_status_errors(rows)
     return 0 if all(row.ok for row in rows) else 1

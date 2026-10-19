@@ -4,7 +4,7 @@ This module provides functions for managing tunnels on an NPS server,
 including listing, adding, editing, starting, stopping, and deleting tunnels.
 
 Supports both legacy (/index/*) and modern (/api/*) API endpoints.
-The modern API eliminates the legacy 7-request fan-out for listing all
+The modern API eliminates the legacy 8-request fan-out for listing all
 tunnel types, reducing it to a single GET request.
 """
 
@@ -23,9 +23,22 @@ from .utils import (
 if TYPE_CHECKING:
     from .base import NPSClient
 
-# NPS legacy API requires the 'type' parameter to return tunnel results.
-# When no type is specified, we query all known types and merge.
-TUNNEL_TYPES = ("tcp", "udp", "socks5", "httpProxy", "secret", "p2p", "file")
+# NPS legacy API requires the 'type' parameter to return tunnel results, and
+# filters on exact mode equality. When no type is specified, we query all
+# known types and merge. djylb/nps (the fork this project deploys) rewrites
+# socks5 and httpProxy tunnels to ``mixProxy`` on store since v0.30, so that
+# mode must be queried explicitly; older ehang-io servers simply return no
+# rows for it.
+TUNNEL_TYPES = (
+    "tcp",
+    "udp",
+    "socks5",
+    "httpProxy",
+    "mixProxy",
+    "secret",
+    "p2p",
+    "file",
+)
 
 
 # --- Public API (dispatch to v1/v2) ---
@@ -44,7 +57,7 @@ def list_tunnels(
 
     The legacy NPS API requires a 'type' parameter to return results. When
     ``tunnel_type`` is empty, the legacy path queries all known tunnel types
-    and merges the results (7 requests). The modern API handles this in a
+    and merges the results (8 requests). The modern API handles this in a
     single request.
 
     Args:
@@ -326,7 +339,8 @@ def _list_tunnels_v1(
             limit=limit,
             paginate=paginate,
         )
-    # Query all tunnel types and merge results (7 requests)
+    # Query all tunnel types and merge results (8 requests); mixProxy covers
+    # socks5/httpProxy tunnels on djylb/nps.
     all_tunnels: list[TunnelInfo] = []
     for t in TUNNEL_TYPES:
         tunnels = _list_tunnels_by_type_v1(
@@ -452,7 +466,12 @@ def _stop_tunnel_v1(nps: NPSClient, tunnel_id: int) -> bool:
 
 
 def _normalize_ports(value: Any) -> str:
-    """Normalize a modern ``ports`` value to the legacy string form."""
+    """Normalize a modern ``ports`` value to the legacy string form.
+
+    djylb/nps builds through v0.34.8 expose only ``port`` in the tunnel
+    payload; this keeps the normalized shape stable if a build adds a
+    multi-port ``ports`` list or range.
+    """
     if isinstance(value, (list, tuple)):
         return ",".join(str(port) for port in value)
     if isinstance(value, int) and not isinstance(value, bool):

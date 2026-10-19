@@ -87,7 +87,8 @@ def test_host_status_renders_healthy_and_partial(monkeypatch, capsys):
     assert "1/2" in out  # edge-a clients
     assert "2" in out  # host mappings / ports
     assert (
-        "2/2 edges online; clients 2/3 online, - host mappings, - target ports" in out
+        "2/2 edges online, 1 partial; clients 2/3 online, "
+        "- host mappings, - target ports" in out
     )
     assert "edge-b: hosts: timeout" in out
 

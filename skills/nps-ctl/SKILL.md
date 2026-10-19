@@ -29,7 +29,8 @@ they are never the inventory.
 - Write commands require an explicit target: `-e <edge>` for one edge or
   `-a/--all` for every configured edge. There is no silent cluster-wide default.
 - `nps-ctl edge status` also lists every edge, but contacts each one and
-  fetches full client, host, and tunnel inventories. Use `-e <edge>` to scope it.
+  fetches full client, host, and tunnel inventories. Use `-e <edge>` to scope
+  it. It exits 1 if any of those fetches fails, not only when an edge is down.
 - Add `--json` for machine-readable output on `edge list`, `edge status`,
   `host status`, `tunnel status`, and `client/host/tunnel list`. Piped output
   has no ANSI styling; `--no-color` disables it explicitly.
@@ -92,6 +93,9 @@ nps-ctl tunnel del --edge nps-america --id 5 -y
 nps-ctl tunnel start --edge nps-america --id 5
 nps-ctl tunnel stop --edge nps-america --id 5
 ```
+
+Tunnel counts include `mixProxy`, where djylb/nps stores socks5 and httpProxy
+tunnels.
 
 ## Common tasks
 

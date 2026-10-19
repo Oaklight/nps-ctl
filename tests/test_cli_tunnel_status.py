@@ -97,7 +97,7 @@ def test_tunnel_status_renders_healthy_and_partial(monkeypatch, capsys):
     assert "✓ Online" in out
     assert "⚠ Partial" in out
     assert "1/2" in out  # edge-a clients online/total
-    assert "2/2 edges online" in out
+    assert "2/2 edges online, 1 partial" in out
     assert "- tunnels" in out
     assert "edge-b: tunnels: timeout" in out
     assert cluster.host_calls == []

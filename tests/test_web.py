@@ -13,7 +13,7 @@ from types import SimpleNamespace
 import pytest
 
 from nps_ctl.types import EdgeResults
-from nps_ctl.web import _overview, build_auth_header, create_server
+from nps_ctl.web import _DASHBOARD_HTML, _overview, build_auth_header, create_server
 
 
 class FakeNPS:
@@ -206,6 +206,12 @@ def test_overview_reports_partial_and_null_counts():
     assert edge_b["partial"] is True
     assert edge_b["tunnels"] is None
     assert edge_b["error"] == "tunnels: timeout"
+
+
+def test_dashboard_summary_renders_ok_and_partial():
+    assert "edges ok" in _DASHBOARD_HTML
+    assert "s.ok + '/' + s.edges" in _DASHBOARD_HTML
+    assert "s.partial" in _DASHBOARD_HTML
 
 
 def test_edge_resources_redact_credentials(server):

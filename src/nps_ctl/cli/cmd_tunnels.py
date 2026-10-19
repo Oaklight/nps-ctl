@@ -208,8 +208,11 @@ def cmd_tunnel_status(args: argparse.Namespace) -> int:
     tunnels_running = sum_counts([row.tunnels_running for row in rows])
     tunnel_ports = sum_counts([row.tunnel_ports for row in rows])
     clients_text = "-" if clients_total is None else f"{clients_online}/{clients_total}"
+    partial = sum(1 for row in rows if row.partial)
+    partial_text = f", {partial} partial" if partial else ""
     console.print(
-        f"[dim]{online}/{len(rows)} edges online; clients {clients_text} online, "
+        f"[dim]{online}/{len(rows)} edges online{partial_text}; "
+        f"clients {clients_text} online, "
         f"{count_cell(tunnels_total)} tunnels "
         f"({count_cell(tunnels_running)} running, "
         f"{count_cell(tunnel_ports)} server ports)[/dim]"

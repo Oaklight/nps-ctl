@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from nps_ctl import client_mgmt, host, tunnel
 
 
@@ -192,6 +194,33 @@ def test_tunnel_get_normalizes_modern_response():
     assert result["Target"]["TargetStr"] == "127.0.0.1:80"
     assert result["Flow"]["InletFlow"] == 12
     assert result["Flow"]["ExportFlow"] == 34
+
+
+@pytest.mark.parametrize(
+    ("ports", "expected"),
+    [
+        ([8100, 8101], "8100,8101"),
+        (8100, "8100"),
+        ("8100-8102", "8100-8102"),
+        (None, ""),
+    ],
+)
+def test_tunnel_ports_normalization_for_modern_payloads(ports, expected):
+    nps = ModernNPS(
+        item={
+            "id": 9,
+            "port": 0,
+            "ports": ports,
+            "mode": "tcp",
+            "target": "",
+            "client": {"id": 1},
+        }
+    )
+
+    result = tunnel.get_tunnel(nps, 9)
+
+    assert result is not None
+    assert result["Ports"] == expected
 
 
 class WrappedItemNPS:

@@ -127,36 +127,36 @@ def _coerce_port(value: Any) -> int | None:
 def _parse_ports(value: Any) -> set[int]:
     """Parse a Port or Ports value into a set of valid ports.
 
-    Accepts an int, a string of comma/space-separated ports and inclusive
-    ranges (``8000-8010``), or a list/tuple of ints or numeric strings.
-    Malformed tokens and out-of-range values are ignored.
+    Mirrors the server's ``common.GetPorts``: comma-separated items, single
+    ports and inclusive ``start-end`` ranges, whitespace around the dash and
+    around each item is ignored, and a reversed range is swapped before it is
+    expanded. A list/tuple is treated as a comma-separated list. Malformed
+    tokens and out-of-range values are ignored.
     """
-    ports: set[int] = set()
-
     if isinstance(value, (list, tuple)):
-        for item in value:
-            port = _coerce_port(item)
-            if port is not None:
-                ports.add(port)
-        return ports
-
-    if not isinstance(value, str):
+        value = ",".join(str(item) for item in value)
+    elif not isinstance(value, str):
         port = _coerce_port(value)
-        if port is not None:
-            ports.add(port)
-        return ports
+        return {port} if port is not None else set()
 
-    for token in value.replace(",", " ").split():
-        if "-" in token:
-            start_text, _, end_text = token.partition("-")
+    ports: set[int] = set()
+    for item in value.split(","):
+        item = item.strip()
+        if not item:
+            continue
+        start_text, separator, end_text = item.partition("-")
+        if separator:
             start = _coerce_port(start_text)
             end = _coerce_port(end_text)
-            if start is not None and end is not None and start <= end:
-                ports.update(range(start, end + 1))
-        else:
-            port = _coerce_port(token)
-            if port is not None:
-                ports.add(port)
+            if start is None or end is None:
+                continue
+            if end < start:
+                start, end = end, start
+            ports.update(range(start, end + 1))
+            continue
+        port = _coerce_port(item)
+        if port is not None:
+            ports.add(port)
     return ports
 
 
@@ -356,6 +356,8 @@ def build_status_payload(rows: list[EdgeStatus]) -> dict[str, Any]:
     ``summary`` keeps its existing ``{configured, online, offline}`` shape;
     ``totals`` aggregates the inventory counts, using ``null`` when any edge
     could not report so the JSON and the text footer always agree.
+    ``totals.ok``, ``totals.partial``, and ``totals.failed`` partition the
+    selected rows.
     """
     online = sum(1 for row in rows if row.online)
     return {
@@ -388,7 +390,7 @@ def build_status_payload(rows: list[EdgeStatus]) -> dict[str, Any]:
         },
         "totals": {
             "ok": sum(1 for row in rows if row.ok),
-            "failed": sum(1 for row in rows if not row.online),
+            "failed": sum(1 for row in rows if not row.online and not row.partial),
             "partial": sum(1 for row in rows if row.partial),
             "clients": sum_counts([row.clients_total for row in rows]),
             "hosts": sum_counts([row.hosts_total for row in rows]),

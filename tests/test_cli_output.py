@@ -301,6 +301,17 @@ def test_edge_status_exits_nonzero_on_tunnel_only_failure(monkeypatch):
     assert cmd_status.cmd_status(argparse.Namespace(config="ignored")) == 1
 
 
+def test_edge_status_text_reports_partial_count(monkeypatch, capsys):
+    cluster = FakeStatusCluster(["a", "b"], tunnel_failing={"b"})
+    monkeypatch.setattr(cmd_status, "NPSCluster", lambda config: cluster)
+
+    cmd_status.cmd_status(argparse.Namespace(config="ignored"))
+
+    out = _plain(capsys.readouterr().out)
+    assert "2/2 edges online, 1 partial" in out
+    assert "⚠ Partial" in out
+
+
 def test_edge_status_single_edge_contacts_only_that_edge(monkeypatch, capsys):
     cluster = FakeStatusCluster(["a", "b"])
     monkeypatch.setattr(cmd_status, "NPSCluster", lambda config: cluster)

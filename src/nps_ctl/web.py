@@ -357,12 +357,14 @@ function card(value, label) {
 }
 
 function renderSummary(s) {
-  summary.replaceChildren(
-    card(s.online + '/' + s.edges, 'edges online'),
+  const cards = [
+    card(s.ok + '/' + s.edges, 'edges ok'),
     card(s.clients, 'clients'),
     card(s.tunnels, 'tunnels'),
     card(s.hosts, 'hosts')
-  );
+  ];
+  if (s.partial) cards.splice(1, 0, card(s.partial, 'partial'));
+  summary.replaceChildren(...cards);
 }
 
 function renderEdges(edges) {

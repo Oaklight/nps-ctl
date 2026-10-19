@@ -94,7 +94,7 @@ nps-ctl client status
 nps-ctl edge list --json
 ```
 
-Read commands (`client list`, `edge status`, `host list`, `host status`, `tunnel list`, `tunnel status`) default to all configured edges. `-e/--edge` narrows to one edge; `-a/--all` is an explicit all-edges alias. Mutating commands (`host/tunnel add|del|edit`, `client del`) require one of `-e` or `-a`; there is no silent cluster-wide default.
+Read commands (`client list`, `edge status`, `host list`, `host status`, `tunnel list`, `tunnel status`) default to all configured edges. `-e/--edge` narrows to one edge; `-a/--all` is an explicit all-edges alias. Mutating commands (`host/tunnel add|del|edit`, `client del`) require one of `-e` or `-a`; there is no silent cluster-wide default. `edge status` fetches client, host, and tunnel inventories, so it exits 1 if any of those fetches fails, not only when an edge is unreachable.
 
 Piped output has no ANSI styling. Add `--no-color` to disable color on a terminal. `--json` is available on `edge list`, `edge status`, `host status`, `tunnel status`, and `client/host/tunnel list`.
 
@@ -153,8 +153,9 @@ api_mode = "auto"           # "auto" | "modern" | "legacy"
 ```
 
 `auto` probes `/api/system/health` once and falls back to the legacy API.
-Modern listings use `/api/*` endpoints and fetch every page; listing tunnels
-no longer fans out over seven tunnel types.
+Modern listings use `/api/*` endpoints and fetch every page; legacy listings
+fan out over the eight tunnel modes, including `mixProxy`, which djylb/nps
+uses to store socks5 and httpProxy tunnels.
 
 Optionally, create `config/clients.toml` for NPC client management:
 

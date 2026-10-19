@@ -94,7 +94,7 @@ nps-ctl client status
 nps-ctl edge list --json
 ```
 
-读取命令（`client list`、`edge status`、`host list`、`host status`、`tunnel list`、`tunnel status`）默认作用于所有已配置的边缘节点。`-e/--edge` 缩小到单个节点，`-a/--all` 显式表示所有节点。写入命令（`host/tunnel add|del|edit`、`client del`）必须提供 `-e` 或 `-a` 之一，不存在静默的全集群默认行为。
+读取命令（`client list`、`edge status`、`host list`、`host status`、`tunnel list`、`tunnel status`）默认作用于所有已配置的边缘节点。`-e/--edge` 缩小到单个节点，`-a/--all` 显式表示所有节点。写入命令（`host/tunnel add|del|edit`、`client del`）必须提供 `-e` 或 `-a` 之一，不存在静默的全集群默认行为。`edge status` 会抓取客户端、域名映射和隧道清单，因此任一抓取失败都会以 1 退出，而不只是在边缘节点不可达时。
 
 输出到管道时不包含 ANSI 样式。在终端中可用 `--no-color` 显式关闭颜色。`edge list`、`edge status`、`host status`、`tunnel status` 以及 `client/host/tunnel list` 支持 `--json`。
 
@@ -148,7 +148,7 @@ password = "your_password"
 api_mode = "auto"           # "auto" | "modern" | "legacy"
 ```
 
-`auto` 会探测一次 `/api/system/health`，失败时回退到旧版接口。现代模式的列表请求使用 `/api/*` 并自动获取所有分页；列出隧道不再需要按七种类型分别请求。
+`auto` 会探测一次 `/api/system/health`，失败时回退到旧版接口。现代模式的列表请求使用 `/api/*` 并自动获取所有分页；旧版接口列出隧道仍会按八种模式分别请求，其中包括 djylb/nps 用来存储 socks5 与 httpProxy 隧道的 `mixProxy`。
 
 可选，创建 `config/clients.toml` 用于 NPC 客户端管理：
 

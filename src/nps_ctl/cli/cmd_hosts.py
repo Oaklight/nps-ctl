@@ -206,8 +206,11 @@ def cmd_host_status(args: argparse.Namespace) -> int:
     hosts_total = sum_counts([row.hosts_total for row in rows])
     ports = sum_counts([row.ports for row in rows])
     clients_text = "-" if clients_total is None else f"{clients_online}/{clients_total}"
+    partial = sum(1 for row in rows if row.partial)
+    partial_text = f", {partial} partial" if partial else ""
     console.print(
-        f"[dim]{online}/{len(rows)} edges online; clients {clients_text} online, "
+        f"[dim]{online}/{len(rows)} edges online{partial_text}; "
+        f"clients {clients_text} online, "
         f"{count_cell(hosts_total)} host mappings, "
         f"{count_cell(ports)} target ports[/dim]"
     )

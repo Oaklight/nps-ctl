@@ -323,6 +323,34 @@ def test_status_payload_totals_when_all_edges_report():
     }
 
 
+def test_status_payload_totals_partition_rows():
+    rows = [
+        EdgeStatus(
+            edge="edge-a",
+            region="r",
+            api_url="https://a.invalid",
+            online=False,
+            clients_ok=False,
+            clients_total=None,
+            clients_online=None,
+            hosts_ok=None,
+            hosts_total=None,
+            ports=None,
+            error="clients: refused",
+            tunnels_ok=True,
+            tunnels_total=2,
+            tunnels_running=1,
+            tunnel_ports=2,
+        )
+    ]
+
+    payload = build_status_payload(rows)
+
+    assert payload["totals"]["ok"] == 0
+    assert payload["totals"]["partial"] == 1
+    assert payload["totals"]["failed"] == 0
+
+
 def test_extract_tunnel_ports_handles_forms():
     assert extract_tunnel_ports({"Port": 8080}) == {8080}
     assert extract_tunnel_ports({"Port": "8080"}) == {8080}
@@ -335,7 +363,14 @@ def test_extract_tunnel_ports_handles_forms():
     }
     assert extract_tunnel_ports({"Ports": "8000,8001"}) == {8000, 8001}
     assert extract_tunnel_ports({"Ports": [8002, "8003"]}) == {8002, 8003}
-    assert extract_tunnel_ports({"Ports": "9000-8000"}) == set()
+    assert extract_tunnel_ports({"Ports": "9000-8000"}) == set(range(8000, 9001))
+    assert extract_tunnel_ports({"Ports": "9000 - 9002"}) == {9000, 9001, 9002}
+    assert extract_tunnel_ports({"Ports": "8000 8001"}) == set()
+    assert extract_tunnel_ports({"Ports": [8002, "8003-8004"]}) == {
+        8002,
+        8003,
+        8004,
+    }
     assert extract_tunnel_ports({"Ports": "abc,70000"}) == set()
     assert (
         count_distinct_tunnel_ports([{"Port": 8080}, {"Port": 8080, "Ports": "8081"}])
