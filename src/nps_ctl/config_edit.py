@@ -8,7 +8,9 @@ re-parsed before it is written.
 from __future__ import annotations
 
 import json
+import os
 import re
+import tempfile
 import tomllib
 from pathlib import Path
 
@@ -124,19 +126,32 @@ def append_edge_text(
     return result
 
 
+def _write_atomic(path: Path, text: str) -> None:
+    """Replace ``path`` with ``text`` atomically, keeping its file mode.
+
+    The file holds every edge's auth key, so a crash or full disk must never
+    leave it truncated.
+    """
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+        if path.exists():
+            os.chmod(tmp, path.stat().st_mode & 0o777)
+        os.replace(tmp, path)
+    except BaseException:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+        raise
+
+
 def set_primary(path: str | Path, edge_name: str) -> None:
     """Set the primary edge in an edges.toml file."""
     path = Path(path)
-    path.write_text(
-        set_primary_text(path.read_text(encoding="utf-8"), edge_name),
-        encoding="utf-8",
-    )
+    _write_atomic(path, set_primary_text(path.read_text(encoding="utf-8"), edge_name))
 
 
 def append_edge(path: str | Path, **fields: str) -> None:
     """Append an edge entry to an edges.toml file (see append_edge_text)."""
     path = Path(path)
-    path.write_text(
-        append_edge_text(path.read_text(encoding="utf-8"), **fields),
-        encoding="utf-8",
-    )
+    _write_atomic(path, append_edge_text(path.read_text(encoding="utf-8"), **fields))
