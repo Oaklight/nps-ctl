@@ -276,7 +276,10 @@ def test_writes_require_auth_on_public_bind():
 def _raw(server, method, path, host, body=None):
     import http.client
 
-    conn = http.client.HTTPConnection(*server.server_address[:2], timeout=5)
+    address = server.server_address[:2]
+    if address[0] in {"0.0.0.0", "::"}:
+        address = ("127.0.0.1", address[1])
+    conn = http.client.HTTPConnection(*address, timeout=5)
     headers = {"Host": host, "Content-Type": "application/json"}
     if body is not None:
         headers["X-CSRF-Token"] = server.csrf_token
@@ -302,6 +305,19 @@ def test_rebinding_host_rejected_without_auth():
         )
         assert _raw(server, "GET", "/", f"127.0.0.1:{port}") == 200
         assert _raw(server, "GET", "/", f"localhost:{port}") == 200
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
+def test_insecure_network_bind_still_serves():
+    server = create_server(FakeCluster(), "0.0.0.0", 0, allow_insecure=True)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    port = server.server_address[1]
+    try:
+        assert _raw(server, "GET", "/", f"192.168.1.50:{port}") == 200
     finally:
         server.shutdown()
         server.server_close()
