@@ -451,3 +451,64 @@ def test_status_payload_includes_tunnel_totals():
     assert payload["totals"]["tunnels_running"] == 1
     assert payload["totals"]["tunnel_ports"] == 3
     assert payload["totals"]["hosts"] is None
+
+
+def _cluster_status(**kwargs):
+    from nps_ctl.status import collect_cluster_status
+
+    return collect_cluster_status(
+        FakeCluster(["edge-a", "edge-b"], **kwargs), include_tunnels=True
+    )
+
+
+CLIENT = {"Id": 1, "VerifyKey": "k1", "Remark": "c1", "IsConnect": True}
+
+
+def test_partial_edge_is_unknown_not_in_sync():
+    same = {"edge-a": [CLIENT], "edge-b": [CLIENT]}
+    hosts = {"edge-a": [{"Host": "a.test"}], "edge-b": [{"Host": "a.test"}]}
+    status = _cluster_status(
+        clients=same,
+        hosts=hosts,
+        tunnels={"edge-a": [], "edge-b": []},
+        tunnel_errors={"edge-b": "timeout"},
+    )
+
+    assert status.unknown == {"edge-a": [], "edge-b": ["tunnels"]}
+    assert status.in_sync("edge-a") is True
+    assert status.in_sync("edge-b") is False
+
+
+def test_range_tunnels_stay_distinct():
+    tunnels = [
+        {"Mode": "tcp", "Port": 0, "Ports": "7000-7002", "Client": CLIENT},
+        {"Mode": "tcp", "Port": 0, "Ports": "8000-8002", "Client": CLIENT},
+    ]
+    status = _cluster_status(
+        clients={"edge-a": [CLIENT], "edge-b": [CLIENT]},
+        tunnels={"edge-a": tunnels, "edge-b": tunnels[:1]},
+    )
+
+    assert status.unique["tunnels"] == 2
+    assert status.missing["edge-b"]["tunnels"] == 1
+
+
+def test_portless_tunnels_stay_distinct_and_show_drift():
+    secret_a = {"Mode": "secret", "Port": 0, "Remark": "a", "Client": CLIENT}
+    secret_b = {"Mode": "secret", "Port": 0, "Remark": "b", "Client": CLIENT}
+    tcp = {"Mode": "tcp", "Port": 9000, "Client": CLIENT}
+    status = _cluster_status(
+        clients={"edge-a": [CLIENT], "edge-b": [CLIENT]},
+        tunnels={"edge-a": [tcp, secret_a, secret_b], "edge-b": [tcp, secret_a]},
+    )
+
+    assert status.unique["tunnels"] == 3
+    assert status.missing["edge-b"]["tunnels"] == 1
+    assert status.in_sync("edge-b") is False
+
+
+def test_anonymous_clients_are_not_merged():
+    anon = [{"Id": n, "Remark": "", "VerifyKey": ""} for n in (50, 51, 52)]
+    status = _cluster_status(clients={"edge-a": anon, "edge-b": []})
+
+    assert status.unique["clients"] == 3

@@ -222,29 +222,51 @@ def client_identity(client: Any) -> str:
     """Return a cross-edge identity for a client.
 
     Client IDs are assigned per edge, so replicas are matched on VerifyKey
-    (as ``sync_from`` does), falling back to the remark.
+    (as ``sync_from`` does), falling back to the remark. A client with
+    neither returns ``""``; ``_inventory`` then keys it by edge and ID, so
+    such clients are counted separately rather than merged (over-counting is
+    the safer error for drift).
     """
     if not isinstance(client, dict):
         return ""
     vkey = client.get("VerifyKey") or ""
     if vkey:
         return f"vkey:{vkey}"
-    return f"remark:{client.get('Remark', '')}"
+    remark = client.get("Remark") or ""
+    return f"remark:{remark}" if remark else ""
 
 
-def tunnel_identity(tunnel: Any) -> tuple[str, str, int | None]:
-    """Return a cross-edge identity for a tunnel: owner, mode, server port."""
+def tunnel_identity(tunnel: Any) -> tuple[Any, ...]:
+    """Return a cross-edge identity for a tunnel.
+
+    Keyed on owner, mode and server ports; ports come from both ``Port`` and
+    ``Ports``, so multi-port tunnels (``Port: 0`` with a ``Ports`` range)
+    stay distinct. Tunnels with no server port at all (``secret``, ``file``,
+    ``p2p``) are further keyed on remark and target, which replicas share.
+    """
     if not isinstance(tunnel, dict):
-        return ("", "", None)
-    return (
+        return ("", "", ())
+    ports = tuple(sorted(extract_tunnel_ports(tunnel)))
+    key: tuple[Any, ...] = (
         client_identity(tunnel.get("Client") or {}),
         str(tunnel.get("Mode", "")),
-        _coerce_port(tunnel.get("Port")),
+        ports,
     )
+    if not ports:
+        target = tunnel.get("Target")
+        if isinstance(target, dict):
+            target = target.get("TargetStr", "")
+        key += (str(tunnel.get("Remark") or ""), str(target or ""))
+    return key
 
 
 def host_identity(entry: Any) -> tuple[str, str]:
-    """Return a cross-edge identity for a host mapping: domain and location."""
+    """Return a cross-edge identity for a host mapping: domain and location.
+
+    The owning client is deliberately not part of the key: a domain and
+    location route to a single target, so the same pair published by two
+    clients is a conflict, not two resources.
+    """
     if not isinstance(entry, dict):
         return ("", "")
     return (str(entry.get("Host", "")), str(entry.get("Location") or "/"))
@@ -265,32 +287,50 @@ class ClusterStatus:
     overstates the cluster. ``unique`` counts distinct resources across the
     edges that answered (``None`` when no edge answered, absent when the
     resource was not requested). ``missing`` maps each answering edge to how
-    many of those distinct resources it lacks.
+    many of those distinct resources it lacks. ``unknown`` lists, per edge,
+    the requested resources it failed to report; such an edge cannot be
+    called in sync.
     """
 
     rows: list[EdgeStatus]
     unique: dict[str, int | None]
     missing: dict[str, dict[str, int]]
+    unknown: dict[str, list[str]]
+
+    def in_sync(self, edge: str) -> bool:
+        """Whether an edge reported every resource and lacks none."""
+        return (
+            edge in self.missing
+            and not self.unknown.get(edge)
+            and not any(self.missing[edge].values())
+        )
 
 
 def _inventory(
     fetched: dict[str, Any], known: list[str]
-) -> tuple[dict[str, int | None], dict[str, dict[str, int]]]:
-    """Compute distinct resource counts and per-edge gaps."""
+) -> tuple[dict[str, int | None], dict[str, dict[str, int]], dict[str, list[str]]]:
+    """Compute distinct resource counts, per-edge gaps, and unknowns."""
     unique: dict[str, int | None] = {}
     missing: dict[str, dict[str, int]] = {name: {} for name in known}
+    unknown: dict[str, list[str]] = {name: [] for name in known}
     for resource, results in fetched.items():
         identity = RESOURCE_IDENTITIES[resource]
-        per_edge = {
-            name: {identity(item) for item in results.get(name, [])}
-            for name in known
-            if name not in results.errors
-        }
+
+        def key(name: str, item: Any) -> Any:
+            # Anonymous items are edge-local: never matched across edges.
+            return identity(item) or (name, "id", item.get("Id"))
+
+        per_edge: dict[str, set[Any]] = {}
+        for name in known:
+            if name in results.errors:
+                unknown[name].append(resource)
+            else:
+                per_edge[name] = {key(name, item) for item in results.get(name, [])}
         union: set[Any] = set().union(*per_edge.values())
         unique[resource] = len(union) if per_edge else None
         for name, keys in per_edge.items():
             missing[name][resource] = len(union - keys)
-    return unique, missing
+    return unique, missing, unknown
 
 
 def collect_edge_status(
@@ -437,8 +477,8 @@ def collect_cluster_status(
             )
         )
 
-    unique, missing = _inventory(fetched, known)
-    return ClusterStatus(rows=rows, unique=unique, missing=missing)
+    unique, missing, unknown = _inventory(fetched, known)
+    return ClusterStatus(rows=rows, unique=unique, missing=missing, unknown=unknown)
 
 
 def sum_counts(values: list[int | None]) -> int | None:

@@ -97,6 +97,8 @@ def _overview(cluster: NPSCluster) -> dict[str, Any]:
                 "ports": row.ports,
                 "tunnel_ports": row.tunnel_ports,
                 "missing": status.missing.get(row.edge),
+                "unknown": status.unknown.get(row.edge, []),
+                "in_sync": status.in_sync(row.edge),
             }
             for row in rows
         ],
@@ -108,11 +110,7 @@ def _overview(cluster: NPSCluster) -> dict[str, Any]:
             "clients": unique.get("clients"),
             "tunnels": unique.get("tunnels"),
             "hosts": unique.get("hosts"),
-            "in_sync": sum(
-                1
-                for missing in status.missing.values()
-                if missing and not any(missing.values())
-            ),
+            "in_sync": sum(1 for row in rows if status.in_sync(row.edge)),
             "replicated": {
                 "clients": totals["clients"],
                 "tunnels": totals["tunnels"],
@@ -511,15 +509,17 @@ function countCell(total, extra, label) {
 function syncCell(edge) {
   const cell = el('td');
   const missing = edge.missing || {};
+  const unknown = edge.unknown || [];
   const gaps = Object.entries(missing).filter(entry => entry[1] > 0);
-  if (!Object.keys(missing).length) {
-    cell.append(el('span', '—', 'muted'));
-  } else if (!gaps.length) {
-    cell.append(badge('in sync', 'ok'));
-  } else {
+  if (gaps.length) {
     cell.append(badge('drift', 'warn'));
     cell.append(el('div', 'missing ' + gaps.map(e => e[1] + ' ' + e[0]).join(', '), 'sub'));
+  } else if (edge.in_sync) {
+    cell.append(badge('in sync', 'ok'));
+  } else {
+    cell.append(el('span', '—', 'muted'));
   }
+  if (unknown.length) cell.append(el('div', 'unknown: ' + unknown.join(', '), 'sub'));
   return cell;
 }
 
