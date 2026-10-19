@@ -6,6 +6,7 @@ import argparse
 from types import SimpleNamespace
 
 import nps_ctl.cli.cmd_tunnels as cmd_tunnels
+from nps_ctl import tunnel as tunnel_module
 from nps_ctl.types import EdgeResults
 
 ROWS = [
@@ -74,6 +75,113 @@ def test_find_tunnels_mixproxy_matches_both_proxy_kinds():
 
     assert [tunnel["Id"] for tunnel in socks] == [1]
     assert [tunnel["Id"] for tunnel in http] == [2]
+
+
+def test_find_tunnels_matches_a_port_inside_a_range():
+    rows = [
+        {
+            "Id": 9,
+            "Mode": "mixProxy",
+            "Socks5Proxy": True,
+            "HttpProxy": False,
+            "Port": 0,
+            "Ports": "9000-9002",
+        }
+    ]
+
+    found = cmd_tunnels._find_tunnels(
+        TypeFilteringNPS(rows), port=9001, tunnel_type="socks5"
+    )
+
+    assert [tunnel["Id"] for tunnel in found] == [9]
+
+
+def test_find_tunnels_rejects_wrong_type_for_a_port():
+    found = cmd_tunnels._find_tunnels(
+        TypeFilteringNPS(ROWS), port=8080, tunnel_type="socks5"
+    )
+
+    assert found == []
+
+
+def test_apply_tunnel_edit_preserves_proxy_flags(monkeypatch):
+    calls = []
+
+    def fake_edit(nps, **kwargs):
+        calls.append(kwargs)
+        return True
+
+    monkeypatch.setattr(tunnel_module, "edit_tunnel", fake_edit)
+    current = {
+        "Mode": "mixProxy",
+        "Port": 1080,
+        "Remark": "socks",
+        "Target": {"TargetStr": "10.0.0.9:1090"},
+        "Client": {"Id": 5},
+        "Socks5Proxy": True,
+        "HttpProxy": False,
+    }
+
+    assert cmd_tunnels._apply_tunnel_edit(
+        None, 1, current, new_target="10.0.0.10:1090", new_port=None, new_remark=None
+    )
+
+    assert calls[0]["enable_socks5"] is True
+    assert calls[0]["enable_http"] is False
+
+
+def test_apply_tunnel_edit_omits_flags_for_tcp(monkeypatch):
+    calls = []
+
+    def fake_edit(nps, **kwargs):
+        calls.append(kwargs)
+        return True
+
+    monkeypatch.setattr(tunnel_module, "edit_tunnel", fake_edit)
+    current = {
+        "Mode": "tcp",
+        "Port": 9000,
+        "Remark": "web",
+        "Target": {"TargetStr": "127.0.0.1:80"},
+        "Client": {"Id": 5},
+        "Socks5Proxy": False,
+        "HttpProxy": False,
+    }
+
+    assert cmd_tunnels._apply_tunnel_edit(
+        None, 2, current, new_target=None, new_port=None, new_remark="web2"
+    )
+
+    assert calls[0]["enable_socks5"] is None
+    assert calls[0]["enable_http"] is None
+
+
+def test_edit_tunnel_v1_sends_proxy_flags():
+    class RecordingNPS:
+        is_modern = False
+
+        def __init__(self):
+            self.data = None
+
+        def request(self, path, method="POST", data=None):
+            self.data = data
+            return {"status": 1}
+
+    nps = RecordingNPS()
+
+    assert tunnel_module.edit_tunnel(
+        nps,
+        tunnel_id=1,
+        client_id=5,
+        tunnel_type="mixProxy",
+        port=1080,
+        target="10.0.0.9:1090",
+        enable_socks5=True,
+        enable_http=False,
+    )
+    assert nps.data is not None
+    assert nps.data["enable_socks5"] is True
+    assert nps.data["enable_http"] is False
 
 
 class ClusterStub:
