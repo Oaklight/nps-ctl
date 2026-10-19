@@ -168,6 +168,39 @@ def test_edge_add_without_tty_fails_cleanly(tmp_path, monkeypatch):
     assert "auth_key" not in tomllib.loads(path.read_text())["edges"][-1]
 
 
+def test_edge_add_confirm_without_tty_fails_cleanly(tmp_path, monkeypatch):
+    path = _write(tmp_path)
+    monkeypatch.setenv("NPS_EDGE_AUTH_KEY", "k")
+
+    def no_tty(prompt):
+        raise EOFError
+
+    monkeypatch.setattr("builtins.input", no_tty)
+
+    assert cmd_edge_config.cmd_edge_add(_add_args(path, yes=False)) == 2
+    assert len(tomllib.loads(path.read_text())["edges"]) == 2
+
+
+def test_edge_primary_json_exits_nonzero_for_unknown_primary(tmp_path):
+    path = _write(tmp_path, set_primary_text(CONFIG, "ghost"))
+
+    code = cmd_edge_config.cmd_edge_primary(
+        SimpleNamespace(config=str(path), name=None, json=True)
+    )
+
+    assert code == 1
+
+
+def test_writes_keep_file_mode(tmp_path):
+    path = _write(tmp_path)
+    path.chmod(0o600)
+
+    cmd_edge_config.set_primary(path, "edge-a")
+
+    assert path.stat().st_mode & 0o777 == 0o600
+    assert not list(tmp_path.glob("*.tmp"))
+
+
 def _sync_args(path, source=None):
     return SimpleNamespace(
         config=str(path),

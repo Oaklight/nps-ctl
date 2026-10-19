@@ -34,7 +34,8 @@ def cmd_edge_primary(args: argparse.Namespace) -> int:
             print_json(
                 {"primary": configured or None, "valid": bool(cluster.primary_edge)}
             )
-        elif not configured:
+            return 1 if configured and not cluster.primary_edge else 0
+        if not configured:
             console.print("No primary edge set.")
         elif cluster.primary_edge:
             console.print(f"Primary edge: [bold]{configured}[/bold]")
@@ -106,7 +107,13 @@ def cmd_edge_add(args: argparse.Namespace) -> int:
     console.print(f"  SSH host: {args.ssh_host or '—'}")
     console.print(f"  Auth key: {'set' if auth_key else 'none'}")
     if not args.yes:
-        response = input("Add this edge to edges.toml? [y/N] ")
+        try:
+            response = input("Add this edge to edges.toml? [y/N] ")
+        except EOFError:
+            print_error(
+                "No TTY for the confirmation prompt; pass -y to add without asking"
+            )
+            return 2
         if response.strip().lower() != "y":
             console.print("Aborted.")
             return 0
