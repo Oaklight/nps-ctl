@@ -208,6 +208,8 @@ def test_overview_reports_partial_and_null_counts():
     }
     assert payload["edges"][0]["missing"] == {"clients": 1, "tunnels": 0, "hosts": 0}
     assert payload["edges"][1]["missing"] == {"clients": 1, "hosts": 1}
+    assert payload["edges"][1]["unknown"] == ["tunnels"]
+    assert payload["edges"][1]["in_sync"] is False
     edge_b = payload["edges"][1]
     assert edge_b["name"] == "edge-b"
     assert edge_b["online"] is True
