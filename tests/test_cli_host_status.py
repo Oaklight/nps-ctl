@@ -57,6 +57,9 @@ class StatusCluster:
             errors={"edge-b": "timeout"},
         )
 
+    def get_all_tunnels(self, edge_names=None, max_workers=4):
+        raise AssertionError("host status must not fetch tunnels")
+
 
 def _args(**overrides):
     values = {
@@ -84,7 +87,8 @@ def test_host_status_renders_healthy_and_partial(monkeypatch, capsys):
     assert "1/2" in out  # edge-a clients
     assert "2" in out  # host mappings / ports
     assert (
-        "2/2 edges online; clients 2/3 online, - host mappings, - target ports" in out
+        "2/2 edges online, 1 partial; clients 2/3 online, "
+        "- host mappings, - target ports" in out
     )
     assert "edge-b: hosts: timeout" in out
 
@@ -141,10 +145,15 @@ def test_host_status_json_uses_shared_payload(monkeypatch, capsys):
         "clients": 3,
         "hosts": None,
         "ports": None,
+        "tunnels": None,
+        "tunnels_running": None,
+        "tunnel_ports": None,
     }
     failed = payload["edges"][1]
     assert failed["edge"] == "edge-b"
     assert failed["partial"] is True
     assert failed["hosts_total"] is None
     assert failed["ports"] is None
+    assert failed["tunnels_ok"] is None
+    assert failed["tunnels_total"] is None
     assert failed["error"] == "hosts: timeout"

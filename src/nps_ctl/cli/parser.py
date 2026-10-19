@@ -429,8 +429,19 @@ def _add_edge_commands(subparsers) -> None:
     # edge status
     status_parser = edge_sub.add_parser(
         "status",
-        help="Show status of all edge nodes",
-        description="Display the status of all configured NPS edge nodes.",
+        help="Show edge status and resource inventory",
+        description=(
+            "Display reachability, client liveness, host/tunnel counts, and "
+            "port inventories for all or selected NPS edge nodes."
+        ),
+    )
+    add_edge_argument(
+        status_parser,
+        help_text="Edge name to query (default: all edges)",
+    )
+    add_all_argument(
+        status_parser,
+        help_text="Show status for every configured edge",
     )
     add_output_arguments(status_parser)
     status_parser.set_defaults(requires_config=True)
@@ -608,9 +619,29 @@ def _add_tunnel_commands(subparsers) -> None:
     tunnel_parser = subparsers.add_parser(
         "tunnel",
         help="Tunnel management",
-        description="Manage tunnels: list, add, edit, del, start, stop.",
+        description="Manage tunnels: list, status, add, edit, del, start, stop.",
     )
     tunnel_sub = tunnel_parser.add_subparsers(dest="subcommand", help="Tunnel action")
+
+    # tunnel status
+    status_parser = tunnel_sub.add_parser(
+        "status",
+        help="Show client liveness and tunnel inventory per edge",
+        description=(
+            "Show per-edge reachability, online/total clients, tunnel counts, "
+            "running state, and distinct server ports."
+        ),
+    )
+    add_edge_argument(
+        status_parser,
+        help_text="Edge name to query (default: all edges)",
+    )
+    add_all_argument(
+        status_parser,
+        help_text="Show status for every configured edge",
+    )
+    add_output_arguments(status_parser)
+    status_parser.set_defaults(requires_config=True)
 
     # tunnel list
     list_parser = tunnel_sub.add_parser(

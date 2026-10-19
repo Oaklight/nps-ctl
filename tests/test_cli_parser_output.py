@@ -48,3 +48,26 @@ def test_global_json_rejected_for_non_json_command(monkeypatch, capsys):
 
     assert main() == 2
     assert "--json is not supported for this command" in capsys.readouterr().err
+
+
+def test_tunnel_status_is_json_capable_and_requires_config():
+    args = create_parser().parse_args(["tunnel", "status"])
+
+    assert args.json_capable is True
+    assert args.requires_config is True
+
+
+def test_tunnel_status_accepts_edge_and_all():
+    args = create_parser().parse_args(["tunnel", "status", "-e", "edge-a"])
+    assert args.edge == "edge-a"
+
+    args = create_parser().parse_args(["tunnel", "status", "-a"])
+    assert args.all is True
+
+
+def test_edge_status_accepts_edge_and_all():
+    args = create_parser().parse_args(["edge", "status", "-e", "edge-a"])
+    assert args.edge == "edge-a"
+
+    args = create_parser().parse_args(["edge", "status", "--all"])
+    assert args.all is True

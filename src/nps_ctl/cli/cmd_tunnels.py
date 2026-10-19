@@ -2,21 +2,30 @@
 
 import argparse
 
+from rich.markup import escape
+
 from .. import client_mgmt, tunnel
 from ..cluster import NPSCluster
 from ..exceptions import NPSError
+from ..status import build_status_payload, collect_edge_status
 from ..types import TunnelInfo
 from .helpers import (
     build_edge_results_payload,
+    clients_cell,
     console,
+    count_cell,
     create_table,
     edge_region,
     normalize_auth,
     print_edge_summary,
     print_error,
     print_json,
+    print_status_errors,
     redact_user_auth,
     resolve_write_edges,
+    status_cell,
+    status_spinner,
+    sum_counts,
     validate_read_target,
 )
 
@@ -119,6 +128,97 @@ def cmd_tunnels(args: argparse.Namespace) -> int:
         _print_tunnels(tunnels)
 
     return print_edge_summary(all_tunnels, all_tunnels.errors)
+
+
+def cmd_tunnel_status(args: argparse.Namespace) -> int:
+    """Show tunnel inventory and client liveness per edge."""
+    json_mode = getattr(args, "json", False)
+    usage_error = validate_read_target(args)
+    if usage_error:
+        if json_mode:
+            print_json({"error": usage_error})
+        else:
+            print_error(usage_error)
+        return 2
+
+    try:
+        cluster = NPSCluster(args.config)
+    except FileNotFoundError as e:
+        if json_mode:
+            print_json({"error": str(e)})
+        else:
+            print_error(str(e))
+        return 1
+
+    if not cluster.edge_names:
+        if json_mode:
+            print_json({"error": "No edges configured"})
+        else:
+            print_error("No edges configured")
+        return 1
+
+    edge_name = getattr(args, "edge", None)
+    if edge_name and cluster.get_edge(edge_name) is None:
+        message = f"Edge '{edge_name}' not found"
+        if json_mode:
+            print_json({"error": message})
+        else:
+            print_error(message)
+        return 1
+
+    selected = [edge_name] if edge_name else None
+    with status_spinner("Checking tunnel status...", json_mode=json_mode):
+        rows = collect_edge_status(
+            cluster,
+            edge_names=selected,
+            include_hosts=False,
+            include_tunnels=True,
+        )
+
+    if json_mode:
+        print_json(build_status_payload(rows))
+        return 0 if all(row.ok for row in rows) else 1
+
+    table = create_table(title="NPS Tunnel Status")
+    table.add_column("Edge", style="bold")
+    table.add_column("Region")
+    table.add_column("Status")
+    table.add_column("Clients", justify="right")
+    table.add_column("Tunnels", justify="right")
+    table.add_column("Running", justify="right")
+    table.add_column("Ports", justify="right")
+
+    for row in rows:
+        table.add_row(
+            escape(row.edge),
+            escape(row.region or "-"),
+            status_cell(row),
+            clients_cell(row),
+            count_cell(row.tunnels_total),
+            count_cell(row.tunnels_running),
+            count_cell(row.tunnel_ports),
+        )
+
+    console.print(table, crop=False)
+
+    online = sum(1 for row in rows if row.online)
+    clients_online = sum_counts([row.clients_online for row in rows])
+    clients_total = sum_counts([row.clients_total for row in rows])
+    tunnels_total = sum_counts([row.tunnels_total for row in rows])
+    tunnels_running = sum_counts([row.tunnels_running for row in rows])
+    tunnel_ports = sum_counts([row.tunnel_ports for row in rows])
+    clients_text = "-" if clients_total is None else f"{clients_online}/{clients_total}"
+    partial = sum(1 for row in rows if row.partial)
+    partial_text = f", {partial} partial" if partial else ""
+    console.print(
+        f"[dim]{online}/{len(rows)} edges online{partial_text}; "
+        f"clients {clients_text} online, "
+        f"{count_cell(tunnels_total)} tunnels "
+        f"({count_cell(tunnels_running)} running, "
+        f"{count_cell(tunnel_ports)} server ports)[/dim]"
+    )
+    print_status_errors(rows)
+    return 0 if all(row.ok for row in rows) else 1
 
 
 def cmd_add_tunnel(args: argparse.Namespace) -> int:

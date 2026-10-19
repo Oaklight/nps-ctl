@@ -64,8 +64,14 @@ nps-ctl edge list
 # 检查所有边缘节点状态
 nps-ctl edge status
 
+# 检查单个边缘节点（客户端、域名映射和隧道）
+nps-ctl edge status -e nps-asia
+
 # 检查单个边缘节点的客户端在线状态与域名映射清单
 nps-ctl host status -e nps-asia
+
+# 检查单个边缘节点的隧道清单
+nps-ctl tunnel status -e nps-asia
 
 # 读取命令默认作用于所有边缘节点；-e 缩小到单个节点
 nps-ctl client list
@@ -88,9 +94,9 @@ nps-ctl client status
 nps-ctl edge list --json
 ```
 
-读取命令（`client list`、`host list`、`host status`、`tunnel list`）默认作用于所有已配置的边缘节点。`-e/--edge` 缩小到单个节点，`-a/--all` 显式表示所有节点（`edge status` 始终覆盖所有节点）。写入命令（`host/tunnel add|del|edit`、`client del`）必须提供 `-e` 或 `-a` 之一，不存在静默的全集群默认行为。
+读取命令（`client list`、`edge status`、`host list`、`host status`、`tunnel list`、`tunnel status`）默认作用于所有已配置的边缘节点。`-e/--edge` 缩小到单个节点，`-a/--all` 显式表示所有节点。写入命令（`host/tunnel add|del|edit`、`client del`）必须提供 `-e` 或 `-a` 之一，不存在静默的全集群默认行为。`edge status` 会抓取客户端、域名映射和隧道清单，因此任一抓取失败都会以 1 退出，而不只是在边缘节点不可达时。
 
-输出到管道时不包含 ANSI 样式。在终端中可用 `--no-color` 显式关闭颜色。`edge list`、`edge status`、`host status` 以及 `client/host/tunnel list` 支持 `--json`。
+输出到管道时不包含 ANSI 样式。在终端中可用 `--no-color` 显式关闭颜色。`edge list`、`edge status`、`host status`、`tunnel status` 以及 `client/host/tunnel list` 支持 `--json`。
 
 ## Web 管理面板
 
@@ -103,9 +109,10 @@ nps-ctl web --username admin
 ```
 
 默认只监听 `127.0.0.1`。未配置凭据时绑定到非回环地址会被拒绝，除非传入
-`--insecure`。面板展示边缘节点健康状态和资源数量，并可逐个节点查看客户端、
-隧道和域名映射；JSON 输出会隐藏凭据（客户端验证密钥、隧道密码和
-Basic Auth）。变更操作仍在 CLI 中完成。
+`--insecure`。面板展示边缘节点健康状态（`online`/`partial`/`offline`）和资源
+数量，并可逐个节点查看客户端、隧道和域名映射；不可用的数量以 `null` 返回，
+JSON 输出会隐藏凭据（客户端验证密钥、隧道密码和 Basic Auth）。变更操作仍在
+CLI 中完成。
 内置服务器只提供 HTTP，如需暴露到回环地址之外，请在前置代理上终止 TLS。
 
 ## 配置
@@ -141,7 +148,7 @@ password = "your_password"
 api_mode = "auto"           # "auto" | "modern" | "legacy"
 ```
 
-`auto` 会探测一次 `/api/system/health`，失败时回退到旧版接口。现代模式的列表请求使用 `/api/*` 并自动获取所有分页；列出隧道不再需要按七种类型分别请求。
+`auto` 会探测一次 `/api/system/health`，失败时回退到旧版接口。现代模式的列表请求使用 `/api/*` 并自动获取所有分页；旧版接口列出隧道仍会按八种模式分别请求，其中包括 djylb/nps 用来存储 socks5 与 httpProxy 隧道的 `mixProxy`。
 
 可选，创建 `config/clients.toml` 用于 NPC 客户端管理：
 

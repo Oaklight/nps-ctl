@@ -1,19 +1,24 @@
 """CLI command: status - Show status of all edge nodes."""
 
 import argparse
-from contextlib import nullcontext
 
-from rich.live import Live
 from rich.markup import escape
-from rich.spinner import Spinner
 
 from ..cluster import NPSCluster
-from ..status import (
-    EdgeStatus,
-    build_status_payload,
-    collect_edge_status,
+from ..status import EdgeStatus, build_status_payload, collect_edge_status
+from .helpers import (
+    clients_cell,
+    console,
+    count_cell,
+    create_table,
+    print_error,
+    print_json,
+    print_status_errors,
+    status_cell,
+    status_spinner,
+    sum_counts,
+    validate_read_target,
 )
-from .helpers import console, create_table, print_error, print_json
 
 
 def cmd_edge_list(args: argparse.Namespace) -> int:
@@ -62,30 +67,34 @@ def cmd_edge_list(args: argparse.Namespace) -> int:
     return 0
 
 
-def _status_cell(row: EdgeStatus) -> str:
-    """Format the reachability cell for one edge."""
-    if row.ok:
-        return "[green]✓ Online[/green]"
-    if row.partial:
-        return "[yellow]⚠ Partial[/yellow]"
-    return "[red]✗ Offline[/red]"
+def _hosts_cell(row: EdgeStatus) -> str:
+    """Render host-mapping and host-target-port counts."""
+    if row.hosts_total is None:
+        return "-"
+    return f"{row.hosts_total} ({count_cell(row.ports)} ports)"
 
 
-def _count_cell(value: int | None) -> str:
-    """Render an unknown count as ``-``."""
-    return "-" if value is None else str(value)
-
-
-def _sum_or_none(values: list[int | None]) -> int | None:
-    """Sum counts, or return None when any edge failed to report."""
-    if any(value is None for value in values):
-        return None
-    return sum(value for value in values if value is not None)
+def _tunnels_cell(row: EdgeStatus) -> str:
+    """Render tunnel, running, and server-port counts."""
+    if row.tunnels_total is None:
+        return "-"
+    return (
+        f"{row.tunnels_total} ({count_cell(row.tunnels_running)} running, "
+        f"{count_cell(row.tunnel_ports)} ports)"
+    )
 
 
 def cmd_status(args: argparse.Namespace) -> int:
-    """Show status and inventory for all edge nodes."""
+    """Show status and inventory for all or selected edge nodes."""
     json_mode = getattr(args, "json", False)
+    usage_error = validate_read_target(args)
+    if usage_error:
+        if json_mode:
+            print_json({"error": usage_error})
+        else:
+            print_error(usage_error)
+        return 2
+
     try:
         cluster = NPSCluster(args.config)
     except FileNotFoundError as e:
@@ -102,17 +111,23 @@ def cmd_status(args: argparse.Namespace) -> int:
             print_error("No edges configured")
         return 1
 
-    live_ctx = (
-        Live(
-            Spinner("dots", text="Checking edge status..."),
-            console=console,
-            transient=True,
+    edge_name = getattr(args, "edge", None)
+    if edge_name and cluster.get_edge(edge_name) is None:
+        message = f"Edge '{edge_name}' not found"
+        if json_mode:
+            print_json({"error": message})
+        else:
+            print_error(message)
+        return 1
+
+    selected = [edge_name] if edge_name else None
+    with status_spinner("Checking edge status...", json_mode=json_mode):
+        rows = collect_edge_status(
+            cluster,
+            edge_names=selected,
+            include_hosts=True,
+            include_tunnels=True,
         )
-        if console.is_terminal and not json_mode
-        else nullcontext()
-    )
-    with live_ctx:
-        rows = collect_edge_status(cluster)
 
     if json_mode:
         print_json(build_status_payload(rows))
@@ -125,38 +140,46 @@ def cmd_status(args: argparse.Namespace) -> int:
     table.add_column("Status")
     table.add_column("Clients", justify="right")
     table.add_column("Hosts", justify="right")
-    table.add_column("Ports", justify="right")
+    table.add_column("Tunnels", justify="right")
     for row in rows:
-        clients = (
-            "-"
-            if row.clients_total is None
-            else f"{row.clients_online}/{row.clients_total}"
-        )
         table.add_row(
             escape(row.edge),
             escape(row.region or "-"),
             escape(row.api_url or "-"),
-            _status_cell(row),
-            clients,
-            _count_cell(row.hosts_total),
-            _count_cell(row.ports),
+            status_cell(row),
+            clients_cell(row),
+            _hosts_cell(row),
+            _tunnels_cell(row),
         )
 
     console.print(table, crop=False)
 
     online = sum(1 for row in rows if row.online)
-    clients_online = _sum_or_none([row.clients_online for row in rows])
-    clients_total = _sum_or_none([row.clients_total for row in rows])
-    hosts_total = _sum_or_none([row.hosts_total for row in rows])
-    ports = _sum_or_none([row.ports for row in rows])
+    clients_online = sum_counts([row.clients_online for row in rows])
+    clients_total = sum_counts([row.clients_total for row in rows])
+    hosts_total = sum_counts([row.hosts_total for row in rows])
+    host_ports = sum_counts([row.ports for row in rows])
+    tunnels_total = sum_counts([row.tunnels_total for row in rows])
+    tunnels_running = sum_counts([row.tunnels_running for row in rows])
+    tunnel_ports = sum_counts([row.tunnel_ports for row in rows])
     clients_text = "-" if clients_total is None else f"{clients_online}/{clients_total}"
-    console.print(
-        f"[dim]{online}/{len(rows)} edges online; clients {clients_text} online, "
-        f"{_count_cell(hosts_total)} host mappings, "
-        f"{_count_cell(ports)} target ports[/dim]"
+    hosts_text = (
+        f"{hosts_total} host mappings ({count_cell(host_ports)} ports)"
+        if hosts_total is not None
+        else "- host mappings"
     )
-
-    for row in rows:
-        if row.error:
-            console.print(f"[red]{escape(row.edge)}: {escape(row.error)}[/red]")
+    tunnels_text = (
+        f"{tunnels_total} tunnels "
+        f"({count_cell(tunnels_running)} running, "
+        f"{count_cell(tunnel_ports)} ports)"
+        if tunnels_total is not None
+        else "- tunnels"
+    )
+    partial = sum(1 for row in rows if row.partial)
+    partial_text = f", {partial} partial" if partial else ""
+    console.print(
+        f"[dim]{online}/{len(rows)} edges online{partial_text}; "
+        f"clients {clients_text} online, {hosts_text}, {tunnels_text}[/dim]"
+    )
+    print_status_errors(rows)
     return 0 if all(row.ok for row in rows) else 1

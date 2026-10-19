@@ -24,15 +24,16 @@ Run `nps-ctl edge list` before any edge-targeted operation. It reads
 currently unreachable. The edge names in the examples below are illustrative;
 they are never the inventory.
 
-- Read commands (`host list`, `host status`, `client list`, `tunnel list`)
-  default to all edges.
+- Read commands (`host list`, `host status`, `client list`, `tunnel list`,
+  `tunnel status`) default to all edges.
 - Write commands require an explicit target: `-e <edge>` for one edge or
   `-a/--all` for every configured edge. There is no silent cluster-wide default.
 - `nps-ctl edge status` also lists every edge, but contacts each one and
-  fetches full client and host inventories.
+  fetches full client, host, and tunnel inventories. Use `-e <edge>` to scope
+  it. It exits 1 if any of those fetches fails, not only when an edge is down.
 - Add `--json` for machine-readable output on `edge list`, `edge status`,
-  `host status`, and `client/host/tunnel list`. Piped output has no ANSI
-  styling; `--no-color` disables it explicitly.
+  `host status`, `tunnel status`, and `client/host/tunnel list`. Piped output
+  has no ANSI styling; `--no-color` disables it explicitly.
 
 ```bash
 nps-ctl edge list --json      # stable inventory for scripts and agents
@@ -43,6 +44,7 @@ nps-ctl edge list --json      # stable inventory for scripts and agents
 ```bash
 nps-ctl edge list                             # every configured edge, offline
 nps-ctl edge status                           # all edges status
+nps-ctl edge status -e nps-america            # one edge, includes tunnels
 nps-ctl edge install --edge nps-europe -y     # install NPS on a node
 nps-ctl edge upgrade --edge nps-america -y    # upgrade binary, preserve data
 nps-ctl edge reconfig --edge nps-asia -y      # update nps.conf only
@@ -84,11 +86,16 @@ nps-ctl host edit --edge nps-america --id 42 --new-target :9090
 
 ```bash
 nps-ctl tunnel list --edge nps-america
+nps-ctl tunnel status                         # tunnels/running/ports per edge
+nps-ctl tunnel status -e nps-america --json   # single edge, machine-readable
 nps-ctl tunnel add -e nps-america -c homelab.oasis --type tcp --target :22 --port 30022
 nps-ctl tunnel del --edge nps-america --id 5 -y
 nps-ctl tunnel start --edge nps-america --id 5
 nps-ctl tunnel stop --edge nps-america --id 5
 ```
+
+Tunnel counts include `mixProxy`, where djylb/nps stores socks5 and httpProxy
+tunnels.
 
 ## Common tasks
 

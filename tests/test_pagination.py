@@ -107,6 +107,41 @@ def test_list_tunnels_fetches_all_pages_for_type():
     assert len(nps.requests) == 2
 
 
+class TypeFilteringNPS:
+    """Legacy NPS that filters tunnels by exact mode equality."""
+
+    is_modern = False
+
+    def __init__(self, rows):
+        self.rows = rows
+        self.types = []
+
+    def request(self, path, method="POST", data=None):
+        data = data or {}
+        tunnel_type = data.get("type", "")
+        self.types.append(tunnel_type)
+        rows = [row for row in self.rows if row.get("Mode") == tunnel_type]
+        offset = int(data.get("offset", 0))
+        limit = int(data.get("limit", 100))
+        return {"rows": rows[offset : offset + limit], "total": len(rows)}
+
+
+def test_list_tunnels_queries_mixproxy_mode():
+    """djylb/nps stores socks5/httpProxy tunnels as mixProxy."""
+    nps = TypeFilteringNPS(
+        [
+            {"Id": 1, "Mode": "tcp"},
+            {"Id": 2, "Mode": "mixProxy"},
+        ]
+    )
+
+    rows = tunnel.list_tunnels(nps)
+
+    assert [row["Id"] for row in rows] == [1, 2]
+    assert nps.types == list(tunnel.TUNNEL_TYPES)
+    assert "mixProxy" in nps.types
+
+
 class FakeModernNPS:
     """Serve a paginated modern /api/* list endpoint."""
 

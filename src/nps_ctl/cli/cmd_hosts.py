@@ -2,29 +2,32 @@
 
 import argparse
 from collections.abc import Mapping
-from contextlib import nullcontext
 from typing import TypedDict
 
-from rich.live import Live
 from rich.markup import escape
-from rich.spinner import Spinner
 
 from .. import client_mgmt, host
 from ..cluster import NPSCluster
 from ..exceptions import NPSError
-from ..status import EdgeStatus, build_status_payload, collect_edge_status
+from ..status import build_status_payload, collect_edge_status
 from ..types import HostInfo
 from .helpers import (
     build_edge_results_payload,
+    clients_cell,
     console,
+    count_cell,
     create_table,
     edge_region,
     normalize_auth,
     print_edge_summary,
     print_error,
     print_json,
+    print_status_errors,
     redact_user_auth,
     resolve_write_edges,
+    status_cell,
+    status_spinner,
+    sum_counts,
     validate_read_target,
 )
 
@@ -137,27 +140,6 @@ def _emit_host_matrix(
     return 1 if errors else 0
 
 
-def _status_cell(row: EdgeStatus) -> str:
-    """Format the reachability cell for one edge."""
-    if row.ok:
-        return "[green]✓ Online[/green]"
-    if row.partial:
-        return "[yellow]⚠ Partial[/yellow]"
-    return "[red]✗ Offline[/red]"
-
-
-def _count_cell(value: int | None) -> str:
-    """Render an unknown count as ``-``."""
-    return "-" if value is None else str(value)
-
-
-def _sum_or_none(values: list[int | None]) -> int | None:
-    """Sum counts, or return None when any edge failed to report."""
-    if any(value is None for value in values):
-        return None
-    return sum(value for value in values if value is not None)
-
-
 def cmd_host_status(args: argparse.Namespace) -> int:
     """Show client liveness and host inventory per edge."""
     json_mode = getattr(args, "json", False)
@@ -186,17 +168,13 @@ def cmd_host_status(args: argparse.Namespace) -> int:
         return 1
 
     edge_names = [args.edge] if getattr(args, "edge", None) else None
-    live_ctx = (
-        Live(
-            Spinner("dots", text="Checking host status..."),
-            console=console,
-            transient=True,
+    with status_spinner("Checking host status...", json_mode=json_mode):
+        rows = collect_edge_status(
+            cluster,
+            edge_names=edge_names,
+            include_hosts=True,
+            include_tunnels=False,
         )
-        if console.is_terminal and not json_mode
-        else nullcontext()
-    )
-    with live_ctx:
-        rows = collect_edge_status(cluster, edge_names=edge_names)
 
     if json_mode:
         print_json(build_status_payload(rows))
@@ -211,37 +189,33 @@ def cmd_host_status(args: argparse.Namespace) -> int:
     table.add_column("Ports", justify="right")
 
     for row in rows:
-        clients = (
-            "-"
-            if row.clients_total is None
-            else f"{row.clients_online}/{row.clients_total}"
-        )
         table.add_row(
             escape(row.edge),
             escape(row.region or "-"),
-            _status_cell(row),
-            clients,
-            _count_cell(row.hosts_total),
-            _count_cell(row.ports),
+            status_cell(row),
+            clients_cell(row),
+            count_cell(row.hosts_total),
+            count_cell(row.ports),
         )
 
     console.print(table, crop=False)
 
     online = sum(1 for row in rows if row.online)
-    clients_online = _sum_or_none([row.clients_online for row in rows])
-    clients_total = _sum_or_none([row.clients_total for row in rows])
-    hosts_total = _sum_or_none([row.hosts_total for row in rows])
-    ports = _sum_or_none([row.ports for row in rows])
+    clients_online = sum_counts([row.clients_online for row in rows])
+    clients_total = sum_counts([row.clients_total for row in rows])
+    hosts_total = sum_counts([row.hosts_total for row in rows])
+    ports = sum_counts([row.ports for row in rows])
     clients_text = "-" if clients_total is None else f"{clients_online}/{clients_total}"
+    partial = sum(1 for row in rows if row.partial)
+    partial_text = f", {partial} partial" if partial else ""
     console.print(
-        f"[dim]{online}/{len(rows)} edges online; clients {clients_text} online, "
-        f"{_count_cell(hosts_total)} host mappings, "
-        f"{_count_cell(ports)} target ports[/dim]"
+        f"[dim]{online}/{len(rows)} edges online{partial_text}; "
+        f"clients {clients_text} online, "
+        f"{count_cell(hosts_total)} host mappings, "
+        f"{count_cell(ports)} target ports[/dim]"
     )
 
-    for row in rows:
-        if row.error:
-            console.print(f"[red]{escape(row.edge)}: {escape(row.error)}[/red]")
+    print_status_errors(rows)
     return 0 if all(row.ok for row in rows) else 1
 
 
