@@ -102,8 +102,7 @@ def _dispatch_client_push(args) -> int:
     from .cmd_npc import handle_client_push
 
     cluster = NPSCluster(args.config)
-    handle_client_push(args, cluster)
-    return 0
+    return 1 if handle_client_push(args, cluster) else 0
 
 
 def main() -> int:

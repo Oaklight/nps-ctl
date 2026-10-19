@@ -736,10 +736,10 @@ def cmd_client_add(args: argparse.Namespace) -> int:
         edge=None,
         dry_run=False,
         update=False,
-        yes=getattr(args, "yes", False),
+        # The add was already confirmed; don't prompt a second time.
+        yes=True,
     )
-    handle_client_push(push_args, cluster)
-    return 0
+    return 1 if handle_client_push(push_args, cluster) else 0
 
 
 def handle_npc_list(args, cluster: NPSCluster) -> None:
@@ -951,7 +951,7 @@ def _generate_clients_toml(clients: list[dict]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def handle_client_push(args, cluster: NPSCluster) -> None:
+def handle_client_push(args, cluster: NPSCluster) -> int:
     """Push client configurations from clients.toml to NPS edges via API.
 
     For each client in clients.toml, ensure it exists on all configured
@@ -960,6 +960,10 @@ def handle_client_push(args, cluster: NPSCluster) -> None:
     Args:
         args: Parsed command line arguments.
         cluster: NPSCluster instance.
+
+    Returns:
+        Number of client/edge pushes that failed (1 if the requested client
+        is not in clients.toml); 0 on success, dry run, or abort.
     """
     from .. import client_mgmt
 
@@ -977,7 +981,7 @@ def handle_client_push(args, cluster: NPSCluster) -> None:
                 f"[red]Error:[/red] Client '{target_client}' not found in clients.toml. "
                 f"Available: {', '.join(cluster.npc_client_names)}"
             )
-            return
+            return 1
         npc_clients = [npc_config]
     else:
         npc_clients = [
@@ -988,7 +992,7 @@ def handle_client_push(args, cluster: NPSCluster) -> None:
 
     if not npc_clients:
         console.print("[yellow]No clients configured in clients.toml.[/yellow]")
-        return
+        return 0
 
     # Show plan
     console.print("\n[bold]Client Push Plan:[/bold]")
@@ -1022,13 +1026,13 @@ def handle_client_push(args, cluster: NPSCluster) -> None:
 
     if dry_run:
         console.print("\n[yellow]Dry run mode - no changes will be made.[/yellow]")
-        return
+        return 0
 
     if not yes:
         confirm = input("\nProceed with push? [y/N] ").strip().lower()
         if confirm not in ("y", "yes"):
             console.print("[yellow]Aborted.[/yellow]")
-            return
+            return 0
 
     # Calculate total operations for progress bar
     total_ops = sum(
@@ -1041,6 +1045,13 @@ def handle_client_push(args, cluster: NPSCluster) -> None:
     results_table.add_column("Client", style="green")
     results_table.add_column("Edge", style="blue")
     results_table.add_column("Result", style="bold")
+    failures = 0
+
+    def add_result(client: str, edge: str, result: str) -> None:
+        nonlocal failures
+        if result.startswith("[red]"):
+            failures += 1
+        results_table.add_row(client, edge, result)
 
     with Progress(
         SpinnerColumn(),
@@ -1060,28 +1071,34 @@ def handle_client_push(args, cluster: NPSCluster) -> None:
                 progress.update(task, description=f"Pushing {npc.name} → {edge_name}")
 
                 if edge_name not in cluster.edge_names:
-                    results_table.add_row(
-                        npc.name, edge_name, "[red]Edge not found[/red]"
-                    )
+                    add_result(npc.name, edge_name, "[red]Edge not found[/red]")
                     progress.advance(task)
                     continue
 
                 nps = cluster.get_client(edge_name)
                 if not nps:
-                    results_table.add_row(
-                        npc.name, edge_name, "[red]Edge client not found[/red]"
-                    )
+                    add_result(npc.name, edge_name, "[red]Edge client not found[/red]")
                     progress.advance(task)
                     continue
 
                 try:
                     existing = client_mgmt.list_clients(nps)
-                    # Check if client already exists by remark
+                    # Match by VerifyKey first (as sync does), then by remark.
                     matched_client = None
-                    for ec in existing:
-                        if ec.get("Remark", "") == npc.remark:
-                            matched_client = ec
-                            break
+                    if npc.vkey:
+                        matched_client = next(
+                            (ec for ec in existing if ec.get("VerifyKey") == npc.vkey),
+                            None,
+                        )
+                    if matched_client is None and npc.remark:
+                        matched_client = next(
+                            (
+                                ec
+                                for ec in existing
+                                if ec.get("Remark", "") == npc.remark
+                            ),
+                            None,
+                        )
 
                     if matched_client:
                         if update:
@@ -1089,7 +1106,7 @@ def handle_client_push(args, cluster: NPSCluster) -> None:
                             client_id = matched_client.get("Id", 0)
                             remote_vkey = matched_client.get("VerifyKey", "")
                             if remote_vkey == npc.vkey:
-                                results_table.add_row(
+                                add_result(
                                     npc.name,
                                     edge_name,
                                     "[cyan]Already up-to-date (skipped)[/cyan]",
@@ -1102,19 +1119,19 @@ def handle_client_push(args, cluster: NPSCluster) -> None:
                                     vkey=npc.vkey,
                                 )
                                 if success:
-                                    results_table.add_row(
+                                    add_result(
                                         npc.name,
                                         edge_name,
                                         "[yellow]Updated (vkey synced)[/yellow]",
                                     )
                                 else:
-                                    results_table.add_row(
+                                    add_result(
                                         npc.name,
                                         edge_name,
                                         "[red]Failed to update[/red]",
                                     )
                         else:
-                            results_table.add_row(
+                            add_result(
                                 npc.name,
                                 edge_name,
                                 "[cyan]Already exists (skipped)[/cyan]",
@@ -1124,17 +1141,14 @@ def handle_client_push(args, cluster: NPSCluster) -> None:
                             nps, remark=npc.remark, vkey=npc.vkey
                         )
                         if success:
-                            results_table.add_row(
-                                npc.name, edge_name, "[green]Added[/green]"
-                            )
+                            add_result(npc.name, edge_name, "[green]Added[/green]")
                         else:
-                            results_table.add_row(
-                                npc.name, edge_name, "[red]Failed to add[/red]"
-                            )
+                            add_result(npc.name, edge_name, "[red]Failed to add[/red]")
                 except Exception as e:
-                    results_table.add_row(npc.name, edge_name, f"[red]Error: {e}[/red]")
+                    add_result(npc.name, edge_name, f"[red]Error: {e}[/red]")
 
                 progress.advance(task)
 
     console.print()
     console.print(results_table)
+    return failures
