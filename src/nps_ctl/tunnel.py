@@ -88,6 +88,7 @@ def _filter_tunnels(tunnels: list[TunnelInfo], tunnel_type: str) -> list[TunnelI
         filtered.append(tunnel)
     return filtered
 
+
 # Concurrent per-type queries per edge on the legacy API. Cluster-wide
 # listings already fan out across edges, so keep this modest.
 LEGACY_TYPE_WORKERS = 4
