@@ -12,7 +12,7 @@ from .helpers import console, print_error
 
 
 def cmd_web(args: argparse.Namespace) -> int:
-    """Run the read-only web dashboard.
+    """Run the web dashboard (read-only unless --allow-writes).
 
     Args:
         args: Parsed command line arguments.
@@ -52,6 +52,7 @@ def cmd_web(args: argparse.Namespace) -> int:
             username=username,
             password=password,
             allow_insecure=getattr(args, "insecure", False),
+            allow_writes=getattr(args, "allow_writes", False),
         )
     except ValueError as e:
         print_error(str(e))
@@ -69,6 +70,13 @@ def cmd_web(args: argparse.Namespace) -> int:
                 "[bold red]Authentication disabled; the dashboard is "
                 "reachable on the network.[/bold red]"
             )
+    if server.allow_writes:
+        console.print(
+            "[bold yellow]Writes enabled: the dashboard can add clients, "
+            "tunnels, hosts and sync edges.[/bold yellow]"
+        )
+    else:
+        console.print("[dim]Read-only (pass --allow-writes to enable actions).[/dim]")
     console.print("[dim]Press Ctrl+C to stop.[/dim]")
     try:
         server.serve_forever()

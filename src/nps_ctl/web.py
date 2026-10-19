@@ -1,17 +1,26 @@
-"""Read-only web dashboard for an NPS cluster.
+"""Web dashboard for an NPS cluster.
 
 The dashboard is intentionally dependency-free: it uses the standard
 library HTTP server and serves one HTML page backed by JSON endpoints.
+It is read-only unless started with ``allow_writes``; write endpoints then
+require a per-process CSRF token, a same-origin request, and run one at a
+time.
 """
 
 from __future__ import annotations
 
 import base64
 import hmac
+import html
 import json
 import logging
+import secrets
+import string
+import threading
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import unquote, urlparse
 
 from . import client_mgmt, host, tunnel
@@ -26,6 +35,9 @@ logger = logging.getLogger(__name__)
 LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost"}
 RESOURCES = {"clients", "tunnels", "hosts"}
 SENSITIVE_ROW_KEYS = ("VerifyKey", "Password", "WebPassword", "BasicPassword")
+MAX_BODY_BYTES = 64 * 1024
+WEB_TUNNEL_TYPES = ("tcp", "udp", "socks5", "httpProxy")
+SYNC_TYPES = ("clients", "tunnels", "hosts")
 
 
 def _redact_row(item: Any) -> Any:
@@ -149,6 +161,216 @@ def _edge_items(cluster: NPSCluster, edge_name: str, resource: str) -> list[Any]
     return [_redact_row(item) for item in items]
 
 
+class ActionError(ValueError):
+    """A write request failed validation."""
+
+
+def _require_str(payload: dict[str, Any], key: str, *, required: bool = True) -> str:
+    """Return a stripped string field, enforcing presence when required."""
+    value = payload.get(key, "")
+    if value is None:
+        value = ""
+    if not isinstance(value, str):
+        raise ActionError(f"'{key}' must be a string")
+    value = value.strip()
+    if required and not value:
+        raise ActionError(f"'{key}' is required")
+    return value
+
+
+def _target_edges(cluster: NPSCluster, payload: dict[str, Any]) -> list[str]:
+    """Validate the explicit target edge list; there is no implicit default."""
+    edges = payload.get("edges")
+    if (
+        not isinstance(edges, list)
+        or not edges
+        or not all(isinstance(name, str) for name in edges)
+    ):
+        raise ActionError("'edges' must be a non-empty list of edge names")
+    unknown = [name for name in edges if name not in cluster.edge_names]
+    if unknown:
+        raise ActionError(f"Unknown edges: {', '.join(unknown)}")
+    return list(dict.fromkeys(cast("list[str]", edges)))
+
+
+def _per_edge(
+    cluster: NPSCluster,
+    edges: list[str],
+    fn: Callable[[Any], dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    """Run ``fn`` against each edge client concurrently, in edge order."""
+
+    def run(name: str) -> tuple[str, dict[str, Any]]:
+        try:
+            return name, fn(cluster.get_client(name))
+        except NPSError as e:
+            return name, {"ok": False, "error": str(e)}
+
+    with ThreadPoolExecutor(max_workers=min(4, len(edges))) as executor:
+        results = dict(executor.map(run, edges))
+    return {name: results[name] for name in edges}
+
+
+def _added(ok: bool) -> dict[str, Any]:
+    return (
+        {"ok": True, "status": "added"}
+        if ok
+        else {"ok": False, "error": "rejected by edge"}
+    )
+
+
+def _find_client_id(nps: Any, remark: str) -> int | None:
+    """Return the ID of the client whose remark matches exactly."""
+    for client in client_mgmt.list_clients(nps, search=remark):
+        if client.get("Remark") == remark:
+            return client.get("Id")
+    return None
+
+
+def _generate_vkey() -> str:
+    alphabet = string.ascii_lowercase + string.digits
+    return "".join(secrets.choice(alphabet) for _ in range(16))
+
+
+def _action_add_client(cluster: NPSCluster, payload: dict[str, Any]) -> dict[str, Any]:
+    """Add a client to the selected edges with one shared verify key."""
+    remark = _require_str(payload, "remark")
+    vkey = _require_str(payload, "vkey", required=False) or _generate_vkey()
+    edges = _target_edges(cluster, payload)
+
+    def add(nps: Any) -> dict[str, Any]:
+        if _find_client_id(nps, remark) is not None:
+            return {"ok": True, "status": "exists"}
+        return _added(client_mgmt.add_client(nps, remark=remark, vkey=vkey))
+
+    results = _per_edge(cluster, edges, add)
+    response: dict[str, Any] = {"results": results}
+    if any(r.get("status") == "added" for r in results.values()):
+        # Shown once so the operator can configure npc; reads stay redacted.
+        response["vkey"] = vkey
+    return response
+
+
+def _action_add_tunnel(cluster: NPSCluster, payload: dict[str, Any]) -> dict[str, Any]:
+    """Add a tunnel for a client (matched by remark) on the selected edges."""
+    client = _require_str(payload, "client")
+    tunnel_type = _require_str(payload, "type", required=False) or "tcp"
+    if tunnel_type not in WEB_TUNNEL_TYPES:
+        raise ActionError(f"'type' must be one of {', '.join(WEB_TUNNEL_TYPES)}")
+    port = payload.get("port")
+    if not isinstance(port, int) or isinstance(port, bool) or not 1 <= port <= 65535:
+        raise ActionError("'port' must be an integer between 1 and 65535")
+    target = _require_str(payload, "target", required=tunnel_type in ("tcp", "udp"))
+    remark = _require_str(payload, "remark", required=False)
+    edges = _target_edges(cluster, payload)
+
+    def add(nps: Any) -> dict[str, Any]:
+        client_id = _find_client_id(nps, client)
+        if client_id is None:
+            return {"ok": False, "error": f"client '{client}' not found"}
+        return _added(
+            tunnel.add_tunnel(
+                nps,
+                client_id=client_id,
+                tunnel_type=tunnel_type,
+                port=port,
+                target=target,
+                remark=remark,
+            )
+        )
+
+    return {"results": _per_edge(cluster, edges, add)}
+
+
+def _action_add_host(cluster: NPSCluster, payload: dict[str, Any]) -> dict[str, Any]:
+    """Add a host mapping for a client (matched by remark) on the selected edges."""
+    client = _require_str(payload, "client")
+    domain = _require_str(payload, "host")
+    target = _require_str(payload, "target")
+    location = _require_str(payload, "location", required=False)
+    remark = _require_str(payload, "remark", required=False)
+    edges = _target_edges(cluster, payload)
+
+    def add(nps: Any) -> dict[str, Any]:
+        for entry in host.list_hosts(nps, search=domain):
+            if entry.get("Host") == domain and (entry.get("Location") or "/") == (
+                location or "/"
+            ):
+                return {"ok": True, "status": "exists"}
+        client_id = _find_client_id(nps, client)
+        if client_id is None:
+            return {"ok": False, "error": f"client '{client}' not found"}
+        return _added(
+            host.add_host(
+                nps,
+                client_id=client_id,
+                host=domain,
+                target=target,
+                remark=remark,
+                location=location,
+            )
+        )
+
+    return {"results": _per_edge(cluster, edges, add)}
+
+
+def _action_sync(cluster: NPSCluster, payload: dict[str, Any]) -> dict[str, Any]:
+    """Copy missing resources from a source edge to the selected edges."""
+    source = _require_str(payload, "source")
+    if source not in cluster.edge_names:
+        raise ActionError(f"Unknown source edge: {source}")
+    types = payload.get("types", list(SYNC_TYPES))
+    if not isinstance(types, list) or not types or not set(types) <= set(SYNC_TYPES):
+        raise ActionError(f"'types' must be a subset of {', '.join(SYNC_TYPES)}")
+    edges = [name for name in _target_edges(cluster, payload) if name != source]
+    if not edges:
+        raise ActionError("Select at least one target edge besides the source")
+
+    raw = cluster.sync_from(
+        source,
+        sync_clients="clients" in types,
+        sync_tunnels="tunnels" in types,
+        sync_hosts="hosts" in types,
+        target_edges=edges,
+        quiet=True,
+    )
+    results: dict[str, dict[str, Any]] = {}
+    for name in edges:
+        ops = raw.get(name)
+        if ops is None:
+            results[name] = {"ok": False, "error": "no result"}
+        elif "_edge_failed" in ops:
+            results[name] = {"ok": False, "error": "edge failed"}
+        else:
+            failed = sorted(op for op, ok in ops.items() if ok is False)
+            results[name] = {
+                "ok": not failed,
+                "status": f"{len(ops)} checked",
+                "failed": failed,
+            }
+    return {"source": source, "results": results}
+
+
+ACTIONS: dict[str, Callable[[Any, dict[str, Any]], dict[str, Any]]] = {
+    "/api/actions/sync": _action_sync,
+    "/api/actions/clients": _action_add_client,
+    "/api/actions/tunnels": _action_add_tunnel,
+    "/api/actions/hosts": _action_add_host,
+}
+
+
+def _render_dashboard(server: AdminServer) -> str:
+    """Return the dashboard HTML with this server's client config embedded."""
+    config = {
+        "writes": server.allow_writes,
+        "csrf": server.csrf_token if server.allow_writes else "",
+        "primary": getattr(server.cluster, "primary_edge", None),
+    }
+    return _DASHBOARD_HTML.replace(
+        "__NPS_CONFIG__", html.escape(json.dumps(config), quote=True)
+    )
+
+
 class _AdminHandler(BaseHTTPRequestHandler):
     """HTTP handler for the dashboard and its JSON API."""
 
@@ -161,7 +383,7 @@ class _AdminHandler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path.rstrip("/") or "/"
         try:
             if path == "/":
-                self._send_html(_DASHBOARD_HTML)
+                self._send_html(_render_dashboard(cast("AdminServer", self.server)))
             elif path == "/api/overview":
                 self._send_json(_overview(getattr(self.server, "cluster")))
             elif path.startswith("/api/edges/"):
@@ -189,6 +411,70 @@ class _AdminHandler(BaseHTTPRequestHandler):
         except Exception:
             logger.exception("Dashboard request failed: %s", path)
             self._send_json({"error": "Internal server error"}, status=500)
+
+    def do_POST(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
+        if not self._check_auth():
+            return
+        server = cast("AdminServer", self.server)
+        path = urlparse(self.path).path.rstrip("/")
+        action = ACTIONS.get(path)
+        if action is None:
+            self._send_json({"error": "Not found"}, status=404)
+            return
+        if not server.allow_writes:
+            self._send_json(
+                {"error": "Writes are disabled; restart with --allow-writes"},
+                status=403,
+            )
+            return
+        token = self.headers.get("X-CSRF-Token", "")
+        if not hmac.compare_digest(
+            token.encode("utf-8"), server.csrf_token.encode("utf-8")
+        ):
+            self._send_json({"error": "Missing or invalid CSRF token"}, status=403)
+            return
+        origin = self.headers.get("Origin")
+        if origin and urlparse(origin).netloc != self.headers.get("Host", ""):
+            self._send_json({"error": "Cross-origin request rejected"}, status=403)
+            return
+        content_type = self.headers.get("Content-Type", "").split(";")[0].strip()
+        if content_type != "application/json":
+            self._send_json({"error": "Expected application/json"}, status=415)
+            return
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            length = -1
+        if not 0 <= length <= MAX_BODY_BYTES:
+            self._send_json({"error": "Invalid request size"}, status=413)
+            return
+        try:
+            payload = json.loads(self.rfile.read(length) or b"{}")
+        except (ValueError, UnicodeDecodeError):
+            payload = None
+        if not isinstance(payload, dict):
+            self._send_json({"error": "Body must be a JSON object"}, status=400)
+            return
+
+        if not server.write_lock.acquire(blocking=False):
+            self._send_json({"error": "Another change is in progress"}, status=409)
+            return
+        try:
+            result = action(server.cluster, payload)
+        except ActionError as e:
+            self._send_json({"error": str(e)}, status=400)
+            return
+        except NPSError as e:
+            self._send_json({"error": str(e)}, status=502)
+            return
+        except Exception:
+            logger.exception("Dashboard action failed: %s", path)
+            self._send_json({"error": "Internal server error"}, status=500)
+            return
+        finally:
+            server.write_lock.release()
+        logger.info("Dashboard action %s: %s", path, json.dumps(result.get("results")))
+        self._send_json(result)
 
     def _check_auth(self) -> bool:
         expected = getattr(self.server, "auth_header", "")
@@ -236,7 +522,7 @@ class _AdminHandler(BaseHTTPRequestHandler):
 
 
 class AdminServer(ThreadingHTTPServer):
-    """HTTP server carrying the cluster and optional auth header."""
+    """HTTP server carrying the cluster, auth header, and write settings."""
 
     daemon_threads = True
 
@@ -245,10 +531,14 @@ class AdminServer(ThreadingHTTPServer):
         address: tuple[str, int],
         cluster: NPSCluster,
         auth_header: str = "",
+        allow_writes: bool = False,
     ) -> None:
         super().__init__(address, _AdminHandler)
         self.cluster = cluster
         self.auth_header = auth_header
+        self.allow_writes = allow_writes
+        self.csrf_token = secrets.token_urlsafe(32)
+        self.write_lock = threading.Lock()
 
 
 def create_server(
@@ -259,6 +549,7 @@ def create_server(
     password: str = "",
     *,
     allow_insecure: bool = False,
+    allow_writes: bool = False,
 ) -> AdminServer:
     """Create the dashboard server.
 
@@ -269,6 +560,7 @@ def create_server(
         username: Optional Basic Auth username.
         password: Optional Basic Auth password.
         allow_insecure: Allow a non-loopback bind without authentication.
+        allow_writes: Enable the write endpoints (add/sync actions).
 
     Returns:
         A configured, not-yet-serving AdminServer.
@@ -288,8 +580,16 @@ def create_server(
             "Refusing to expose the dashboard without authentication; "
             "set --username/--password or pass --insecure"
         )
+    if allow_writes and host not in LOOPBACK_HOSTS and not (username and password):
+        raise ValueError(
+            "Refusing to enable writes on a network-reachable dashboard "
+            "without authentication"
+        )
     return AdminServer(
-        (host, port), cluster, auth_header=build_auth_header(username, password)
+        (host, port),
+        cluster,
+        auth_header=build_auth_header(username, password),
+        allow_writes=allow_writes,
     )
 
 
@@ -298,6 +598,7 @@ _DASHBOARD_HTML = """<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="nps-config" content="__NPS_CONFIG__">
 <title>NPS Cluster</title>
 <style>
   :root { color-scheme: light dark; --fg: #1f2328; --bg: #f6f8fa;
@@ -378,6 +679,27 @@ _DASHBOARD_HTML = """<!doctype html>
   .error { color: var(--bad); }
   td .error { white-space: normal; max-width: 360px; }
   body.busy #summary, body.busy #edges { opacity: 0.6; transition: opacity 0.2s; }
+  #actions { display: flex; gap: 6px; flex-wrap: wrap; }
+  dialog { border: 1px solid var(--line); border-radius: 10px; padding: 20px;
+           width: min(520px, calc(100vw - 32px)); background: var(--card);
+           color: var(--fg); }
+  dialog::backdrop { background: rgba(0, 0, 0, 0.45); }
+  dialog h2 { margin-bottom: 8px; }
+  dialog fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+  .field { display: flex; flex-direction: column; gap: 4px; margin: 10px 0; }
+  .field > span { font-size: 12px; color: var(--muted); }
+  .field input, .field select { font: inherit; padding: 5px 8px; color: var(--fg);
+                                background: var(--bg); border: 1px solid var(--line);
+                                border-radius: 6px; }
+  .checks { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 10px 0; }
+  .checks legend { font-size: 12px; color: var(--muted); padding: 0; margin-bottom: 4px; }
+  .message { margin: 10px 0; }
+  .message.warn, p.warn { color: var(--warn); }
+  .results { list-style: none; padding: 0; margin: 0; }
+  .results li { padding: 4px 0; }
+  .dialog-buttons { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #ffffff; }
+  button.danger { background: var(--bad); border-color: var(--bad); color: #ffffff; }
   @media (max-width: 640px) { body { padding: 16px; } }
 </style>
 </head>
@@ -385,6 +707,8 @@ _DASHBOARD_HTML = """<!doctype html>
 <main>
 <header>
   <h1>NPS Cluster</h1>
+  <div id="actions" aria-label="Cluster actions"></div>
+  <span id="mode"></span>
   <span id="updated" class="muted" aria-live="polite"></span>
   <button id="refresh" type="button">Refresh</button>
 </header>
@@ -398,6 +722,7 @@ _DASHBOARD_HTML = """<!doctype html>
 </div>
 <section id="detail"></section>
 </main>
+<dialog id="action-dialog" aria-label="Cluster action"></dialog>
 <script>
 const summary = document.getElementById('summary');
 const edgesBody = document.getElementById('edges');
@@ -406,6 +731,57 @@ const refreshButton = document.getElementById('refresh');
 const updated = document.getElementById('updated');
 const RESOURCES = ['clients', 'tunnels', 'hosts'];
 const state = { edges: null, edge: null, resource: null, items: [], filter: '' };
+const config = (() => {
+  try {
+    return JSON.parse(document.querySelector('meta[name="nps-config"]').content);
+  } catch (error) {
+    return { writes: false, csrf: '', primary: null };
+  }
+})();
+const actionsBar = document.getElementById('actions');
+const dialog = document.getElementById('action-dialog');
+
+const ACTIONS = {
+  sync: {
+    label: 'Sync edges', url: 'api/actions/sync', excludeSource: true,
+    intro: 'Copy clients, tunnels and hosts that are missing on the selected ' +
+           'edges from the source edge. Nothing is deleted or overwritten.',
+    fields: [
+      { name: 'source', label: 'Source edge', kind: 'source' },
+      { name: 'types', label: 'Copy', kind: 'types' },
+    ],
+  },
+  clients: {
+    label: 'Add client', url: 'api/actions/clients',
+    intro: 'Create a client on the selected edges with one shared verify key.',
+    fields: [
+      { name: 'remark', label: 'Remark (client name)', required: true },
+      { name: 'vkey', label: 'Verify key (blank to generate)' },
+    ],
+  },
+  tunnels: {
+    label: 'Add tunnel', url: 'api/actions/tunnels',
+    intro: 'Add a tunnel for an existing client on the selected edges.',
+    fields: [
+      { name: 'client', label: 'Client remark', required: true },
+      { name: 'type', label: 'Type', options: ['tcp', 'udp', 'socks5', 'httpProxy'] },
+      { name: 'port', label: 'Server port', type: 'number', required: true },
+      { name: 'target', label: 'Target (host:port, required for tcp/udp)' },
+      { name: 'remark', label: 'Remark' },
+    ],
+  },
+  hosts: {
+    label: 'Add host', url: 'api/actions/hosts',
+    intro: 'Map a domain to an existing client on the selected edges.',
+    fields: [
+      { name: 'host', label: 'Domain', required: true },
+      { name: 'client', label: 'Client remark', required: true },
+      { name: 'target', label: 'Target (host:port)', required: true },
+      { name: 'location', label: 'Location (path prefix)' },
+      { name: 'remark', label: 'Remark' },
+    ],
+  },
+};
 
 function el(tag, text, cls) {
   const node = document.createElement(tag);
@@ -529,7 +905,9 @@ function renderEdges(edges) {
   for (const edge of edges) {
     const row = document.createElement('tr');
     if (edge.name === state.edge) row.className = 'selected';
-    row.append(el('td', edge.name, 'mono name'), el('td', edge.region || '—'));
+    const nameCell = el('td', edge.name, 'mono name');
+    if (edge.name === config.primary) nameCell.append(' ', badge('primary', 'muted'));
+    row.append(nameCell, el('td', edge.region || '—'));
     const status = el('td');
     status.append(edge.ok ? badge('online', 'ok')
                   : edge.partial ? badge('partial', 'warn')
@@ -679,6 +1057,7 @@ async function load() {
     state.edges = payload.edges;
     renderSummary(payload.summary);
     renderEdges(payload.edges);
+    enableActions();
     const seconds = ((performance.now() - started) / 1000).toFixed(1);
     updated.className = 'muted';
     updated.textContent = 'Updated ' + new Date().toLocaleTimeString() +
@@ -703,8 +1082,201 @@ async function load() {
 
 refreshButton.onclick = load;
 document.addEventListener('keydown', event => {
-  if (event.key === 'Escape' && state.edge && event.target.tagName !== 'INPUT') closeDetail();
+  if (event.key === 'Escape' && state.edge && !dialog.open &&
+      event.target.tagName !== 'INPUT') closeDetail();
 });
+function edgeNames() { return (state.edges || []).map(edge => edge.name); }
+
+function checkbox(name, value, text) {
+  const box = el('label');
+  const check = el('input');
+  check.type = 'checkbox';
+  check.name = name;
+  check.value = value;
+  check.checked = true;
+  box.append(check, ' ' + text);
+  return box;
+}
+
+function field(spec) {
+  if (spec.kind === 'types') {
+    const group = el('fieldset', undefined, 'checks');
+    group.append(el('legend', spec.label));
+    for (const type of RESOURCES) group.append(checkbox('types', type, type));
+    return group;
+  }
+  const wrap = el('label', undefined, 'field');
+  wrap.append(el('span', spec.label + (spec.required ? ' *' : '')));
+  let input;
+  if (spec.kind === 'source' || spec.options) {
+    input = el('select');
+    const values = spec.kind === 'source' ? edgeNames() : spec.options;
+    for (const value of values) {
+      const label = spec.kind === 'source' && value === config.primary
+        ? value + ' (primary)' : value;
+      const option = el('option', label);
+      option.value = value;
+      input.append(option);
+    }
+    if (spec.kind === 'source' && config.primary) input.value = config.primary;
+  } else {
+    input = el('input');
+    input.type = spec.type || 'text';
+    if (spec.type === 'number') { input.min = '1'; input.max = '65535'; }
+  }
+  input.name = spec.name;
+  input.required = !!spec.required;
+  wrap.append(input);
+  return wrap;
+}
+
+function collect(form, spec) {
+  const data = new FormData(form);
+  const payload = {};
+  for (const f of spec.fields) {
+    if (f.kind === 'types') payload.types = data.getAll('types');
+    else if (f.type === 'number') payload[f.name] = Number(data.get(f.name));
+    else payload[f.name] = String(data.get(f.name) || '').trim();
+  }
+  let edges = data.getAll('edges');
+  if (spec.excludeSource) edges = edges.filter(name => name !== payload.source);
+  payload.edges = edges;
+  return payload;
+}
+
+function renderResults(result) {
+  const box = el('div');
+  const list = el('ul', undefined, 'results');
+  for (const [name, r] of Object.entries(result.results || {})) {
+    const item = el('li');
+    item.append(el('span', name, 'mono'), ' ',
+                r.ok ? badge(r.status || 'ok', 'ok') : badge('failed', 'bad'));
+    const extra = r.error || (r.failed && r.failed.length
+      ? 'failed: ' + r.failed.join(', ') : '');
+    if (extra) item.append(' ', el('span', extra, r.ok ? 'muted' : 'error'));
+    list.append(item);
+  }
+  box.append(list);
+  if (result.vkey) {
+    const note = el('p', 'Verify key (shown once; configure npc with it): ', 'warn');
+    note.append(el('code', result.vkey, 'mono'));
+    box.append(note);
+  }
+  return box;
+}
+
+function openAction(key) {
+  const spec = ACTIONS[key];
+  const form = el('form');
+  const fields = el('fieldset');
+  fields.append(el('p', spec.intro, 'muted'));
+  for (const f of spec.fields) fields.append(field(f));
+  const targets = el('fieldset', undefined, 'checks');
+  targets.append(el('legend', 'Target edges'));
+  for (const name of edgeNames()) targets.append(checkbox('edges', name, name));
+  fields.append(targets);
+  const message = el('div', '', 'message');
+  message.setAttribute('aria-live', 'polite');
+  const cancel = el('button', 'Cancel');
+  cancel.type = 'button';
+  cancel.onclick = () => dialog.close();
+  const submit = el('button', 'Review', 'primary');
+  submit.type = 'submit';
+  const buttons = el('div', undefined, 'dialog-buttons');
+  buttons.append(cancel, submit);
+  form.append(el('h2', spec.label), fields, message, buttons);
+
+  let confirming = false;
+  const resetReview = () => {
+    confirming = false;
+    submit.textContent = 'Review';
+    submit.className = 'primary';
+  };
+  form.oninput = () => {
+    if (!confirming) return;
+    resetReview();
+    message.className = 'message';
+    message.textContent = '';
+  };
+  form.onsubmit = async event => {
+    event.preventDefault();
+    const payload = collect(form, spec);
+    if (!payload.edges.length) {
+      message.className = 'message error';
+      message.textContent = 'Select at least one target edge.';
+      return;
+    }
+    if (payload.types && !payload.types.length) {
+      message.className = 'message error';
+      message.textContent = 'Select at least one resource type to copy.';
+      return;
+    }
+    if (!confirming) {
+      confirming = true;
+      const count = payload.edges.length;
+      message.className = 'message warn';
+      message.textContent = 'This will change ' + count + ' edge' +
+        (count === 1 ? '' : 's') + ': ' + payload.edges.join(', ') + '.';
+      submit.textContent = 'Apply to ' + count + ' edge' + (count === 1 ? '' : 's');
+      submit.className = 'danger';
+      return;
+    }
+    fields.disabled = true;
+    submit.disabled = true;
+    cancel.disabled = true;
+    submit.textContent = 'Applying…';
+    message.className = 'message muted';
+    message.textContent = 'Applying…';
+    try {
+      const response = await fetch(spec.url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': config.csrf },
+        body: JSON.stringify(payload),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || response.statusText);
+      message.className = 'message';
+      message.replaceChildren(renderResults(result));
+      submit.hidden = true;
+      cancel.textContent = 'Close';
+      cancel.disabled = false;
+      load();
+    } catch (error) {
+      message.className = 'message error';
+      message.textContent = 'Failed: ' + error.message;
+      fields.disabled = false;
+      submit.disabled = false;
+      cancel.disabled = false;
+      resetReview();
+    }
+  };
+  dialog.replaceChildren(form);
+  dialog.showModal();
+  const first = form.querySelector('input:not([type=checkbox]), select');
+  if (first) first.focus();
+}
+
+function renderActions() {
+  const mode = document.getElementById('mode');
+  if (!config.writes) {
+    mode.replaceChildren(badge('read-only', 'muted'));
+    mode.title = 'Start nps-ctl web with --allow-writes to enable actions';
+    return;
+  }
+  for (const [key, spec] of Object.entries(ACTIONS)) {
+    const button = el('button', spec.label);
+    button.type = 'button';
+    button.disabled = true;
+    button.onclick = () => openAction(key);
+    actionsBar.append(button);
+  }
+}
+
+function enableActions() {
+  for (const button of actionsBar.querySelectorAll('button')) button.disabled = false;
+}
+
+renderActions();
 load();
 </script>
 </body>
