@@ -1,0 +1,31 @@
+[Unit]
+Description=nps-ctl web dashboard
+Documentation=https://github.com/Oaklight/nps-ctl
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=nps-ctl
+Group=nps-ctl
+ExecStart=/usr/local/bin/nps-ctl --config /etc/nps-ctl/edges.toml web --host 127.0.0.1 --port 8080 --users-file /etc/nps-ctl/web-users.toml --allow-writes
+Restart=on-failure
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+
+# The dashboard writes edges.toml when adding an edge; everything else is
+# read-only. Keep the config directory private and writable by the service.
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/etc/nps-ctl
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

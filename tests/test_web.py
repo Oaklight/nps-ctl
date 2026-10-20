@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import base64
 import json
+import secrets
 import sys
 import threading
 import urllib.error
@@ -14,6 +14,9 @@ import pytest
 
 from nps_ctl.types import EdgeResults
 from nps_ctl.web import _DASHBOARD_HTML, _overview, build_auth_header, create_server
+from nps_ctl.web_auth import verify_password
+
+PASSWORD = secrets.token_urlsafe(16)
 
 
 class FakeNPS:
@@ -120,7 +123,7 @@ class FakeCluster:
 @pytest.fixture
 def server():
     dashboard = create_server(
-        FakeCluster(), "127.0.0.1", 0, username="admin", password="secret"
+        FakeCluster(), "127.0.0.1", 0, username="admin", password=PASSWORD
     )
     thread = threading.Thread(target=dashboard.serve_forever, daemon=True)
     thread.start()
@@ -140,7 +143,7 @@ def _url(server, path):
 def _get(server, path, auth=True):
     headers = {}
     if auth:
-        headers["Authorization"] = build_auth_header("admin", "secret")
+        headers["Authorization"] = build_auth_header("admin", PASSWORD)
     request = urllib.request.Request(_url(server, path), headers=headers)
     return urllib.request.urlopen(request, timeout=5)
 
@@ -283,11 +286,13 @@ def test_dashboard_rejects_username_without_password():
 
 def test_dashboard_allows_public_bind_with_auth():
     dashboard = create_server(
-        FakeCluster(), "0.0.0.0", 0, username="admin", password="secret"
+        FakeCluster(), "0.0.0.0", 0, username="admin", password=PASSWORD
     )
     try:
-        expected = base64.b64encode(b"admin:secret").decode()
-        assert dashboard.auth_header == f"Basic {expected}"
+        user = dashboard.users["admin"]
+        assert user.role == "operator"
+        assert verify_password(PASSWORD, user.password_hash)
+        assert not verify_password(PASSWORD + "-wrong", user.password_hash)
     finally:
         dashboard.server_close()
 
@@ -325,7 +330,7 @@ def test_web_rejects_password_without_username(monkeypatch):
         host="127.0.0.1",
         port=0,
         username="",
-        password="secret",
+        password=PASSWORD,
         insecure=False,
     )
 

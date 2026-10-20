@@ -138,6 +138,13 @@ def _add_web_command(subparsers) -> None:
         help="HTTP Basic Auth password (or set NPS_WEB_PASSWORD)",
     )
     web_parser.add_argument(
+        "--users-file",
+        help=(
+            "TOML file with [[users]] name/password_hash/role entries; "
+            "roles are 'operator' (writes) or 'viewer' (read-only)"
+        ),
+    )
+    web_parser.add_argument(
         "--insecure",
         action="store_true",
         help="Allow a non-loopback bind without authentication",
@@ -589,6 +596,14 @@ def _add_edge_commands(subparsers) -> None:
         help="Type of configuration to sync (default: all)",
     )
     add_yes_argument(sync_parser)
+    sync_parser.add_argument(
+        "--prune",
+        action="store_true",
+        help=(
+            "Delete resources on target edges that are absent from the source "
+            "(requires confirmation; aborts if source data cannot be read)"
+        ),
+    )
     sync_parser.add_argument(
         "--parallel",
         action="store_true",
@@ -1136,3 +1151,21 @@ def _add_util_commands(subparsers) -> None:
         help="Key length (default: 43)",
     )
     gen_key_parser.set_defaults(requires_config=False)
+
+    # util hash-password
+    hash_parser = util_sub.add_parser(
+        "hash-password",
+        help="Hash a dashboard password for a users file",
+        description=(
+            "Prompt for a password (or read NPS_WEB_PASSWORD) and print a "
+            "PBKDF2 hash for use in nps-ctl web --users-file. The password "
+            "itself is never printed."
+        ),
+    )
+    hash_parser.add_argument(
+        "--iterations",
+        type=int,
+        default=None,
+        help="PBKDF2 iteration count (default: 260000)",
+    )
+    hash_parser.set_defaults(requires_config=False)

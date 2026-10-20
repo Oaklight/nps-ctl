@@ -8,6 +8,7 @@ import os
 
 from ..cluster import NPSCluster
 from ..web import create_server
+from ..web_auth import describe_users, load_users_file
 from .helpers import console, print_error
 
 
@@ -28,21 +29,33 @@ def cmd_web(args: argparse.Namespace) -> int:
 
     username = getattr(args, "username", "") or ""
     password = getattr(args, "password", "") or os.environ.get("NPS_WEB_PASSWORD", "")
-    if password and not username:
-        print_error("Password provided without --username")
-        return 2
-    if username and not password:
+    users_file = getattr(args, "users_file", None)
+    users = None
+    if users_file:
+        if username or password:
+            print_error("Pass either --users-file or --username/--password, not both")
+            return 2
         try:
-            password = getpass.getpass(f"Password for {username}: ")
-        except EOFError:
-            print_error(
-                "No password provided and no TTY available; "
-                "set NPS_WEB_PASSWORD or pass --password"
-            )
+            users = load_users_file(users_file)
+        except (OSError, ValueError) as e:
+            print_error(f"Could not load users file: {e}")
             return 2
-        if not password:
-            print_error("Password cannot be empty")
+    else:
+        if password and not username:
+            print_error("Password provided without --username")
             return 2
+        if username and not password:
+            try:
+                password = getpass.getpass(f"Password for {username}: ")
+            except EOFError:
+                print_error(
+                    "No password provided and no TTY available; "
+                    "set NPS_WEB_PASSWORD or pass --password"
+                )
+                return 2
+            if not password:
+                print_error("Password cannot be empty")
+                return 2
 
     try:
         server = create_server(
@@ -51,6 +64,7 @@ def cmd_web(args: argparse.Namespace) -> int:
             port=args.port,
             username=username,
             password=password,
+            users=users,
             allow_insecure=getattr(args, "insecure", False),
             allow_writes=getattr(args, "allow_writes", False),
         )
@@ -62,7 +76,13 @@ def cmd_web(args: argparse.Namespace) -> int:
     port = server.server_address[1]
     display_host = f"[{host}]" if ":" in host else host
     console.print(f"Dashboard: [bold]http://{display_host}:{port}/[/bold]")
-    if not username:
+    if users:
+        info = describe_users(users)
+        console.print(
+            f"[dim]Authentication: {info['count']} user(s) "
+            f"({info['operators']} operator, {info['viewers']} viewer)[/dim]"
+        )
+    if not users and not username:
         if host in {"127.0.0.1", "::1", "localhost"}:
             console.print("[yellow]Authentication disabled (loopback only).[/yellow]")
         else:

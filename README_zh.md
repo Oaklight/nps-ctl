@@ -19,6 +19,7 @@
 - **集群同步**：跨边缘节点同步客户端、隧道和域名映射
 - **NPC 部署**：通过 SSH 安装、配置和管理 NPC 客户端
 - **命令行工具**：Rich 终端界面，支持所有操作
+- **Web 管理面板**：默认只读；可选用 `--allow-writes` 启用新增/同步/编辑/删除与添加边缘节点，带 CSRF、同源校验以及 viewer/operator 角色
 - **机器可读输出**：JSON 模式和无终端环境的表格输出，便于脚本和 Agent 使用
 - **最小依赖**：仅需 [rich](https://github.com/Textualize/rich) 用于终端输出
 
@@ -80,6 +81,17 @@ nps-ctl client list --edge nps-asia
 # 从一个边缘节点同步配置到其他节点
 nps-ctl edge sync --from nps-asia -y
 
+# 或设置 primary 后直接从它同步；--prune 会删除目标节点上多余的资源
+nps-ctl edge primary nps-asia
+nps-ctl edge sync -y
+nps-ctl edge sync --prune -y          # 破坏性操作：请先确认目标节点列表
+
+# 向 edges.toml 添加边缘节点（auth key 从 NPS_EDGE_AUTH_KEY 或隐藏提示读取）
+nps-ctl edge add nps-eu --api-url https://nps-eu.example.com --ssh-host cloud.deu1
+
+# 添加客户端并一步推送到它配置的边缘节点
+nps-ctl client add --name my-server --ssh-host user@host --edges nps-asia --push -y
+
 # 写入命令必须显式指定目标：-a 表示所有节点，-e 表示单个节点
 nps-ctl host add -a -d app.example.com -c my-server -T :8080
 nps-ctl host add -e nps-asia -d app.example.com -c my-server -T :8080
@@ -100,26 +112,52 @@ nps-ctl edge list --json
 
 ## Web 管理面板
 
-`nps-ctl web` 为所有已配置边缘节点提供只读管理面板：
+`nps-ctl web` 为所有已配置边缘节点提供管理面板。默认只读，只有传入
+`--allow-writes` 才会启用变更操作：
 
 ```bash
+# 单用户
 export NPS_WEB_PASSWORD='choose-a-password'
-nps-ctl web --username admin
+nps-ctl web --username admin --allow-writes
+
+# 多用户与角色
+nps-ctl util hash-password          # 输出 PBKDF2 哈希，不打印密码
+cat > web-users.toml <<'EOF'
+[[users]]
+name = "admin"
+password_hash = "pbkdf2_sha256$260000$...$..."
+role = "operator"
+
+[[users]]
+name = "viewer"
+password_hash = "pbkdf2_sha256$260000$...$..."
+role = "viewer"
+EOF
+nps-ctl web --users-file web-users.toml --allow-writes
 # http://127.0.0.1:8080/
 ```
 
+启用 `--allow-writes` 后，operator 可以同步边缘节点（可选 `prune`）、添加
+客户端/隧道/域名映射、向 `edges.toml` 添加边缘节点，以及在单个节点上编辑或
+删除客户端、隧道和域名映射。每个操作都使用显式目标列表、确认步骤、每次进程
+独立的 CSRF token、同源/Host 校验和单写入锁。viewer 始终只能看到只读页面；
+未启用 `--allow-writes` 时所有变更接口返回 403。
+
 默认只监听 `127.0.0.1`。未配置凭据时绑定到非回环地址会被拒绝，除非传入
-`--insecure`。面板展示边缘节点健康状态（`online`/`partial`/`offline`）和资源
-数量，并可逐个节点查看客户端、隧道和域名映射；不可用的数量以 `null` 返回，
-JSON 输出会隐藏凭据（客户端验证密钥、隧道密码和 Basic Auth）。变更操作仍在
-CLI 中完成。
-内置服务器只提供 HTTP，如需暴露到回环地址之外，请在前置代理上终止 TLS。
+`--insecure`；网络绑定且无认证时始终拒绝写入。面板展示边缘节点健康状态
+（`online`/`partial`/`offline`）和资源数量，并可逐个节点查看客户端、隧道和
+域名映射；不可用的数量以 `null` 返回，JSON 输出会隐藏凭据（客户端验证密钥、
+隧道密码和 Basic Auth）。内置服务器只提供 HTTP，如需暴露到回环地址之外，请
+在前置代理上终止 TLS；可直接使用的 systemd 与 Caddy 配置见
+[`deploy/web`](deploy/web)。
 
 ## 配置
 
 创建 `config/edges.toml` 文件：
 
 ```toml
+primary = "nps-asia"   # `edge sync` 的默认源节点
+
 [[edges]]
 name = "nps-asia"
 api_url = "https://nps-asia.example.com"
@@ -134,6 +172,11 @@ auth_key = "your_auth_key"
 region = "US"
 ssh_host = "cloud.usa1"
 ```
+
+可选的顶层 `primary` 指定 `edge sync` 的默认源节点。使用
+`edge primary NAME` 设置；使用 `edge add NAME --api-url URL` 追加新节点
+（auth key 从 `NPS_EDGE_AUTH_KEY` 或隐藏提示读取，绝不出现在 argv 中）。
+两种编辑都会保留文件中的注释。
 
 当边缘节点配置了凭据且服务端支持时，会自动使用现代 `/api/*` 管理接口。在节点条目中添加 `username`/`password`（或 `platform_token`）：
 
@@ -183,7 +226,8 @@ edges = ["nps-asia", "nps-us"]
 
 - `edge_names` - 按文件顺序返回已配置的边缘节点名称
 - `get_all_clients()` / `get_all_tunnels()` / `get_all_hosts()` - 从所有节点获取数据。返回 `EdgeResults` 映射；失败的节点对应空列表，原因记录在 `.errors` 中
-- `sync_from()` - 从源边缘节点同步配置到目标节点
+- `sync_from(..., prune=False)` - 从源边缘节点同步配置到目标节点。`prune=True` 还会删除源节点上不存在的资源，并在源数据无法完整读取时中止
+- `reload()` - 就地重新加载 `edges.toml`（供面板的“Add edge”操作使用）
 - `broadcast_host()` - 向所有节点添加域名映射
 
 ## 开发
