@@ -79,6 +79,7 @@ nav:
   - Guides:
       - Concepts: guides/concepts.md
       - CLI Reference: guides/cli.md
+      - Web Dashboard: guides/web.md
       - Python Library: guides/library.md
   - Reference:
       - API Reference: reference/api.md

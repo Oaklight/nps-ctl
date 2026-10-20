@@ -82,12 +82,20 @@ Interactively add a new client entry to `clients.toml`.
 | `--edges` EDGE [EDGE ...] | Edge names (skip interactive prompt) |
 | `--vkey` | Verify key (auto-generated if not provided) |
 | `--conn-type` {tls,tcp,kcp} | Connection type (default: tls) |
+| `--push` | After writing `clients.toml`, push just the new client to its configured edges |
 | `-y`, `--yes` | Skip confirmation prompts |
 
 ```bash
 nps-ctl client add                                        # Fully interactive
 nps-ctl client add --name my-server --ssh-host 10.0.0.5   # Partially pre-filled
+nps-ctl client add --name my-server --ssh-host 10.0.0.5 \
+  --edges nps-asia --push -y                              # Create and push in one step
 ```
+
+Without `--push` the command only writes `clients.toml` and prints the
+`client push -c NAME` follow-up. With `--push`, the client is matched on the
+edges by verify key (remark is the fallback), and the command exits 1 if any
+edge push fails.
 
 ### `client del`
 
@@ -334,15 +342,54 @@ Uninstall NPS from edge nodes via SSH.
 nps-ctl edge uninstall -e nps-us -y
 ```
 
+### `edge primary`
+
+Show or set the primary edge. The primary is the default source for
+`edge sync` and is shown with a badge in the web dashboard.
+
+| Option | Description |
+| --- | --- |
+| `NAME` | Edge to set as primary (omit to show the current one) |
+| `--json` (global) | Print `{"primary": ..., "valid": ...}` |
+
+```bash
+nps-ctl edge primary                # show
+nps-ctl edge primary nps-asia       # set (must be a configured edge)
+```
+
+The edit is a comment-preserving, atomic write to `edges.toml`.
+
+### `edge add`
+
+Append a new `[[edges]]` entry to `edges.toml` without editing it by hand.
+
+| Option | Description |
+| --- | --- |
+| `NAME` | New edge name (must not already exist) |
+| `--api-url` URL | Edge API URL (`http` or `https`, required) |
+| `--region` TEXT | Display region |
+| `--ssh-host` HOST | SSH host alias for install/upgrade commands |
+| `--no-auth-key` | Skip the auth key prompt |
+| `-y`, `--yes` | Skip confirmation prompts |
+
+```bash
+export NPS_EDGE_AUTH_KEY='...'      # or omit and enter it at the hidden prompt
+nps-ctl edge add nps-eu --api-url https://nps-eu.example.com --ssh-host cloud.deu1
+```
+
+The key is never read from argv and is not echoed. Comments in `edges.toml`
+are preserved, and the edit is re-parsed and verified before it is written.
+
 ### `edge sync`
 
 Sync configuration from one edge to others.
 
 | Option | Description |
 | --- | --- |
-| `-f`, `--from` EDGE | Source edge name to sync from (required) |
+| `-f`, `--from` EDGE | Source edge name (default: the configured primary) |
 | `-e`, `--edge`, `--to` EDGE [EDGE ...] | Target edge name(s) to sync to (default: all other edges) |
 | `-t`, `--type` {all,clients,tunnels,hosts} | Type of configuration to sync (default: all) |
+| `--prune` | Delete resources on targets that are absent from the source |
 | `-y`, `--yes` | Skip confirmation prompts |
 | `--parallel` | Sync to targets in parallel |
 | `-q`, `--quiet` | Suppress detailed output |
@@ -352,10 +399,19 @@ Sync configuration from one edge to others.
 nps-ctl edge sync -f nps-asia                        # Sync all to all other edges
 nps-ctl edge sync -f nps-asia --to nps-us             # Sync to specific edge
 nps-ctl edge sync -f nps-asia -t tunnels --parallel   # Sync only tunnels, parallel
+nps-ctl edge sync -y                                  # Sync from the primary
+nps-ctl edge sync --prune -y                          # Also delete extras on targets
 ```
 
-The final line reports `edges ok: N, failed: N`. The command exits 1 if any
-target edge cannot be reached or any synced operation fails.
+Without `-f` and without a primary, the command exits 2 with a hint. The final
+line reports `edges ok: N, failed: N`. The command exits 1 if any target edge
+cannot be reached or any synced operation fails.
+
+`--prune` is destructive: it deletes clients, tunnels, and hosts on each
+target that are not present on the source (tunnels and hosts before clients).
+It requires confirmation unless `-y` is passed, and it aborts before changing
+anything if a selected source fetch fails, so an unreachable source can never
+be mistaken for an empty one.
 
 ### `edge export`
 

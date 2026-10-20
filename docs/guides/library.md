@@ -197,6 +197,10 @@ results = cluster.sync_from(
 )
 ```
 
+Pass `prune=True` to also delete clients, tunnels and hosts on the targets
+that do not exist on the source. Source reads are strict in that mode: if any
+selected resource cannot be fetched, the call raises before changing anything.
+
 ### Edge and client introspection
 
 ```python

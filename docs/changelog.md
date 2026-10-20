@@ -12,6 +12,12 @@ All notable changes to nps-ctl are documented here. This project follows [Keep a
 
 ### Added
 
+- **`edge primary [NAME]`** and an optional top-level `primary` in `edges.toml`; `edge sync` now defaults to the primary when `-f/--from` is omitted (#67)
+- **`edge add NAME --api-url URL`**: append an edge with a comment-preserving, atomic `edges.toml` edit; the auth key comes from `NPS_EDGE_AUTH_KEY` or a hidden prompt, never argv (#67)
+- **`client add --push`**: write `clients.toml` and push just the new client to its configured edges in one step (#68)
+- **Web actions behind `--allow-writes`**: sync with optional prune, add client/tunnel/host, add edge, and edit/delete clients, tunnels and hosts on one edge (#69)
+- **Multi-user dashboard auth**: `--users-file` with PBKDF2 password hashes and `viewer`/`operator` roles; `nps-ctl util hash-password` generates hashes without echoing the password
+- **`deploy/web`**: systemd unit and Caddy site block for `nps-admin.oaklight.top`
 - **`tunnel status`**: per-edge reachability, online/total clients, tunnel count, running count, and distinct server-port count, with `-e/--edge`, `-a/--all`, `--json`, and `--no-color`
 - `edge status` supports `-e/--edge` and `-a/--all`
 - Shared status rendering helpers used by `edge status`, `host status`, and `tunnel status`
@@ -21,6 +27,10 @@ All notable changes to nps-ctl are documented here. This project follows [Keep a
 
 ### Changed
 
+- **`edge sync --prune`** deletes clients, tunnels and hosts on targets that are absent from the source (opt-in, confirmation required); source fetches are strict so an unreadable source aborts before any change
+- `client push` and `client add --push` now exit 1 when any edge push fails, and match existing clients by verify key first, then remark
+- The web dashboard remains read-only by default; with `--allow-writes`, `viewer` users are still limited to reads and the server enforces the role on every write endpoint
+- The web "Add edge" action reloads `edges.toml` in place, so a new edge appears without restarting the process
 - **`edge status`** now fetches tunnels by default and reports `Hosts (ports)` and `Tunnels (running, ports)`; it exits 1 on any client, host, or tunnel fetch failure
 - `edge status` JSON adds `clients_ok`, `hosts_ok`, `tunnels_ok`, `tunnels_total`, `tunnels_running`, `tunnel_ports`, and tunnel totals; unrequested resources are `null`
 - `GET /api/overview` now defines `online` as client-list liveness, adds `ok`/`partial`, and reports unavailable counts as `null` instead of `0`
@@ -31,6 +41,13 @@ All notable changes to nps-ctl are documented here. This project follows [Keep a
 - Tunnel listings filter and dedupe locally, so exact-type filters stay correct when a server ignores the `type` parameter
 - `tunnel del`/`tunnel edit` port locators match the tunnel's `Port` or any port in its `Ports` range
 - `tunnel edit` preserves a proxy tunnel's socks5/HTTP flags instead of clearing both on djylb/nps
+
+### Fixed
+
+- `edge sync` error paths no longer raise `TypeError` for an unknown source or target edge; they print an error and exit 1
+- `edges.toml` edits are atomic, preserve the file mode, follow symlinks, and are re-parsed and verified before writing
+- The dashboard rejects DNS-rebinding `Host` headers when no auth is configured, sends `frame-ancestors 'none'`/`X-Frame-Options: DENY`, and keeps the documented `--insecure` read-only network mode reachable
+- `edge add` and the confirmation prompt exit cleanly with status 2 instead of an `EOFError` when there is no TTY
 
 ---
 

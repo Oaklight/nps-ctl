@@ -537,6 +537,7 @@ sync_from(
     max_workers: int = 4,
     parallel: bool = False,
     quiet: bool = False,
+    prune: bool = False,
 ) -> dict[str, dict[str, bool]]
 ```
 
@@ -553,8 +554,20 @@ Sync configuration from one edge to all others (or specific targets).
 | `max_workers` | `int` | `4` | Parallel workers for items |
 | `parallel` | `bool` | `False` | Sync to edges in parallel |
 | `quiet` | `bool` | `False` | Suppress progress output |
+| `prune` | `bool` | `False` | Delete target resources absent from the source. Source reads become strict and abort the whole sync before any change if they fail. |
 
 **Returns:** `{target_edge: {operation: success}}`
+
+#### reload
+
+```python
+reload() -> None
+```
+
+Reload `edges.toml` into this cluster instance. Existing edges are refreshed
+and new entries are added in place; edges removed from the file are kept
+(construct a new `NPSCluster` for a full replacement). Used by the dashboard's
+Add edge action.
 
 #### cleanup
 
