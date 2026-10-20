@@ -683,3 +683,17 @@ def test_delete_requires_a_second_click():
     assert "kind === 'delete' ? 'Delete permanently' : 'Apply'" in _DASHBOARD_HTML
     assert "if (kind === 'edit' && !confirming)" not in _DASHBOARD_HTML
     assert "if (!confirming) {" in _DASHBOARD_HTML
+
+
+def test_reload_cleans_up_replaced_clients(tmp_path, monkeypatch):
+    path = tmp_path / "edges.toml"
+    path.write_text(CONFIG, encoding="utf-8")
+    cluster = NPSCluster(path)
+    old = cluster._clients["edge-a"]
+    cleaned = []
+    monkeypatch.setattr(old, "cleanup", lambda: cleaned.append(True))
+
+    cluster.reload()
+
+    assert cleaned == [True]
+    assert cluster._clients["edge-a"] is not old
