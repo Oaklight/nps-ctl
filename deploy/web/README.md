@@ -12,8 +12,10 @@ shipped here:
 
 ## Prerequisites
 
-1. DNS: point `nps-admin.oaklight.top` at the server (A/AAAA record).
-2. `nps-ctl` installed at `/usr/local/bin/nps-ctl`.
+1. DNS: point `nps-admin.oaklight.top` at the server (A/AAAA or CNAME record).
+2. `nps-ctl` installed on `PATH` system-wide (for example with
+   `uv tool install` or `pipx`; a user-local install is not visible to the
+   systemd unit).
 3. `/etc/nps-ctl/edges.toml` and, if used, `/etc/nps-ctl/clients.toml`.
    The service user must be able to read and write `edges.toml` (the web
    "Add edge" action appends to it).
@@ -81,7 +83,7 @@ Then open `https://nps-admin.oaklight.top/`. The app already sends CSP,
 ## Updating
 
 ```bash
-python -m pip install --upgrade nps-ctl   # or your chosen installer
+uv tool install --reinstall /path/to/nps-ctl   # or pip install --upgrade nps-ctl
 systemctl restart nps-ctl-web
 ```
 
