@@ -525,6 +525,7 @@ sync_from(
     max_workers: int = 4,
     parallel: bool = False,
     quiet: bool = False,
+    prune: bool = False,
 ) -> dict[str, dict[str, bool]]
 ```
 
@@ -541,8 +542,19 @@ sync_from(
 | `max_workers` | `int` | `4` | 处理条目的并行工作线程数 |
 | `parallel` | `bool` | `False` | 并行同步到各边缘节点 |
 | `quiet` | `bool` | `False` | 抑制进度输出 |
+| `prune` | `bool` | `False` | 删除目标节点上源节点不存在的资源。源数据读取变为严格模式，失败时在做出任何修改前中止整个同步。 |
 
 **返回值：** `{目标边缘节点: {操作: 是否成功}}`
+
+#### reload
+
+```python
+reload() -> None
+```
+
+就地重新加载 `edges.toml`。已有节点会刷新，新条目会被加入；文件中已删除的
+节点不会被移除（需要完整替换时请构造新的 `NPSCluster`）。面板的 Add edge
+操作使用该方法。
 
 #### cleanup
 

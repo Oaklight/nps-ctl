@@ -12,6 +12,12 @@ nps-ctl 的所有重要变更均记录于此。本项目遵循 [Keep a Changelog
 
 ### 新增
 
+- **`edge primary [NAME]`** 与 `edges.toml` 顶层可选 `primary`；省略 `-f/--from` 时 `edge sync` 默认使用 primary (#67)
+- **`edge add NAME --api-url URL`**：追加边缘节点，保留注释并原子写入 `edges.toml`；auth key 从 `NPS_EDGE_AUTH_KEY` 或隐藏提示读取，绝不经过 argv (#67)
+- **`client add --push`**：写入 `clients.toml` 的同时只把新客户端推送到它配置的边缘节点 (#68)
+- **`--allow-writes` 下的 Web 操作**：可选 prune 的同步、添加客户端/隧道/域名映射、添加边缘节点，以及在单个节点上编辑/删除客户端、隧道和域名映射 (#69)
+- **多用户面板认证**：`--users-file` 支持 PBKDF2 密码哈希与 `viewer`/`operator` 角色；`nps-ctl util hash-password` 生成哈希且不回显密码
+- **`deploy/web`**：`nps-admin.oaklight.top` 的 systemd 单元与 Caddy 站点配置
 - **`tunnel status`**：按边缘节点显示可达性、客户端在线数/总数、隧道数、运行数与不同服务端端口数，支持 `-e/--edge`、`-a/--all`、`--json` 和 `--no-color`
 - `edge status` 支持 `-e/--edge` 和 `-a/--all`
 - 供 `edge status`、`host status` 和 `tunnel status` 共用的状态渲染辅助函数
@@ -21,6 +27,10 @@ nps-ctl 的所有重要变更均记录于此。本项目遵循 [Keep a Changelog
 
 ### 变更
 
+- **`edge sync --prune`** 会删除目标节点上源节点不存在的客户端、隧道和域名映射（需显式启用并确认）；源数据抓取采用严格模式，源不可读时在修改前中止
+- `client push` 与 `client add --push` 现在会在任一节点推送失败时以 1 退出，并优先按验证密钥、其次按 remark 匹配已有客户端
+- Web 面板默认仍为只读；启用 `--allow-writes` 后，`viewer` 用户仍只能读取，服务端会在每个写接口校验角色
+- Web 的“Add edge”操作会就地重新加载 `edges.toml`，新节点无需重启进程即可出现
 - **`edge status`** 默认抓取隧道，并显示 `Hosts (ports)` 与 `Tunnels (running, ports)`；任一客户端、域名映射或隧道抓取失败时退出 1
 - `edge status` JSON 新增 `clients_ok`、`hosts_ok`、`tunnels_ok`、`tunnels_total`、`tunnels_running`、`tunnel_ports` 及隧道汇总；未请求的资源为 `null`
 - `GET /api/overview` 的 `online` 现在表示客户端列表抓取成功，新增 `ok`/`partial`，不可用的数量以 `null` 而非 `0` 返回
@@ -31,6 +41,13 @@ nps-ctl 的所有重要变更均记录于此。本项目遵循 [Keep a Changelog
 - 隧道列表会在本地过滤并按 ID 去重，因此即使服务端忽略 `type` 参数，精确类型过滤仍然正确
 - `tunnel del`/`tunnel edit` 的端口定位会匹配隧道的 `Port` 或其 `Ports` 范围中的任意端口
 - `tunnel edit` 会保留代理隧道的 socks5/HTTP 标志，不再在 djylb/nps 上把两者都清除
+
+### 修复
+
+- `edge sync` 在源或目标节点不存在时不再抛出 `TypeError`，而是打印错误并以 1 退出
+- `edges.toml` 的编辑现在原子写入、保留文件权限、跟随符号链接，并在写入前重新解析校验
+- 未配置认证时，面板会拒绝 DNS rebinding 的 `Host` 请求头，发送 `frame-ancestors 'none'`/`X-Frame-Options: DENY`，并保持文档中的 `--insecure` 只读网络模式可用
+- 无 TTY 时 `edge add` 与确认提示会以状态 2 干净退出，而不是抛出 `EOFError`
 
 ---
 

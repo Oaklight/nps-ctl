@@ -78,12 +78,19 @@ nps-ctl client push --dry-run               # Preview changes
 | `--edges` EDGE [EDGE ...] | 边缘节点名称（跳过交互式提示） |
 | `--vkey` | 验证密钥（未提供时自动生成） |
 | `--conn-type` {tls,tcp,kcp} | 连接类型（默认：tls） |
+| `--push` | 写入 `clients.toml` 后，只把新客户端推送到它配置的边缘节点 |
 | `-y`, `--yes` | 跳过确认提示 |
 
 ```bash
 nps-ctl client add                                        # Fully interactive
 nps-ctl client add --name my-server --ssh-host 10.0.0.5   # Partially pre-filled
+nps-ctl client add --name my-server --ssh-host 10.0.0.5 \
+  --edges nps-asia --push -y                              # 创建并一步推送
 ```
+
+不带 `--push` 时只写入 `clients.toml`，并提示后续的 `client push -c NAME`。
+带 `--push` 时，客户端优先按验证密钥（其次按 remark）在边缘节点上匹配；
+任一节点推送失败时命令以 1 退出。
 
 ### `client del`
 
@@ -326,15 +333,54 @@ nps-ctl edge reconfig -e nps-us
 nps-ctl edge uninstall -e nps-us -y
 ```
 
+### `edge primary`
+
+显示或设置 primary 边缘节点。primary 是 `edge sync` 的默认源节点，
+并在 Web 面板中显示 primary 标记。
+
+| 选项 | 说明 |
+| --- | --- |
+| `NAME` | 要设为 primary 的边缘节点（省略则显示当前值） |
+| `--json`（全局） | 输出 `{"primary": ..., "valid": ...}` |
+
+```bash
+nps-ctl edge primary                # 显示
+nps-ctl edge primary nps-asia       # 设置（必须是已配置的节点）
+```
+
+编辑会保留注释并以原子方式写入 `edges.toml`。
+
+### `edge add`
+
+向 `edges.toml` 追加新的 `[[edges]]` 条目，无需手工编辑文件。
+
+| 选项 | 说明 |
+| --- | --- |
+| `NAME` | 新边缘节点名称（不能已存在） |
+| `--api-url` URL | 节点 API URL（`http` 或 `https`，必需） |
+| `--region` TEXT | 显示用区域 |
+| `--ssh-host` HOST | install/upgrade 命令使用的 SSH 主机别名 |
+| `--no-auth-key` | 跳过 auth key 提示 |
+| `-y`, `--yes` | 跳过确认提示 |
+
+```bash
+export NPS_EDGE_AUTH_KEY='...'      # 或省略并在隐藏提示中输入
+nps-ctl edge add nps-eu --api-url https://nps-eu.example.com --ssh-host cloud.deu1
+```
+
+auth key 不会从 argv 读取，也不会回显。`edges.toml` 中的注释会被保留，
+写入前会重新解析并校验编辑结果。
+
 ### `edge sync`
 
 将配置从一个边缘节点同步到其他节点。
 
 | 选项 | 说明 |
 | --- | --- |
-| `-f`, `--from` EDGE | 同步源边缘节点名称（必需） |
+| `-f`, `--from` EDGE | 同步源边缘节点（默认：已配置的 primary） |
 | `-e`, `--edge`, `--to` EDGE [EDGE ...] | 同步目标边缘节点名称（默认：所有其他边缘节点） |
 | `-t`, `--type` {all,clients,tunnels,hosts} | 要同步的配置类型（默认：all） |
+| `--prune` | 删除目标节点上源节点不存在的资源 |
 | `-y`, `--yes` | 跳过确认提示 |
 | `--parallel` | 并行同步到目标节点 |
 | `-q`, `--quiet` | 抑制详细输出 |
@@ -344,9 +390,18 @@ nps-ctl edge uninstall -e nps-us -y
 nps-ctl edge sync -f nps-asia                        # Sync all to all other edges
 nps-ctl edge sync -f nps-asia --to nps-us             # Sync to specific edge
 nps-ctl edge sync -f nps-asia -t tunnels --parallel   # Sync only tunnels, parallel
+nps-ctl edge sync -y                                  # 从 primary 同步
+nps-ctl edge sync --prune -y                          # 同时删除目标节点上的多余资源
 ```
 
-最后一行输出 `edges ok: N, failed: N`。只要有任一目标边缘节点无法连接，或任一同步操作失败，命令就以 1 退出。
+既未提供 `-f` 也没有配置 primary 时，命令以 2 退出并给出提示。最后一行输出
+`edges ok: N, failed: N`。只要有任一目标边缘节点无法连接，或任一同步操作失败，
+命令就以 1 退出。
+
+`--prune` 是破坏性操作：会删除目标节点上源节点不存在的客户端、隧道和域名
+映射（先删隧道和域名映射，再删客户端）。除非传入 `-y`，否则需要确认；如果
+所选源数据抓取失败，命令会在做出任何修改前中止，避免把不可达的源节点误认为
+空节点。
 
 ### `edge export`
 
