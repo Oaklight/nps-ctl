@@ -8,7 +8,7 @@ All notable changes to nps-ctl are documented here. This project follows [Keep a
 
 ---
 
-## Unreleased
+## v0.9.0 — 2026-10-21
 
 ### Added
 

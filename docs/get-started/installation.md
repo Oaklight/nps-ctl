@@ -50,7 +50,7 @@ nps-ctl --version
 You should see output like:
 
 ```
-nps-ctl 0.7.0
+nps-ctl 0.9.0
 ```
 
 ## Troubleshooting

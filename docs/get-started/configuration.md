@@ -25,6 +25,7 @@ The config file uses TOML's `[[edges]]` array-of-tables syntax. Each `[[edges]]`
 A working config with two edges and legacy API authentication:
 
 ```toml
+primary = "nps-us"   # default source for `edge sync`
 auth_crypt_key = "1234567890abcdef"
 public_vkey = "my-public-vkey"
 
@@ -52,6 +53,9 @@ ssh_host = "cloud.jpn1"
 All available fields with their defaults:
 
 ```toml
+# Default source edge for `edge sync` (see `edge primary NAME`).
+primary = "nps-us"
+
 # AES encryption key for NPS auth, exactly 16 characters.
 # Shared across all edges — must match nps.conf on each server.
 auth_crypt_key = "1234567890abcdef"
@@ -97,6 +101,7 @@ ssh_host = "cloud.jpn1"
 
 | Field | Type | Description |
 |-------|------|-------------|
+| `primary` | string | Name of the default source edge for `edge sync`. Set with `edge primary NAME`. |
 | `auth_crypt_key` | string | AES encryption key (16 characters). Must match `nps.conf` on all edges. |
 | `public_vkey` | string | Public registration key for NPC clients. |
 

@@ -25,6 +25,7 @@ hide:
 - **SSH deployment of NPS/NPC** — install, upgrade, and manage NPS server and NPC client binaries on remote hosts over SSH.
 - **Cross-edge sync and broadcast** — add or remove hosts and tunnels across all edges in one command.
 - **HTTP Basic Auth for hosts** — configure authentication on HTTP host mappings directly from the CLI.
+- **Web admin panel** — read-only dashboard by default; opt-in sync, add/edit/delete and add-edge actions with CSRF/same-origin guards and viewer/operator roles.
 - **Minimal dependencies** — only requires `rich`; no heavyweight frameworks.
 
 ## Get Started
