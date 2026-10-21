@@ -8,9 +8,9 @@ hide:
 
 **A Python CLI and library for managing NPS proxy server clusters.**
 
-[![PyPI version](https://img.shields.io/pypi/v/nps-ctl)](https://pypi.org/project/nps-ctl/)
-[![Python version](https://img.shields.io/pypi/pyversions/nps-ctl)](https://pypi.org/project/nps-ctl/)
-[![License](https://img.shields.io/github/license/Oaklight/nps-ctl)](https://github.com/Oaklight/nps-ctl)
+[![PyPI version](https://img.shields.io/pypi/v/nps-ctl?color=green)](https://pypi.org/project/nps-ctl/)
+[![Python version](https://img.shields.io/pypi/pyversions/nps-ctl?color=blue)](https://pypi.org/project/nps-ctl/)
+[![License](https://img.shields.io/github/license/Oaklight/nps-ctl?color=green)](https://github.com/Oaklight/nps-ctl)
 [![CI](https://img.shields.io/github/actions/workflow/status/Oaklight/nps-ctl/ci.yml)](https://github.com/Oaklight/nps-ctl/actions/workflows/ci.yml)
 
 !!! note "Upstream NPS fork"

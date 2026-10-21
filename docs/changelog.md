@@ -63,6 +63,7 @@ All notable changes to nps-ctl are documented here. This project follows [Keep a
 
 - **`edge status`** now reports client, host, and target-port counts alongside reachability; it exits 1 on any client or host fetch failure, not only unreachable edges
 - `edge status` JSON keeps `summary: {configured, online, offline}` and adds per-edge counts plus a top-level `totals`
+- `client status` and `edge sync` exit 1 when any checked client or target edge fails, with an ok/failed summary (#35) — thanks to [@dannyward630](https://github.com/dannyward630)
 
 ---
 
