@@ -46,7 +46,7 @@ nps-ctl --version
 你应该看到类似以下的输出：
 
 ```
-nps-ctl 0.7.0
+nps-ctl 0.9.0
 ```
 
 ## 常见问题

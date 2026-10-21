@@ -25,6 +25,7 @@ nps-ctl --config /path/to/edges.toml edge status
 包含两个边缘节点和旧版 API 认证的可用配置：
 
 ```toml
+primary = "nps-us"   # `edge sync` 的默认源节点
 auth_crypt_key = "1234567890abcdef"
 public_vkey = "my-public-vkey"
 
@@ -52,6 +53,9 @@ ssh_host = "cloud.jpn1"
 所有可用字段及其默认值：
 
 ```toml
+# `edge sync` 的默认源节点（见 `edge primary NAME`）。
+primary = "nps-us"
+
 # AES encryption key for NPS auth, exactly 16 characters.
 # Shared across all edges — must match nps.conf on each server.
 auth_crypt_key = "1234567890abcdef"
@@ -97,6 +101,7 @@ ssh_host = "cloud.jpn1"
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
+| `primary` | string | `edge sync` 的默认源边缘节点名称。使用 `edge primary NAME` 设置。 |
 | `auth_crypt_key` | string | AES 加密密钥（16 个字符）。必须与所有边缘节点上的 `nps.conf` 一致。 |
 | `public_vkey` | string | NPC 客户端的公共注册密钥。 |
 
