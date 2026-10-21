@@ -8,6 +8,9 @@ VERSION := $(shell sed -n 's/^__version__ = "\(.*\)"/\1/p' src/nps_ctl/__init__.
 # Registry mirror (for Docker-based musl builds)
 REGISTRY_MIRROR ?=
 
+# Docker Hub image name
+DOCKER_IMAGE ?= oaklight/nps-ctl
+
 # Default target
 all: lint test build
 
@@ -178,6 +181,57 @@ clean-binary-all:
 	@echo "Clean complete."
 
 # ──────────────────────────────────────────────
+# Docker
+# ──────────────────────────────────────────────
+
+build-docker-python:
+	@echo "Building Python Docker image $(DOCKER_IMAGE):$(VERSION)-python..."
+	@mkdir -p $(DIST_DIR)
+	docker build -f docker/Dockerfile \
+		$(if $(REGISTRY_MIRROR),--build-arg REGISTRY_MIRROR=$(REGISTRY_MIRROR),) \
+		--build-arg PACKAGE_VERSION=$(VERSION) \
+		-t $(DOCKER_IMAGE):$(VERSION)-python .
+
+build-docker-alpine:
+	@test -f $(BINARY_DIR)/$(BINARY_NAME_MUSL) || \
+		{ echo "Musl binary not found. Run 'make build-binary-musl' first."; exit 1; }
+	@cp $(BINARY_DIR)/$(BINARY_NAME_MUSL) $(BINARY_DIR)/nps-ctl
+	DOCKER_BUILDKIT=1 docker build -f docker/Dockerfile.binary \
+		--build-arg BASE_IMAGE=alpine \
+		--build-arg BINARY=$(BINARY_DIR)/nps-ctl \
+		-t $(DOCKER_IMAGE):$(VERSION)-alpine .
+
+build-docker-glibc:
+	@test -f $(BINARY_DIR)/$(BINARY_NAME) || \
+		{ echo "Native binary not found. Run 'make build-binary' first."; exit 1; }
+	@cp $(BINARY_DIR)/$(BINARY_NAME) $(BINARY_DIR)/nps-ctl
+	DOCKER_BUILDKIT=1 docker build -f docker/Dockerfile.binary \
+		--build-arg BASE_IMAGE=ubuntu:24.04 \
+		--build-arg BINARY=$(BINARY_DIR)/nps-ctl \
+		-t $(DOCKER_IMAGE):$(VERSION)-glibc .
+
+build-docker: build-docker-python
+
+build-docker-all: build-docker-python build-docker-alpine build-docker-glibc
+
+push-docker:
+	@echo "Pushing $(DOCKER_IMAGE) images..."
+	@for tag in $(VERSION) latest $(VERSION)-python latest-python \
+			$(VERSION)-alpine $(VERSION)-glibc; do \
+		if docker image inspect $(DOCKER_IMAGE):$$tag >/dev/null 2>&1; then \
+			echo "  Pushing $(DOCKER_IMAGE):$$tag"; \
+			docker push $(DOCKER_IMAGE):$$tag; \
+		fi; \
+	done
+
+clean-docker:
+	@echo "Cleaning Docker images..."
+	@for tag in $(VERSION) latest $(VERSION)-python latest-python \
+			$(VERSION)-alpine $(VERSION)-glibc; do \
+		docker rmi $(DOCKER_IMAGE):$$tag 2>/dev/null || true; \
+	done
+
+# ──────────────────────────────────────────────
 # Help
 # ──────────────────────────────────────────────
 
@@ -200,6 +254,14 @@ help:
 	@echo "  clean-binary      - Clean build artifacts (keep binaries)"
 	@echo "  clean-binary-all  - Clean all binary artifacts"
 	@echo ""
+	@echo "Docker targets:"
+	@echo "  build-docker          - Build the Python image"
+	@echo "  build-docker-all      - Build Python, alpine and glibc images"
+	@echo "  build-docker-alpine   - Build the musl binary image"
+	@echo "  build-docker-glibc    - Build the glibc binary image"
+	@echo "  push-docker           - Push existing images to $(DOCKER_IMAGE)"
+	@echo "  clean-docker          - Remove local images"
+	@echo ""
 	@echo "Composite targets:"
 	@echo "  all               - Run lint, test, and build (default)"
 	@echo ""
@@ -208,4 +270,6 @@ help:
 	@echo "  NUITKA_EXTRA_FLAGS=... - Extra Nuitka flags"
 
 .PHONY: all lint fix test build push clean help \
-	build-binary build-binary-musl clean-binary clean-binary-all
+	build-binary build-binary-musl clean-binary clean-binary-all \
+	build-docker build-docker-all build-docker-python build-docker-alpine \
+	build-docker-glibc push-docker clean-docker

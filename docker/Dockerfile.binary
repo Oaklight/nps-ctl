@@ -1,0 +1,47 @@
+# syntax=docker/dockerfile:1
+#
+# Minimal image built from a Nuitka binary — no Python runtime in the image.
+#
+#   Alpine (musl binary):
+#     docker build -f docker/Dockerfile.binary \
+#       --build-arg BASE_IMAGE=alpine --build-arg BINARY=build/nps-ctl .
+#
+#   glibc (native binary):
+#     docker build -f docker/Dockerfile.binary \
+#       --build-arg BASE_IMAGE=ubuntu:24.04 --build-arg BINARY=build/nps-ctl .
+#
+# The binary links against the system libc, so the glibc base must be at
+# least as new as the runner that built the binary (ubuntu-24.04). Its
+# bundled extension modules load zlib at runtime, and TLS needs CA
+# certificates. OpenSSL itself is bundled by Nuitka.
+
+ARG BASE_IMAGE=alpine
+FROM ${BASE_IMAGE}
+
+ARG BINARY=nps-ctl
+COPY --chmod=755 ${BINARY} /usr/local/bin/nps-ctl
+
+RUN if command -v apt-get >/dev/null 2>&1; then \
+        apt-get update && \
+        apt-get install -y --no-install-recommends zlib1g ca-certificates && \
+        rm -rf /var/lib/apt/lists/*; \
+    fi
+
+RUN if command -v apk >/dev/null 2>&1; then \
+        addgroup -g 10001 appgroup && adduser -D -u 10001 -G appgroup appuser; \
+    else \
+        groupadd -g 10001 appgroup && \
+        useradd -u 10001 -g appgroup -M -s /usr/sbin/nologin appuser; \
+    fi
+
+RUN mkdir -p /config && chown appuser:appgroup /config
+
+VOLUME /config
+
+COPY --chmod=755 docker/entrypoint-binary.sh /entrypoint.sh
+
+USER appuser
+
+EXPOSE 8080
+
+ENTRYPOINT ["/entrypoint.sh"]

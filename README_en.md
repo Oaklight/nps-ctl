@@ -153,7 +153,9 @@ as `null`, and credentials (client verification keys, tunnel passwords, and
 Basic Auth) are redacted from its JSON output. The built-in server speaks
 plain HTTP, so terminate TLS in front of it before exposing it beyond
 loopback; ready-to-use systemd and Caddy files are in
-[`deploy/web`](deploy/web).
+[`deploy/web`](deploy/web). Container images are published to Docker Hub as
+[`oaklight/nps-ctl`](https://hub.docker.com/r/oaklight/nps-ctl); see
+[`docker/README.md`](docker/README.md).
 
 ## Configuration
 

@@ -1,0 +1,23 @@
+# Build and run the image locally from a wheel in dist/.
+#
+#   python -m build
+#   LOCAL_WHEEL=$(basename "$(ls dist/*.whl | head -1)") \
+#     docker compose -f docker/compose.dev.yaml up --build
+#
+# Without LOCAL_WHEEL the image installs the latest nps-ctl from PyPI.
+services:
+  nps-ctl-web:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      args:
+        LOCAL_WHEEL: ${LOCAL_WHEEL:-}
+        PACKAGE_VERSION: ${PACKAGE_VERSION:-}
+    image: oaklight/nps-ctl:dev
+    ports:
+      - "${NPS_CTL_PORT:-8080}:8080"
+    volumes:
+      - ${NPS_CTL_CONFIG:-../config}:/config
+    environment:
+      - NPS_WEB_USERNAME=${NPS_WEB_USERNAME:-}
+      - NPS_WEB_PASSWORD=${NPS_WEB_PASSWORD:-}

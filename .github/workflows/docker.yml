@@ -1,0 +1,235 @@
+name: Docker
+
+# Publishes oaklight/nps-ctl to Docker Hub. Requires the repository secrets
+# DOCKERHUB_USERNAME and DOCKERHUB_TOKEN.
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: "Version to build (e.g. 0.9.1)"
+        required: true
+        type: string
+      ref:
+        description: "Git ref the binary images build from (default: v<tag>)"
+        required: false
+        type: string
+        default: ""
+      testpypi:
+        description: "Install the Python image from Test PyPI"
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      DOCKERHUB_USERNAME:
+        required: true
+      DOCKERHUB_TOKEN:
+        required: true
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Version to build (e.g. 0.9.1)"
+        required: true
+        type: string
+      ref:
+        description: "Git ref the binary images build from (default: v<tag>)"
+        required: false
+        type: string
+        default: ""
+      testpypi:
+        description: "Install the Python image from Test PyPI"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+env:
+  IMAGE: oaklight/nps-ctl
+
+jobs:
+  # Build the Nuitka binaries used by the alpine/glibc images. Release calls
+  # this workflow directly, so the binaries are built here rather than
+  # inherited from a parent job.
+  binaries:
+    uses: ./.github/workflows/nuitka.yml
+    with:
+      ref: ${{ inputs.ref || format('v{0}', inputs.tag) }}
+      platforms: linux-x86_64-glibc,linux-arm64-glibc,linux-x86_64-musl,linux-arm64-musl
+
+  # ── Python-based image (pip install) ──────────────────
+  build-python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Extract version
+        id: meta
+        env:
+          TAG: ${{ inputs.tag }}
+        run: echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for PyPI availability
+        run: |
+          VERSION="${{ steps.meta.outputs.version }}"
+          if [ "${{ inputs.testpypi }}" = "true" ]; then
+            URL="https://test.pypi.org/pypi/nps-ctl/${VERSION}/json"
+            LABEL="Test PyPI"
+          else
+            URL="https://pypi.org/pypi/nps-ctl/${VERSION}/json"
+            LABEL="PyPI"
+          fi
+          echo "Waiting for nps-ctl==${VERSION} on ${LABEL}..."
+          for i in $(seq 1 30); do
+            CODE=$(curl -fsS -o /dev/null -w "%{http_code}" "$URL" || true)
+            if [ "$CODE" = "200" ]; then
+              echo "Found on ${LABEL} (attempt $i)"
+              exit 0
+            fi
+            echo "  Attempt $i/30: waiting 20s..."
+            sleep 20
+          done
+          echo "::error::nps-ctl ${VERSION} not found on ${LABEL} after 10 minutes"
+          exit 1
+
+      - name: Ensure dist/ exists
+        run: mkdir -p dist
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Determine tags
+        id: tags
+        run: |
+          V="${{ steps.meta.outputs.version }}"
+          TAGS="${IMAGE}:${V}-python,${IMAGE}:latest-python,${IMAGE}:${V}"
+          if [ "${{ github.event_name }}" = "workflow_call" ]; then
+            TAGS="${TAGS},${IMAGE}:latest"
+          fi
+          echo "tags=${TAGS}" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare build args
+        id: build-args
+        run: |
+          ARGS="PACKAGE_VERSION=${{ steps.meta.outputs.version }}"
+          if [ "${{ inputs.testpypi }}" = "true" ]; then
+            ARGS="${ARGS}
+          EXTRA_INDEX_URL=https://test.pypi.org/simple/"
+          fi
+          echo "args<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$ARGS" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push Python image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          build-args: ${{ steps.build-args.outputs.args }}
+          tags: ${{ steps.tags.outputs.tags }}
+          cache-from: type=gha,scope=python
+          cache-to: type=gha,mode=max,scope=python
+
+  # ── Binary images (Alpine + glibc) ────────────────────
+  build-binary-images:
+    needs: binaries
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: alpine
+            base_image: alpine
+            suffix: -musl
+          - variant: glibc
+            base_image: ubuntu:24.04
+            suffix: -glibc
+    name: docker-${{ matrix.variant }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Extract version
+        id: meta
+        env:
+          TAG: ${{ inputs.tag }}
+        run: echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Download amd64 binary
+        uses: actions/download-artifact@v4
+        with:
+          name: nps-ctl-${{ steps.meta.outputs.version }}-linux-x86_64${{ matrix.suffix }}
+          path: build/
+
+      - name: Download arm64 binary
+        uses: actions/download-artifact@v4
+        with:
+          name: nps-ctl-${{ steps.meta.outputs.version }}-linux-arm64${{ matrix.suffix }}
+          path: build/
+
+      - name: List downloaded binaries
+        run: ls -lh build/
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Stage amd64 binary
+        run: |
+          V="${{ steps.meta.outputs.version }}"
+          cp "build/nps-ctl-${V}-linux-x86_64${{ matrix.suffix }}" build/nps-ctl
+          chmod +x build/nps-ctl
+
+      - name: Build and push ${{ matrix.variant }} amd64
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile.binary
+          platforms: linux/amd64
+          push: true
+          build-args: |
+            BASE_IMAGE=${{ matrix.base_image }}
+            BINARY=build/nps-ctl
+          tags: ${{ env.IMAGE }}:${{ steps.meta.outputs.version }}-${{ matrix.variant }}-amd64
+          cache-from: type=gha,scope=${{ matrix.variant }}-amd64
+          cache-to: type=gha,mode=max,scope=${{ matrix.variant }}-amd64
+
+      - name: Stage arm64 binary
+        run: |
+          V="${{ steps.meta.outputs.version }}"
+          cp "build/nps-ctl-${V}-linux-arm64${{ matrix.suffix }}" build/nps-ctl
+          chmod +x build/nps-ctl
+
+      - name: Build and push ${{ matrix.variant }} arm64
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile.binary
+          platforms: linux/arm64
+          push: true
+          build-args: |
+            BASE_IMAGE=${{ matrix.base_image }}
+            BINARY=build/nps-ctl
+          tags: ${{ env.IMAGE }}:${{ steps.meta.outputs.version }}-${{ matrix.variant }}-arm64
+          cache-from: type=gha,scope=${{ matrix.variant }}-arm64
+          cache-to: type=gha,mode=max,scope=${{ matrix.variant }}-arm64
+
+      - name: Create multi-arch manifest
+        run: |
+          V="${{ steps.meta.outputs.version }}"
+          VARIANT="${{ matrix.variant }}"
+          docker buildx imagetools create \
+            -t "${IMAGE}:${V}-${VARIANT}" \
+            "${IMAGE}:${V}-${VARIANT}-amd64" \
+            "${IMAGE}:${V}-${VARIANT}-arm64"
