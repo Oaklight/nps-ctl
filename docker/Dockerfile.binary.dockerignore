@@ -1,0 +1,7 @@
+# Context for docker/Dockerfile.binary: only the staged binary and the
+# entrypoint are needed.
+*
+!build/
+!build/nps-ctl
+!docker/
+!docker/entrypoint-binary.sh

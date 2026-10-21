@@ -1,0 +1,46 @@
+# Git and CI
+.git
+.github
+.gitignore
+.pre-commit-config.yaml
+
+# Local secrets and configuration — never bake these into an image
+.env
+.env.*
+config/
+edges.toml
+clients.toml
+web-users.toml
+*.key
+*.pem
+*.p12
+*.pfx
+
+# Documentation and unrelated assets
+README*.md
+docs_en/
+docs_zh/
+skills/
+deploy/
+*.png
+
+# Tests and tooling
+tests/
+.pytest_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Build outputs (dist/ stays available for local wheel installs)
+build/
+*.egg-info/
+__pycache__/
+*.py[cod]
+
+# Docker files themselves; the entrypoints are re-included for the image
+docker/*
+!docker/entrypoint.sh
+!docker/entrypoint-binary.sh
+Dockerfile
+Dockerfile.*
+.dockerignore

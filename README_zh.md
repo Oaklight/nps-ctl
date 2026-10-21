@@ -149,7 +149,9 @@ nps-ctl web --users-file web-users.toml --allow-writes
 域名映射；不可用的数量以 `null` 返回，JSON 输出会隐藏凭据（客户端验证密钥、
 隧道密码和 Basic Auth）。内置服务器只提供 HTTP，如需暴露到回环地址之外，请
 在前置代理上终止 TLS；可直接使用的 systemd 与 Caddy 配置见
-[`deploy/web`](deploy/web)。
+[`deploy/web`](deploy/web)。容器镜像发布在 Docker Hub
+（[`oaklight/nps-ctl`](https://hub.docker.com/r/oaklight/nps-ctl)），使用方式见
+[`docker/README.md`](docker/README.md)。
 
 ## 配置
 

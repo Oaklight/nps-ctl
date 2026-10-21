@@ -70,8 +70,8 @@ jobs:
         id: matrix
         shell: bash
         run: |
-          NATIVE='[{"runner":"ubuntu-latest","os":"linux","arch":"x86_64","platform":"linux-x86_64-glibc"},{"runner":"ubuntu-24.04-arm","os":"linux","arch":"arm64","platform":"linux-arm64-glibc"},{"runner":"macos-latest","os":"macos","arch":"arm64","platform":"macos-arm64"},{"runner":"windows-latest","os":"windows","arch":"x86_64","platform":"windows-x86_64"}]'
-          MUSL='[{"runner":"ubuntu-latest","arch":"x86_64","platform":"linux-x86_64-musl"},{"runner":"ubuntu-24.04-arm","arch":"arm64","platform":"linux-arm64-musl"}]'
+          NATIVE='[{"runner":"ubuntu-24.04","os":"linux","arch":"x86_64","platform":"linux-x86_64-glibc"},{"runner":"ubuntu-24.04-arm","os":"linux","arch":"arm64","platform":"linux-arm64-glibc"},{"runner":"macos-latest","os":"macos","arch":"arm64","platform":"macos-arm64"},{"runner":"windows-latest","os":"windows","arch":"x86_64","platform":"windows-x86_64"}]'
+          MUSL='[{"runner":"ubuntu-24.04","arch":"x86_64","platform":"linux-x86_64-musl"},{"runner":"ubuntu-24.04-arm","arch":"arm64","platform":"linux-arm64-musl"}]'
 
           PLATFORMS="${{ inputs.platforms }}"
           if [ "$PLATFORMS" = "all" ]; then
