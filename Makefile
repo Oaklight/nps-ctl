@@ -3,7 +3,7 @@
 # Variables
 PACKAGE_NAME := nps-ctl
 DIST_DIR := dist
-VERSION := $(shell python -c "import re; m=re.search(r'__version__\s*=\s*\"(.+?)\"', open('src/nps_ctl/__init__.py').read()); print(m.group(1))" 2>/dev/null || echo "0.0.0")
+VERSION := $(shell sed -n 's/^__version__ = "\(.*\)"/\1/p' src/nps_ctl/__init__.py 2>/dev/null || echo "0.0.0")
 
 # Registry mirror (for Docker-based musl builds)
 REGISTRY_MIRROR ?=
