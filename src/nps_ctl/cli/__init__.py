@@ -218,7 +218,7 @@ def _dispatch(args) -> int:
         cmd_tunnel_stop,
         cmd_tunnels,
     )
-    from .cmd_utils import cmd_generate_auth_key
+    from .cmd_utils import cmd_generate_auth_key, cmd_hash_password
     from .cmd_web import cmd_web
 
     if args.command == "web":
@@ -264,6 +264,7 @@ def _dispatch(args) -> int:
         ("host", "edit"): cmd_host_edit,
         # util commands
         ("util", "generate-auth-key"): cmd_generate_auth_key,
+        ("util", "hash-password"): cmd_hash_password,
     }
 
     key = (args.command, args.subcommand)

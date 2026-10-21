@@ -64,6 +64,7 @@ def cmd_sync(args: argparse.Namespace) -> int:
     # Get options
     parallel = getattr(args, "parallel", False)
     workers = getattr(args, "workers", 4)
+    prune = getattr(args, "prune", False)
 
     # Confirm
     if not args.yes:
@@ -74,6 +75,11 @@ def cmd_sync(args: argparse.Namespace) -> int:
         console.print(
             f"Sync: clients={sync_clients}, tunnels={sync_tunnels}, hosts={sync_hosts}"
         )
+        if prune:
+            console.print(
+                "[bold red]Prune: resources on targets that are absent from "
+                "the source will be deleted[/bold red]"
+            )
         console.print(f"Mode: {mode}, workers: {workers}")
         response = input("Continue? [y/N] ")
         if response.lower() != "y":
@@ -91,6 +97,7 @@ def cmd_sync(args: argparse.Namespace) -> int:
             max_workers=workers,
             parallel=parallel,
             quiet=quiet,
+            prune=prune,
         )
 
         # Print detailed results only if not quiet and not already printed

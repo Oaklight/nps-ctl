@@ -10,6 +10,7 @@ time.
 from __future__ import annotations
 
 import base64
+import binascii
 import hmac
 import html
 import json
@@ -17,15 +18,17 @@ import logging
 import secrets
 import string
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import unquote, urlparse
 
 from . import client_mgmt, host, tunnel
+from .config_edit import append_edge
 from .exceptions import NPSError
 from .status import build_status_payload, collect_cluster_status
+from .web_auth import WebUser, users_from_credentials, verify_password
 
 if TYPE_CHECKING:
     from .cluster import NPSCluster
@@ -322,6 +325,9 @@ def _action_sync(cluster: NPSCluster, payload: dict[str, Any]) -> dict[str, Any]
     types = payload.get("types", list(SYNC_TYPES))
     if not isinstance(types, list) or not types or not set(types) <= set(SYNC_TYPES):
         raise ActionError(f"'types' must be a subset of {', '.join(SYNC_TYPES)}")
+    prune = payload.get("prune", False)
+    if not isinstance(prune, bool):
+        raise ActionError("'prune' must be a boolean")
     edges = [name for name in _target_edges(cluster, payload) if name != source]
     if not edges:
         raise ActionError("Select at least one target edge besides the source")
@@ -333,6 +339,7 @@ def _action_sync(cluster: NPSCluster, payload: dict[str, Any]) -> dict[str, Any]
         sync_hosts="hosts" in types,
         target_edges=edges,
         quiet=True,
+        prune=prune,
     )
     results: dict[str, dict[str, Any]] = {}
     for name in edges:
@@ -348,23 +355,249 @@ def _action_sync(cluster: NPSCluster, payload: dict[str, Any]) -> dict[str, Any]
                 "status": f"{len(ops)} checked",
                 "failed": failed,
             }
-    return {"source": source, "results": results}
+    return {"source": source, "prune": prune, "results": results}
+
+
+def _action_add_edge(cluster: NPSCluster, payload: dict[str, Any]) -> dict[str, Any]:
+    """Append an edge to edges.toml and reload the cluster in place."""
+    name = _require_str(payload, "name")
+    api_url = _require_str(payload, "api_url").rstrip("/")
+    parts = urlparse(api_url)
+    if parts.scheme not in ("http", "https") or not parts.netloc:
+        raise ActionError("'api_url' must be an http(s) URL")
+    if name in cluster.edge_names:
+        raise ActionError(f"Edge '{name}' already exists")
+    if not getattr(cluster, "config_path", None):
+        raise ActionError("This cluster has no edges.toml path")
+    try:
+        append_edge(
+            cluster.config_path,
+            name=name,
+            api_url=api_url,
+            auth_key=_require_str(payload, "auth_key", required=False),
+            region=_require_str(payload, "region", required=False),
+            ssh_host=_require_str(payload, "ssh_host", required=False),
+        )
+    except ValueError as e:
+        raise ActionError(str(e)) from e
+    except OSError as e:
+        raise ActionError(f"Could not write edges.toml: {e}") from e
+
+    # Pick up the new edge without a restart. If this fails the file is still
+    # valid (append_edge re-parses it), so report the failure rather than
+    # pretending the dashboard can see the edge.
+    try:
+        cluster.reload()
+    except Exception as e:
+        raise ActionError(
+            f"Edge was added to edges.toml but the cluster could not reload: {e}"
+        ) from e
+
+    return {
+        "results": {name: {"ok": True, "status": "added"}},
+        "edge": name,
+    }
+
+
+def _single_edge(cluster: NPSCluster, payload: dict[str, Any]) -> tuple[str, Any]:
+    """Resolve the single edge named by a per-row mutation payload."""
+    edge = _require_str(payload, "edge")
+    nps = cluster.get_client(edge)
+    if nps is None:
+        raise ActionError(f"Unknown edge: {edge}")
+    return edge, nps
+
+
+def _require_id(payload: dict[str, Any]) -> int:
+    """Return a positive integer resource ID."""
+    value = payload.get("id")
+    if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+        raise ActionError("'id' must be a positive integer")
+    return value
+
+
+def _mutation_result(edge: str, item_id: int, ok: bool, status: str) -> dict[str, Any]:
+    if not ok:
+        return {"results": {edge: {"ok": False, "error": "rejected by edge"}}}
+    return {"results": {edge: {"ok": True, "status": status}}, "id": item_id}
+
+
+def _optional(payload: dict[str, Any], key: str, current: str = "") -> str:
+    """Return a stripped optional string, falling back to ``current``."""
+    value = payload.get(key)
+    if value is None:
+        return current
+    if not isinstance(value, str):
+        raise ActionError(f"'{key}' must be a string")
+    return value.strip()
+
+
+def _action_edit_client(cluster: NPSCluster, payload: dict[str, Any]) -> dict[str, Any]:
+    """Edit a client's remark or verify key on one edge."""
+    edge, nps = _single_edge(cluster, payload)
+    client_id = _require_id(payload)
+    current = client_mgmt.get_client(nps, client_id)
+    if current is None:
+        raise ActionError(f"client {client_id} not found on {edge}")
+    cnf = current.get("Cnf") or {}
+    ok = client_mgmt.edit_client(
+        nps,
+        client_id,
+        remark=_optional(payload, "remark", "") or current.get("Remark", ""),
+        vkey=_optional(payload, "vkey", "") or current.get("VerifyKey", ""),
+        basic_username=cnf.get("U", "") or "",
+        basic_password=cnf.get("P", "") or "",
+        rate_limit=int(current.get("RateLimit", 0) or 0),
+        max_conn=int(current.get("MaxConn", 0) or 0),
+        web_username=current.get("WebUserName", "") or "",
+        web_password=current.get("WebPassword", "") or "",
+    )
+    return _mutation_result(edge, client_id, ok, "updated")
+
+
+def _action_delete_client(
+    cluster: NPSCluster, payload: dict[str, Any]
+) -> dict[str, Any]:
+    """Delete a client on one edge."""
+    edge, nps = _single_edge(cluster, payload)
+    client_id = _require_id(payload)
+    if client_mgmt.get_client(nps, client_id) is None:
+        raise ActionError(f"client {client_id} not found on {edge}")
+    ok = client_mgmt.del_client(nps, client_id)
+    return _mutation_result(edge, client_id, ok, "deleted")
+
+
+def _action_edit_tunnel(cluster: NPSCluster, payload: dict[str, Any]) -> dict[str, Any]:
+    """Edit a tunnel's remark, port, target or type on one edge."""
+    edge, nps = _single_edge(cluster, payload)
+    tunnel_id = _require_id(payload)
+    current = tunnel.get_tunnel(nps, tunnel_id)
+    if current is None:
+        raise ActionError(f"tunnel {tunnel_id} not found on {edge}")
+
+    current_mode = current.get("Mode", "tcp")
+    tunnel_type = _optional(payload, "mode", current_mode) or "tcp"
+    # Existing rows of any type stay editable (remark/target/port); only a
+    # mode *change* is restricted to the types the panel knows how to create.
+    if tunnel_type != current_mode and (
+        tunnel_type not in WEB_TUNNEL_TYPES and tunnel_type != tunnel.MIX_PROXY
+    ):
+        raise ActionError(f"'mode' must be one of {', '.join(WEB_TUNNEL_TYPES)}")
+    proxy_mode = (
+        tunnel_type == tunnel.MIX_PROXY or tunnel_type in tunnel.MIX_PROXY_ALIASES
+    )
+    port_value = payload.get("port", current.get("Port", 0))
+    if not isinstance(port_value, int) or isinstance(port_value, bool):
+        raise ActionError("'port' must be an integer between 1 and 65535")
+    # A tunnel without a listen port can still be edited; keep its current 0
+    # instead of forcing the operator to invent one.
+    if port_value == 0 and current.get("Port", 0) == 0:
+        pass
+    elif not 1 <= port_value <= 65535:
+        raise ActionError("'port' must be an integer between 1 and 65535")
+    target = _optional(
+        payload, "target", (current.get("Target") or {}).get("TargetStr", "")
+    )
+    if tunnel_type in ("tcp", "udp") and not target:
+        raise ActionError("'target' is required for tcp/udp tunnels")
+    user_auth = current.get("UserAuth") or {}
+    ok = tunnel.edit_tunnel(
+        nps,
+        tunnel_id,
+        client_id=(current.get("Client") or {}).get("Id", 0),
+        tunnel_type=tunnel_type,
+        port=port_value,
+        target=target,
+        remark=_optional(payload, "remark", current.get("Remark", "")),
+        password=current.get("Password", "") or "",
+        auth=user_auth.get("Content", "") or "",
+        enable_socks5=current.get("Socks5Proxy") if proxy_mode else None,
+        enable_http=current.get("HttpProxy") if proxy_mode else None,
+    )
+    return _mutation_result(edge, tunnel_id, ok, "updated")
+
+
+def _action_delete_tunnel(
+    cluster: NPSCluster, payload: dict[str, Any]
+) -> dict[str, Any]:
+    """Delete a tunnel on one edge."""
+    edge, nps = _single_edge(cluster, payload)
+    tunnel_id = _require_id(payload)
+    if tunnel.get_tunnel(nps, tunnel_id) is None:
+        raise ActionError(f"tunnel {tunnel_id} not found on {edge}")
+    ok = tunnel.del_tunnel(nps, tunnel_id)
+    return _mutation_result(edge, tunnel_id, ok, "deleted")
+
+
+def _action_edit_host(cluster: NPSCluster, payload: dict[str, Any]) -> dict[str, Any]:
+    """Edit a host mapping's domain, target, location or remark on one edge."""
+    edge, nps = _single_edge(cluster, payload)
+    host_id = _require_id(payload)
+    current = host.get_host(nps, host_id)
+    if current is None:
+        raise ActionError(f"host {host_id} not found on {edge}")
+    domain = _optional(payload, "host", current.get("Host", ""))
+    if not domain:
+        raise ActionError("'host' is required")
+    target = _optional(
+        payload, "target", (current.get("Target") or {}).get("TargetStr", "")
+    )
+    if not target:
+        raise ActionError("'target' is required")
+    scheme = _optional(payload, "scheme", current.get("Scheme", "all")) or "all"
+    if scheme not in ("http", "https", "all"):
+        raise ActionError("'scheme' must be one of http, https, all")
+    user_auth = current.get("UserAuth") or {}
+    ok = host.edit_host(
+        nps,
+        host_id,
+        client_id=(current.get("Client") or {}).get("Id", 0),
+        host=domain,
+        target=target,
+        remark=_optional(payload, "remark", current.get("Remark", "")),
+        location=_optional(payload, "location", current.get("Location", "")),
+        scheme=scheme,
+        header_change=current.get("HeaderChange", "") or "",
+        host_change=current.get("HostChange", "") or "",
+        auth=user_auth.get("Content", "") or "",
+    )
+    return _mutation_result(edge, host_id, ok, "updated")
+
+
+def _action_delete_host(cluster: NPSCluster, payload: dict[str, Any]) -> dict[str, Any]:
+    """Delete a host mapping on one edge."""
+    edge, nps = _single_edge(cluster, payload)
+    host_id = _require_id(payload)
+    if host.get_host(nps, host_id) is None:
+        raise ActionError(f"host {host_id} not found on {edge}")
+    ok = host.del_host(nps, host_id)
+    return _mutation_result(edge, host_id, ok, "deleted")
 
 
 ACTIONS: dict[str, Callable[[Any, dict[str, Any]], dict[str, Any]]] = {
     "/api/actions/sync": _action_sync,
+    "/api/actions/edges": _action_add_edge,
     "/api/actions/clients": _action_add_client,
+    "/api/actions/clients/edit": _action_edit_client,
+    "/api/actions/clients/delete": _action_delete_client,
     "/api/actions/tunnels": _action_add_tunnel,
+    "/api/actions/tunnels/edit": _action_edit_tunnel,
+    "/api/actions/tunnels/delete": _action_delete_tunnel,
     "/api/actions/hosts": _action_add_host,
+    "/api/actions/hosts/edit": _action_edit_host,
+    "/api/actions/hosts/delete": _action_delete_host,
 }
 
 
-def _render_dashboard(server: AdminServer) -> str:
+def _render_dashboard(server: AdminServer, user: WebUser | None = None) -> str:
     """Return the dashboard HTML with this server's client config embedded."""
+    can_write = server.allow_writes and (user is None or user.can_write)
     config = {
-        "writes": server.allow_writes,
-        "csrf": server.csrf_token if server.allow_writes else "",
+        "writes": can_write,
+        "csrf": server.csrf_token if can_write else "",
         "primary": getattr(server.cluster, "primary_edge", None),
+        "role": user.role if user else "operator",
+        "user": user.name if user else None,
     }
     return _DASHBOARD_HTML.replace(
         "__NPS_CONFIG__", html.escape(json.dumps(config), quote=True)
@@ -377,13 +610,18 @@ class _AdminHandler(BaseHTTPRequestHandler):
     server_version = "nps-ctl-web"
 
     def do_GET(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
-        if not self._check_host() or not self._check_auth():
+        if not self._check_host():
+            return
+        ok, user = self._check_auth()
+        if not ok:
             return
 
         path = urlparse(self.path).path.rstrip("/") or "/"
         try:
             if path == "/":
-                self._send_html(_render_dashboard(cast("AdminServer", self.server)))
+                self._send_html(
+                    _render_dashboard(cast("AdminServer", self.server), user)
+                )
             elif path == "/api/overview":
                 self._send_json(_overview(getattr(self.server, "cluster")))
             elif path.startswith("/api/edges/"):
@@ -413,7 +651,10 @@ class _AdminHandler(BaseHTTPRequestHandler):
             self._send_json({"error": "Internal server error"}, status=500)
 
     def do_POST(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
-        if not self._check_host() or not self._check_auth():
+        if not self._check_host():
+            return
+        ok, user = self._check_auth()
+        if not ok:
             return
         server = cast("AdminServer", self.server)
         path = urlparse(self.path).path.rstrip("/")
@@ -424,6 +665,12 @@ class _AdminHandler(BaseHTTPRequestHandler):
         if not server.allow_writes:
             self._send_json(
                 {"error": "Writes are disabled; restart with --allow-writes"},
+                status=403,
+            )
+            return
+        if user is not None and not user.can_write:
+            self._send_json(
+                {"error": "Read-only role: viewers cannot change the cluster"},
                 status=403,
             )
             return
@@ -489,7 +736,7 @@ class _AdminHandler(BaseHTTPRequestHandler):
         unauthenticated network access, so Host pinning would only break the
         documented remote read-only dashboard.
         """
-        if getattr(self.server, "auth_header", ""):
+        if getattr(self.server, "users", None):
             return True
         if getattr(self.server, "bind_host", "127.0.0.1") not in LOOPBACK_HOSTS:
             return True
@@ -499,19 +746,39 @@ class _AdminHandler(BaseHTTPRequestHandler):
         self._send_json({"error": "Host not allowed"}, status=403)
         return False
 
-    def _check_auth(self) -> bool:
-        expected = getattr(self.server, "auth_header", "")
-        if not expected:
-            return True
+    def _check_auth(self) -> tuple[bool, WebUser | None]:
+        """Validate Basic Auth, returning the authenticated user.
+
+        Returns:
+            ``(True, user)`` on success (``user`` is None when authentication
+            is disabled), or ``(False, None)`` after sending a 401.
+        """
+        users: Mapping[str, WebUser] = getattr(self.server, "users", {})
+        if not users:
+            return True, None
         supplied = self.headers.get("Authorization", "")
-        if hmac.compare_digest(supplied, expected):
-            return True
+        if supplied.startswith("Basic "):
+            try:
+                decoded = base64.b64decode(supplied[6:], validate=True).decode("utf-8")
+                username, _, password = decoded.partition(":")
+            except (binascii.Error, UnicodeDecodeError, ValueError):
+                username = password = ""
+            user = users.get(username)
+            if user is not None:
+                valid = verify_password(password, user.password_hash)
+            else:
+                # Spend the same PBKDF2 work for an unknown username so the
+                # response time cannot be used to enumerate accounts.
+                verify_password(password, next(iter(users.values())).password_hash)
+                valid = False
+            if valid:
+                return True, user
         self.send_response(401)
         self.send_header("WWW-Authenticate", 'Basic realm="nps-ctl"')
         self.send_header("Content-Length", "0")
         self._common_headers()
         self.end_headers()
-        return False
+        return False, None
 
     def _send_html(self, body: str) -> None:
         encoded = body.encode("utf-8")
@@ -546,7 +813,7 @@ class _AdminHandler(BaseHTTPRequestHandler):
 
 
 class AdminServer(ThreadingHTTPServer):
-    """HTTP server carrying the cluster, auth header, and write settings."""
+    """HTTP server carrying the cluster, dashboard users, and write settings."""
 
     daemon_threads = True
 
@@ -554,13 +821,13 @@ class AdminServer(ThreadingHTTPServer):
         self,
         address: tuple[str, int],
         cluster: NPSCluster,
-        auth_header: str = "",
+        users: Mapping[str, WebUser] | None = None,
         allow_writes: bool = False,
     ) -> None:
         super().__init__(address, _AdminHandler)
         self.cluster = cluster
         self.bind_host = address[0]
-        self.auth_header = auth_header
+        self.users = dict(users or {})
         self.allow_writes = allow_writes
         self.csrf_token = secrets.token_urlsafe(32)
         self.write_lock = threading.Lock()
@@ -573,6 +840,7 @@ def create_server(
     username: str = "",
     password: str = "",
     *,
+    users: Mapping[str, WebUser] | None = None,
     allow_insecure: bool = False,
     allow_writes: bool = False,
 ) -> AdminServer:
@@ -582,30 +850,34 @@ def create_server(
         cluster: NPSCluster instance.
         host: Bind address.
         port: Bind port (0 chooses an ephemeral port).
-        username: Optional Basic Auth username.
-        password: Optional Basic Auth password.
+        username: Optional single-user Basic Auth username.
+        password: Optional single-user Basic Auth password.
+        users: Optional multi-user mapping, e.g. from ``load_users_file``.
+            Mutually exclusive with ``username``/``password``.
         allow_insecure: Allow a non-loopback bind without authentication.
-        allow_writes: Enable the write endpoints (add/sync actions).
+        allow_writes: Enable the write endpoints (add/sync/edit/delete).
 
     Returns:
         A configured, not-yet-serving AdminServer.
 
     Raises:
-        ValueError: If a username has no password, or a non-loopback bind
-            has no authentication and ``allow_insecure`` is false.
+        ValueError: If credentials are contradictory, a username has no
+            password, or a non-loopback bind has no authentication and
+            ``allow_insecure`` is false.
     """
+    if users and (username or password):
+        raise ValueError("Pass either --users-file or --username/--password, not both")
     if username and not password:
         raise ValueError("Basic Auth username requires a non-empty password")
-    if (
-        host not in LOOPBACK_HOSTS
-        and not (username and password)
-        and not allow_insecure
-    ):
+    if username and password:
+        users = users_from_credentials(username, password)
+    authenticated = bool(users)
+    if host not in LOOPBACK_HOSTS and not authenticated and not allow_insecure:
         raise ValueError(
             "Refusing to expose the dashboard without authentication; "
-            "set --username/--password or pass --insecure"
+            "set --username/--password or --users-file, or pass --insecure"
         )
-    if allow_writes and host not in LOOPBACK_HOSTS and not (username and password):
+    if allow_writes and host not in LOOPBACK_HOSTS and not authenticated:
         raise ValueError(
             "Refusing to enable writes on a network-reachable dashboard "
             "without authentication"
@@ -613,7 +885,7 @@ def create_server(
     return AdminServer(
         (host, port),
         cluster,
-        auth_header=build_auth_header(username, password),
+        users=users,
         allow_writes=allow_writes,
     )
 
@@ -765,15 +1037,18 @@ const config = (() => {
 })();
 const actionsBar = document.getElementById('actions');
 const dialog = document.getElementById('action-dialog');
+const canWrite = !!config.writes;
 
 const ACTIONS = {
   sync: {
     label: 'Sync edges', url: 'api/actions/sync', excludeSource: true,
     intro: 'Copy clients, tunnels and hosts that are missing on the selected ' +
-           'edges from the source edge. Nothing is deleted or overwritten.',
+           'edges from the source edge. Nothing is overwritten unless prune ' +
+           'is checked, which deletes resources absent from the source.',
     fields: [
       { name: 'source', label: 'Source edge', kind: 'source' },
       { name: 'types', label: 'Copy', kind: 'types' },
+      { name: 'prune', label: 'Delete extras (prune)', kind: 'bool' },
     ],
   },
   clients: {
@@ -782,6 +1057,18 @@ const ACTIONS = {
     fields: [
       { name: 'remark', label: 'Remark (client name)', required: true },
       { name: 'vkey', label: 'Verify key (blank to generate)' },
+    ],
+  },
+  edges: {
+    label: 'Add edge', url: 'api/actions/edges', targets: false,
+    intro: 'Append an edge to edges.toml. The dashboard reloads the cluster; ' +
+           'the new edge is checked on the next refresh.',
+    fields: [
+      { name: 'name', label: 'Edge name', required: true },
+      { name: 'api_url', label: 'API URL (https://…)', required: true },
+      { name: 'auth_key', label: 'API auth key', type: 'password' },
+      { name: 'region', label: 'Region' },
+      { name: 'ssh_host', label: 'SSH host' },
     ],
   },
   tunnels: {
@@ -961,6 +1248,7 @@ function renderEdges(edges) {
 
 function renderRows(tbody, count) {
   const columns = COLUMNS[state.resource];
+  const span = columns.length + (canWrite ? 1 : 0);
   const needle = state.filter.trim().toLowerCase();
   tbody.replaceChildren();
   let shown = 0;
@@ -982,13 +1270,26 @@ function renderRows(tbody, count) {
       cell.append(cells[index]);
       row.append(cell);
     });
+    if (canWrite) {
+      const actions = el('td');
+      const chips = el('div', undefined, 'chips');
+      const edit = el('button', 'Edit');
+      edit.type = 'button';
+      edit.onclick = event => { event.stopPropagation(); openMutation('edit', item); };
+      const remove = el('button', 'Delete');
+      remove.type = 'button';
+      remove.onclick = event => { event.stopPropagation(); openMutation('delete', item); };
+      chips.append(edit, remove);
+      actions.append(chips);
+      row.append(actions);
+    }
     const raw = el('tr', undefined, 'raw');
     raw.hidden = true;
     const toggle = () => {
       const open = raw.hidden;
       if (open && !raw.firstChild) {
         const cell = el('td');
-        cell.colSpan = columns.length;
+        cell.colSpan = span;
         cell.append(el('pre', JSON.stringify(item, null, 2), 'mono'));
         raw.append(cell);
       }
@@ -998,6 +1299,7 @@ function renderRows(tbody, count) {
     };
     row.onclick = toggle;
     row.onkeydown = event => {
+      if (event.target !== row) return;
       if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); toggle(); }
     };
     tbody.append(row, raw);
@@ -1007,7 +1309,7 @@ function renderRows(tbody, count) {
   if (!shown) {
     const row = document.createElement('tr');
     const cell = el('td', needle ? 'No matches.' : 'No ' + state.resource + '.', 'empty');
-    cell.colSpan = columns.length;
+    cell.colSpan = span;
     row.append(cell);
     tbody.append(row);
   }
@@ -1055,6 +1357,7 @@ async function loadResource(edgeName, resource, keepFilter) {
     for (const column of COLUMNS[resource]) {
       head.append(el('th', column.label, column.cls && column.cls.startsWith('num') ? 'num' : ''));
     }
+    if (canWrite) head.append(el('th', 'Actions'));
     const thead = document.createElement('thead');
     thead.append(head);
     const tbody = document.createElement('tbody');
@@ -1112,13 +1415,13 @@ document.addEventListener('keydown', event => {
 });
 function edgeNames() { return (state.edges || []).map(edge => edge.name); }
 
-function checkbox(name, value, text) {
+function checkbox(name, value, text, checked = true) {
   const box = el('label');
   const check = el('input');
   check.type = 'checkbox';
   check.name = name;
   check.value = value;
-  check.checked = true;
+  check.checked = checked;
   box.append(check, ' ' + text);
   return box;
 }
@@ -1128,6 +1431,11 @@ function field(spec) {
     const group = el('fieldset', undefined, 'checks');
     group.append(el('legend', spec.label));
     for (const type of RESOURCES) group.append(checkbox('types', type, type));
+    return group;
+  }
+  if (spec.kind === 'bool') {
+    const group = el('fieldset', undefined, 'checks');
+    group.append(checkbox(spec.name, 'true', spec.label, false));
     return group;
   }
   const wrap = el('label', undefined, 'field');
@@ -1150,6 +1458,7 @@ function field(spec) {
     if (spec.type === 'number') { input.min = '1'; input.max = '65535'; }
   }
   input.name = spec.name;
+  if (spec.value !== undefined && spec.value !== null) input.value = spec.value;
   input.required = !!spec.required;
   wrap.append(input);
   return wrap;
@@ -1160,12 +1469,13 @@ function collect(form, spec) {
   const payload = {};
   for (const f of spec.fields) {
     if (f.kind === 'types') payload.types = data.getAll('types');
+    else if (f.kind === 'bool') payload[f.name] = data.get(f.name) === 'true';
     else if (f.type === 'number') payload[f.name] = Number(data.get(f.name));
     else payload[f.name] = String(data.get(f.name) || '').trim();
   }
   let edges = data.getAll('edges');
   if (spec.excludeSource) edges = edges.filter(name => name !== payload.source);
-  payload.edges = edges;
+  if (spec.targets !== false) payload.edges = edges;
   return payload;
 }
 
@@ -1190,16 +1500,141 @@ function renderResults(result) {
   return box;
 }
 
+async function postAction(url, payload) {
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': config.csrf },
+    body: JSON.stringify(payload),
+  });
+  const result = await response.json();
+  if (!response.ok) throw new Error(result.error || response.statusText);
+  return result;
+}
+
+function mutationLabel(resource, item) {
+  if (resource === 'clients') return item.Remark || ('client ' + item.Id);
+  if (resource === 'tunnels') return item.Remark || ('tunnel ' + item.Id);
+  return item.Host || ('host ' + item.Id);
+}
+
+function mutationFields(resource, item) {
+  if (resource === 'clients') {
+    return [
+      { name: 'remark', label: 'Remark', value: item.Remark || '' },
+      { name: 'vkey', label: 'Verify key (blank keeps current)', value: '' },
+    ];
+  }
+  if (resource === 'tunnels') {
+    return [
+      { name: 'remark', label: 'Remark', value: item.Remark || '' },
+      { name: 'port', label: 'Server port', type: 'number', value: item.Port || '' },
+      { name: 'target', label: 'Target (host:port)', value: target(item.Target) },
+    ];
+  }
+  return [
+    { name: 'host', label: 'Domain', value: item.Host || '', required: true },
+    { name: 'target', label: 'Target (host:port)', value: target(item.Target), required: true },
+    { name: 'location', label: 'Location (path prefix)', value: item.Location || '' },
+    { name: 'remark', label: 'Remark', value: item.Remark || '' },
+    { name: 'scheme', label: 'Scheme', options: ['all', 'http', 'https'],
+      value: item.Scheme || 'all' },
+  ];
+}
+
+function openMutation(kind, item) {
+  const resource = state.resource;
+  const edge = state.edge;
+  const id = item.Id;
+  const label = mutationLabel(resource, item);
+  const noun = resource.slice(0, -1);
+  const specs = kind === 'edit' ? mutationFields(resource, item) : [];
+  const form = el('form');
+  const fields = el('fieldset');
+  fields.append(el('h2', (kind === 'delete' ? 'Delete ' : 'Edit ') + noun));
+  fields.append(el('p', edge + ' / ' + label, 'mono'));
+  for (const spec of specs) fields.append(field(spec));
+  if (kind === 'delete') fields.append(el('p', 'This cannot be undone.', 'error'));
+  const message = el('div', '', 'message');
+  message.setAttribute('aria-live', 'polite');
+  const cancel = el('button', 'Cancel');
+  cancel.type = 'button';
+  cancel.onclick = () => dialog.close();
+  const submit = el('button', kind === 'delete' ? 'Delete' : 'Review',
+                     kind === 'delete' ? 'danger' : 'primary');
+  submit.type = 'submit';
+  const buttons = el('div', undefined, 'dialog-buttons');
+  buttons.append(cancel, submit);
+  form.append(fields, message, buttons);
+
+  let confirming = false;
+  form.oninput = () => {
+    if (!confirming) return;
+    confirming = false;
+    submit.textContent = 'Review';
+    submit.className = 'primary';
+    message.className = 'message';
+    message.textContent = '';
+  };
+  form.onsubmit = async event => {
+    event.preventDefault();
+    const payload = { edge: edge, id: id };
+    if (kind === 'edit') {
+      const data = new FormData(form);
+      for (const spec of specs) {
+        payload[spec.name] = spec.type === 'number'
+          ? Number(data.get(spec.name))
+          : String(data.get(spec.name) || '').trim();
+      }
+    }
+    if (!confirming) {
+      confirming = true;
+      message.className = 'message warn';
+      message.textContent = kind === 'delete'
+        ? 'This will permanently delete ' + label + ' from ' + edge + '.'
+        : 'This will update ' + label + ' on ' + edge + '.';
+      submit.textContent = kind === 'delete' ? 'Delete permanently' : 'Apply';
+      submit.className = 'danger';
+      return;
+    }
+    fields.disabled = true;
+    submit.disabled = true;
+    cancel.disabled = true;
+    submit.textContent = 'Applying…';
+    message.className = 'message muted';
+    message.textContent = 'Applying…';
+    try {
+      await postAction('api/actions/' + resource + '/' + kind, payload);
+      dialog.close();
+      load();
+    } catch (error) {
+      message.className = 'message error';
+      message.textContent = 'Failed: ' + error.message;
+      fields.disabled = false;
+      submit.disabled = false;
+      cancel.disabled = false;
+      confirming = false;
+      submit.textContent = kind === 'delete' ? 'Delete' : 'Review';
+      submit.className = kind === 'delete' ? 'danger' : 'primary';
+    }
+  };
+  dialog.replaceChildren(form);
+  dialog.showModal();
+  const first = form.querySelector('input, select');
+  if (first) first.focus();
+}
+
 function openAction(key) {
   const spec = ACTIONS[key];
   const form = el('form');
   const fields = el('fieldset');
   fields.append(el('p', spec.intro, 'muted'));
   for (const f of spec.fields) fields.append(field(f));
-  const targets = el('fieldset', undefined, 'checks');
-  targets.append(el('legend', 'Target edges'));
-  for (const name of edgeNames()) targets.append(checkbox('edges', name, name));
-  fields.append(targets);
+  if (spec.targets !== false) {
+    const targets = el('fieldset', undefined, 'checks');
+    targets.append(el('legend', 'Target edges'));
+    for (const name of edgeNames()) targets.append(checkbox('edges', name, name));
+    fields.append(targets);
+  }
   const message = el('div', '', 'message');
   message.setAttribute('aria-live', 'polite');
   const cancel = el('button', 'Cancel');
@@ -1226,7 +1661,7 @@ function openAction(key) {
   form.onsubmit = async event => {
     event.preventDefault();
     const payload = collect(form, spec);
-    if (!payload.edges.length) {
+    if (!payload.edges?.length && spec.targets !== false) {
       message.className = 'message error';
       message.textContent = 'Select at least one target edge.';
       return;
@@ -1238,11 +1673,21 @@ function openAction(key) {
     }
     if (!confirming) {
       confirming = true;
-      const count = payload.edges.length;
       message.className = 'message warn';
-      message.textContent = 'This will change ' + count + ' edge' +
-        (count === 1 ? '' : 's') + ': ' + payload.edges.join(', ') + '.';
-      submit.textContent = 'Apply to ' + count + ' edge' + (count === 1 ? '' : 's');
+      if (spec.targets === false) {
+        message.textContent = 'This will add edge ' + payload.name +
+                              ' to edges.toml.';
+        submit.textContent = 'Add edge';
+      } else {
+        const count = payload.edges.length;
+        message.textContent = (payload.prune ? 'This will change and prune '
+                                             : 'This will change ') +
+          count + ' edge' + (count === 1 ? '' : 's') + ': ' +
+          payload.edges.join(', ') + '.';
+        submit.textContent = (payload.prune ? 'Apply and prune '
+                                            : 'Apply to ') +
+          count + ' edge' + (count === 1 ? '' : 's');
+      }
       submit.className = 'danger';
       return;
     }

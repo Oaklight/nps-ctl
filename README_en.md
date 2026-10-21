@@ -19,6 +19,7 @@ A Python library and CLI tool for managing [NPS](https://github.com/djylb/nps) p
 - **Cluster Sync**: Synchronize clients, tunnels, and hosts across edge nodes
 - **NPC Deployment**: Install, configure, and manage NPC clients via SSH
 - **CLI Tool**: Rich terminal interface for all operations
+- **Web Dashboard**: Read-only by default; opt-in add/sync/edit/delete and add-edge actions, with CSRF/same-origin guards and viewer/operator roles
 - **Machine-readable Output**: JSON mode and non-TTY-safe tables for scripts and agents
 - **Minimal Dependencies**: Only requires [rich](https://github.com/Textualize/rich) for CLI output
 
@@ -80,6 +81,17 @@ nps-ctl client list --edge nps-asia
 # Sync configuration from one edge to the others
 nps-ctl edge sync --from nps-asia -y
 
+# Or set a primary and sync from it; --prune also deletes extras on targets
+nps-ctl edge primary nps-asia
+nps-ctl edge sync -y
+nps-ctl edge sync --prune -y          # destructive: confirm the target list
+
+# Add an edge entry to edges.toml (auth key from NPS_EDGE_AUTH_KEY or a prompt)
+nps-ctl edge add nps-eu --api-url https://nps-eu.example.com --ssh-host cloud.deu1
+
+# Add a client to clients.toml and push it to its edges in one step
+nps-ctl client add --name my-server --ssh-host user@host --edges nps-asia --push -y
+
 # Write commands require an explicit target: -a for all edges, -e for one
 nps-ctl host add -a -d app.example.com -c my-server -T :8080
 nps-ctl host add -e nps-asia -d app.example.com -c my-server -T :8080
@@ -100,28 +112,56 @@ Piped output has no ANSI styling. Add `--no-color` to disable color on a termina
 
 ## Web dashboard
 
-`nps-ctl web` serves a read-only dashboard for all configured edges:
+`nps-ctl web` serves a dashboard for all configured edges. It is read-only
+unless started with `--allow-writes`:
 
 ```bash
+# Single operator
 export NPS_WEB_PASSWORD='choose-a-password'
-nps-ctl web --username admin
+nps-ctl web --username admin --allow-writes
+
+# Several users and roles
+nps-ctl util hash-password          # prints a PBKDF2 hash, never the password
+cat > web-users.toml <<'EOF'
+[[users]]
+name = "admin"
+password_hash = "pbkdf2_sha256$260000$...$..."
+role = "operator"
+
+[[users]]
+name = "viewer"
+password_hash = "pbkdf2_sha256$260000$...$..."
+role = "viewer"
+EOF
+nps-ctl web --users-file web-users.toml --allow-writes
 # http://127.0.0.1:8080/
 ```
 
+With `--allow-writes`, operators can sync edges (optionally with `prune`),
+add clients/tunnels/hosts, add an edge to `edges.toml`, and edit or delete a
+client, tunnel, or host on one edge. Every action uses an explicit target
+list, a review step, a per-process CSRF token, same-origin/Host checks, and a
+single-writer lock. Viewers always get a read-only page. Without
+`--allow-writes` every mutation endpoint returns 403.
+
 The server binds to `127.0.0.1` by default. Binding to a non-loopback address
-without credentials is refused unless `--insecure` is passed. The dashboard
-shows edge health (`online`/`partial`/`offline`) and resource counts, and lets
-you browse clients, tunnels and hosts per edge; unavailable counts are
-reported as `null`, and credentials (client verification keys, tunnel
-passwords, and Basic Auth) are redacted from its JSON output.
-Mutating actions remain in the CLI. The built-in server speaks plain HTTP, so
-terminate TLS in front of it before exposing it beyond loopback.
+without credentials is refused unless `--insecure` is passed; writes are
+always refused on a network bind without authentication. The dashboard shows
+edge health (`online`/`partial`/`offline`) and resource counts, and lets you
+browse clients, tunnels and hosts per edge; unavailable counts are reported
+as `null`, and credentials (client verification keys, tunnel passwords, and
+Basic Auth) are redacted from its JSON output. The built-in server speaks
+plain HTTP, so terminate TLS in front of it before exposing it beyond
+loopback; ready-to-use systemd and Caddy files are in
+[`deploy/web`](deploy/web).
 
 ## Configuration
 
 Create a `config/edges.toml` file:
 
 ```toml
+primary = "nps-asia"   # default source for `edge sync`
+
 [[edges]]
 name = "nps-asia"
 api_url = "https://nps-asia.example.com"
@@ -136,6 +176,11 @@ auth_key = "your_auth_key"
 region = "US"
 ssh_host = "cloud.usa1"
 ```
+
+The optional top-level `primary` names the default source edge for
+`edge sync`. Set it with `edge primary NAME`; append a new edge with
+`edge add NAME --api-url URL` (the auth key comes from `NPS_EDGE_AUTH_KEY` or
+a hidden prompt, never argv). Both edits preserve comments in the file.
 
 The modern `/api/*` management API is used when an edge has credentials and
 the server supports it. Add `username`/`password` (or a `platform_token`) to
@@ -190,7 +235,8 @@ Multi-node manager.
 
 - `edge_names` - Configured edge names in file order
 - `get_all_clients()` / `get_all_tunnels()` / `get_all_hosts()` - Fetch from every edge. Returns an `EdgeResults` mapping; a failed edge has an empty list and its reason in `.errors`
-- `sync_from()` - Sync configuration from a source edge to targets
+- `sync_from(..., prune=False)` - Sync configuration from a source edge to targets. `prune=True` also deletes resources absent from the source and aborts if the source data cannot be read completely
+- `reload()` - Reload `edges.toml` in place (used by the dashboard Add edge action)
 - `broadcast_host()` - Add a host mapping to all nodes
 
 ## Development

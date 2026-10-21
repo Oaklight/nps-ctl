@@ -1,0 +1,22 @@
+# Example users file for `nps-ctl web --users-file`.
+#
+# Generate each hash without putting the password in shell history:
+#
+#   nps-ctl util hash-password
+#
+# Roles:
+#   operator - may add/sync/edit/delete through the dashboard
+#   viewer   - read-only dashboard access
+#
+# Replace both placeholders below. load_users_file rejects an invalid hash,
+# so the unmodified example is intentionally not usable.
+
+[[users]]
+name = "admin"
+password_hash = "pbkdf2_sha256$260000$REPLACE_SALT_BASE64$REPLACE_HASH_BASE64"
+role = "operator"
+
+[[users]]
+name = "viewer"
+password_hash = "pbkdf2_sha256$260000$REPLACE_SALT_BASE64$REPLACE_HASH_BASE64"
+role = "viewer"

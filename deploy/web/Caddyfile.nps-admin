@@ -1,0 +1,13 @@
+# Caddy site block for the nps-ctl dashboard.
+# Caddy obtains and renews the certificate automatically; DNS must point
+# nps-admin.oaklight.top at this server first.
+nps-admin.oaklight.top {
+	encode zstd gzip
+	reverse_proxy 127.0.0.1:8080
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		-Server
+	}
+}

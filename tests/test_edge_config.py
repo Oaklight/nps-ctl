@@ -211,6 +211,7 @@ def _sync_args(path, source=None):
         parallel=False,
         quiet=True,
         workers=4,
+        prune=False,
     )
 
 
@@ -231,6 +232,23 @@ def test_sync_defaults_source_to_primary(tmp_path, monkeypatch):
 
     assert cmd_sync.cmd_sync(_sync_args(path)) == 0
     assert calls == {"source": "edge-b", "targets": ["edge-a"]}
+
+
+def test_sync_passes_prune_flag(tmp_path, monkeypatch):
+    path = _write(tmp_path)
+    calls = {}
+
+    def fake_sync_from(self, source, **kwargs):
+        calls.update(kwargs)
+        return {}
+
+    monkeypatch.setattr(NPSCluster, "sync_from", fake_sync_from)
+
+    args = _sync_args(path, source="edge-a")
+    args.prune = True
+
+    assert cmd_sync.cmd_sync(args) == 0
+    assert calls["prune"] is True
 
 
 def test_write_follows_symlink(tmp_path):

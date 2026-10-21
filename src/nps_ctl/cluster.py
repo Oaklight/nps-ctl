@@ -89,6 +89,23 @@ class RateLimiter:
 
 
 @dataclass
+class _TargetSnapshot:
+    """Existing resources on one target edge, used by both add and prune.
+
+    ``clients`` is None when the target could not be queried, which aborts the
+    sync for that edge. The key sets are the identity used by the add phase;
+    the row lists let ``--prune`` delete resources the source does not have.
+    """
+
+    clients: list[ClientInfo] | None
+    vkeys: set[str]
+    tunnels: list[TunnelInfo]
+    tunnel_keys: set[tuple[int, str, int]]
+    hosts: list[HostInfo]
+    host_keys: set[tuple[str, str]]
+
+
+@dataclass
 class NPSCluster:
     """Manager for multiple NPS servers.
 
@@ -158,6 +175,9 @@ class NPSCluster:
                 api_mode=edge.get("api_mode", "auto"),
             )
             self._edges[edge_config.name] = edge_config
+            previous = self._clients.get(edge_config.name)
+            if previous is not None:
+                previous.cleanup()
             self._clients[edge_config.name] = NPSClient(
                 base_url=edge_config.api_url,
                 auth_key=edge_config.auth_key,
@@ -215,6 +235,15 @@ class NPSCluster:
             )
 
         op_logger.phase_info(f"Cluster initialized with {len(self._edges)} edges")
+
+    def reload(self) -> None:
+        """Reload edges.toml into this cluster instance.
+
+        Existing edges are refreshed and new entries are added in place. Edges
+        removed from the file are not dropped; construct a new ``NPSCluster``
+        when a full replacement is required.
+        """
+        self._load_config()
 
     @property
     def clients_config_path(self) -> Path:
@@ -774,6 +803,7 @@ class NPSCluster:
         max_workers: int = 4,
         parallel: bool = False,
         quiet: bool = False,
+        prune: bool = False,
     ) -> dict[str, dict[str, bool]]:
         """Sync configuration from one edge to all others.
 
@@ -792,6 +822,9 @@ class NPSCluster:
             parallel: If True, sync to all edges in parallel (original behavior).
                       If False (default), sync to edges sequentially.
             quiet: If True, suppress progress output and only show summary.
+            prune: Also delete resources on each target that are absent from the
+                source. Source fetches are strict in this mode: if a selected
+                resource type cannot be read, nothing is changed.
 
         Returns:
             Nested dictionary: {target_edge: {operation: success}}.
@@ -815,6 +848,7 @@ class NPSCluster:
                 "types": ",".join(sync_types),
                 "mode": mode,
                 "workers": max_workers,
+                "prune": prune,
             },
         )
         op_logger.operation_start(ctx)
@@ -840,8 +874,16 @@ class NPSCluster:
                 f"\n[bold blue]Fetching source data from {source_name}...[/bold blue]"
             )
 
+        # Pruning tunnels needs the source client rows to map source client
+        # IDs to target IDs, even when clients themselves are not being synced.
+        fetch_clients = sync_clients or (prune and sync_tunnels)
         source_clients, source_tunnels, source_hosts = self._fetch_source_data(
-            source, sync_clients, sync_tunnels, sync_hosts, source_name
+            source,
+            fetch_clients,
+            sync_tunnels,
+            sync_hosts,
+            source_name,
+            strict=prune,
         )
 
         if not quiet:
@@ -864,6 +906,7 @@ class NPSCluster:
                 show_progress=show_progress and not quiet,
                 max_workers=max_workers,
                 quiet=quiet,
+                prune=prune,
             )
         else:
             results = self._sync_from_sequential(
@@ -878,6 +921,7 @@ class NPSCluster:
                 show_progress=show_progress and not quiet,
                 max_workers=max_workers,
                 quiet=quiet,
+                prune=prune,
             )
 
         # Calculate and display summary
@@ -899,6 +943,8 @@ class NPSCluster:
         sync_tunnels: bool,
         sync_hosts: bool,
         source_name: str,
+        *,
+        strict: bool = False,
     ) -> tuple[list[ClientInfo], list[TunnelInfo], list[HostInfo]]:
         """Fetch source data in parallel.
 
@@ -908,13 +954,20 @@ class NPSCluster:
             sync_tunnels: Whether to fetch tunnels.
             sync_hosts: Whether to fetch hosts.
             source_name: Source edge name for logging.
+            strict: Raise instead of returning partial data when a selected
+                resource type cannot be fetched. Required before pruning, so a
+                failed read can never be mistaken for an empty source.
 
         Returns:
             Tuple of (clients, tunnels, hosts).
+
+        Raises:
+            NPSError: If ``strict`` is set and any selected fetch failed.
         """
         source_clients: list[ClientInfo] = []
         source_tunnels: list[TunnelInfo] = []
         source_hosts: list[HostInfo] = []
+        errors: list[str] = []
 
         def fetch_clients() -> list[ClientInfo]:
             return client_mgmt.list_clients(source) if sync_clients else []
@@ -932,18 +985,47 @@ class NPSCluster:
 
             try:
                 source_clients = client_future.result()
-            except (NPSError, Exception) as e:
+            except Exception as e:
                 logger.warning(f"Failed to fetch clients from {source_name}: {e}")
+                errors.append(f"clients: {e}")
 
             try:
                 source_tunnels = tunnel_future.result()
-            except (NPSError, Exception) as e:
+            except Exception as e:
                 logger.warning(f"Failed to fetch tunnels from {source_name}: {e}")
+                errors.append(f"tunnels: {e}")
 
             try:
                 source_hosts = host_future.result()
-            except (NPSError, Exception) as e:
+            except Exception as e:
                 logger.warning(f"Failed to fetch hosts from {source_name}: {e}")
+                errors.append(f"hosts: {e}")
+
+        if strict and errors:
+            raise NPSError(
+                f"Cannot prune from {source_name}: incomplete source data "
+                f"({'; '.join(errors)})"
+            )
+
+        if strict:
+            # A successful read whose rows have no identity is just as unsafe
+            # as a failed read: the delete phase must never compare against an
+            # identity set that silently lost rows.
+            if sync_clients and any(not c.get("VerifyKey") for c in source_clients):
+                raise NPSError(
+                    f"Cannot prune from {source_name}: a source client has no VerifyKey"
+                )
+            if sync_tunnels and any(
+                not (t.get("Client") or {}).get("VerifyKey") for t in source_tunnels
+            ):
+                raise NPSError(
+                    f"Cannot prune from {source_name}: a source tunnel's "
+                    "client has no VerifyKey"
+                )
+            if sync_hosts and any(not h.get("Host") for h in source_hosts):
+                raise NPSError(
+                    f"Cannot prune from {source_name}: a source host has no domain"
+                )
 
         return source_clients, source_tunnels, source_hosts
 
@@ -952,12 +1034,7 @@ class NPSCluster:
         target_name: str,
         sync_tunnels: bool,
         sync_hosts: bool,
-    ) -> tuple[
-        list[ClientInfo] | None,
-        set[str],
-        set[tuple[int, str, int]],
-        set[str],
-    ]:
+    ) -> _TargetSnapshot:
         """Fetch existing data from a target edge.
 
         Args:
@@ -966,43 +1043,223 @@ class NPSCluster:
             sync_hosts: Whether to fetch hosts.
 
         Returns:
-            Tuple of (clients_list, existing_vkeys, existing_tunnels, existing_hosts).
+            Snapshot of the target's clients and the identity keys used by the
+            add and prune phases.
         """
         target_nps = self._clients[target_name]
         clients_list: list[ClientInfo] | None = None
-        existing_vkeys: set[str] = set()
-        existing_tunnels: set[tuple[int, str, int]] = set()
-        existing_hosts: set[str] = set()
+        tunnels: list[TunnelInfo] = []
+        hosts: list[HostInfo] = []
 
         # Always fetch clients (needed for ID mapping)
         try:
             clients_list = client_mgmt.list_clients(target_nps)
-            existing_vkeys = {c.get("VerifyKey", "") for c in clients_list}
         except NPSError as e:
             logger.warning(f"Failed to fetch clients from {target_name}: {e}")
+
+        vkeys = {c.get("VerifyKey", "") for c in clients_list or []}
 
         if sync_tunnels:
             try:
                 tunnels = tunnel.list_tunnels(target_nps)
-                existing_tunnels = {
-                    (
-                        t.get("Client", {}).get("Id", 0),
-                        t.get("Mode", ""),
-                        t.get("Port", 0),
-                    )
-                    for t in tunnels
-                }
             except NPSError as e:
                 logger.warning(f"Failed to fetch tunnels from {target_name}: {e}")
 
         if sync_hosts:
             try:
                 hosts = host.list_hosts(target_nps)
-                existing_hosts = {h.get("Host", "") for h in hosts}
             except NPSError as e:
                 logger.warning(f"Failed to fetch hosts from {target_name}: {e}")
 
-        return clients_list, existing_vkeys, existing_tunnels, existing_hosts
+        tunnel_keys = {
+            (
+                t.get("Client", {}).get("Id", 0),
+                t.get("Mode", ""),
+                t.get("Port", 0),
+            )
+            for t in tunnels
+        }
+        host_keys = {(h.get("Host", ""), h.get("Location") or "/") for h in hosts}
+        return _TargetSnapshot(
+            clients=clients_list,
+            vkeys=vkeys,
+            tunnels=tunnels,
+            tunnel_keys=tunnel_keys,
+            hosts=hosts,
+            host_keys=host_keys,
+        )
+
+    def _prune_target(
+        self,
+        target_name: str,
+        snapshot: _TargetSnapshot,
+        source_clients: list[ClientInfo],
+        source_tunnels: list[TunnelInfo],
+        source_hosts: list[HostInfo],
+        sync_clients: bool,
+        sync_tunnels: bool,
+        sync_hosts: bool,
+        rate_limiter: "RateLimiter | None" = None,
+    ) -> dict[str, bool]:
+        """Delete resources on a target that do not exist on the source.
+
+        Tunnels and hosts are removed before clients so a client is not
+        blocked by its descendants. Resources without a stable identity
+        (a client without a verify key, a tunnel whose client cannot be
+        matched, or a row without an ID) are kept.
+
+        Returns:
+            Operation name to success, using ``prune:<type>:<name>`` keys.
+        """
+        target_nps = self._clients[target_name]
+        results: dict[str, bool] = {}
+
+        def wait() -> None:
+            if rate_limiter:
+                rate_limiter.wait()
+
+        id_mapping = self._build_client_id_mapping(
+            source_clients, snapshot.clients or []
+        )
+        source_keys = {
+            (
+                id_mapping.get(t.get("Client", {}).get("Id", 0)),
+                t.get("Mode", ""),
+                t.get("Port", 0),
+            )
+            for t in source_tunnels
+        }
+        mapped_target_ids = set(id_mapping.values())
+        target_vkeys = {
+            c.get("Id", 0): c.get("VerifyKey", "") for c in snapshot.clients or []
+        }
+        # One anonymous source client is enough to make some target client
+        # impossible to identify; no tunnel of an unmapped target client can
+        # then be proven absent from the source.
+        source_identifiable = all(c.get("VerifyKey") for c in source_clients)
+
+        # Validate every identity before deleting anything: a partial prune is
+        # worse than none, because the abort would leave the target half done.
+        if sync_tunnels and source_tunnels and not id_mapping:
+            raise NPSError(
+                "Cannot prune tunnels: no source client could be mapped "
+                "to a target client"
+            )
+        # An empty source read cannot be distinguished from a legacy API that
+        # silently answered with no rows, so never turn it into "delete all".
+        if sync_tunnels and snapshot.tunnels and not source_tunnels:
+            raise NPSError(
+                "Cannot prune tunnels: the source returned no tunnels while "
+                "the target has some"
+            )
+        if sync_hosts and snapshot.hosts and not source_hosts:
+            raise NPSError(
+                "Cannot prune hosts: the source returned no hosts while the "
+                "target has some"
+            )
+        if sync_hosts and any(not h.get("Host") for h in source_hosts):
+            raise NPSError("Cannot prune hosts: a source host has no domain")
+        # Clients have the largest blast radius (NPS removes their tunnels and
+        # hosts with them), so an empty source read must not mean "delete all".
+        if sync_clients and snapshot.clients and not source_clients:
+            raise NPSError(
+                "Cannot prune clients: the source returned no clients while "
+                "the target has some"
+            )
+        if sync_clients and any(not c.get("VerifyKey") for c in source_clients):
+            raise NPSError("Cannot prune clients: a source client has no VerifyKey")
+        if sync_tunnels:
+            source_client_ids = {c.get("Id") for c in source_clients if c.get("Id")}
+            if any(
+                not (item.get("Client") or {}).get("Id")
+                or (item.get("Client") or {}).get("Id") not in source_client_ids
+                for item in source_tunnels
+            ):
+                raise NPSError(
+                    "Cannot prune tunnels: a source tunnel's client has no identity"
+                )
+
+        if sync_tunnels:
+            for item in snapshot.tunnels:
+                client = item.get("Client", {})
+                key = (
+                    client.get("Id", 0),
+                    item.get("Mode", ""),
+                    item.get("Port", 0),
+                )
+                if key in source_keys:
+                    continue
+                if key[0] not in mapped_target_ids and (
+                    not target_vkeys.get(key[0]) or not source_identifiable
+                ):
+                    # The owning client is anonymous, or the source may hold it
+                    # as an anonymous row: keep the tunnel rather than guess.
+                    continue
+                name = item.get("Remark") or f"port:{item.get('Port', 0)}"
+                tunnel_id = item.get("Id")
+                if not tunnel_id:
+                    logger.warning(
+                        f"Cannot prune tunnel {name} on {target_name}: missing ID"
+                    )
+                    results[f"prune:tunnel:{name}"] = False
+                    continue
+                wait()
+                try:
+                    ok = tunnel.del_tunnel(target_nps, tunnel_id)
+                except NPSError as e:
+                    logger.error(f"Failed to prune tunnel {name} on {target_name}: {e}")
+                    ok = False
+                results[f"prune:tunnel:{name}"] = ok
+
+        if sync_hosts:
+            source_host_keys = {
+                (h.get("Host", ""), h.get("Location") or "/") for h in source_hosts
+            }
+            for item in snapshot.hosts:
+                key = (item.get("Host", ""), item.get("Location") or "/")
+                if key in source_host_keys:
+                    continue
+                name = item.get("Host", "")
+                host_id = item.get("Id")
+                if not host_id:
+                    logger.warning(
+                        f"Cannot prune host {name} on {target_name}: missing ID"
+                    )
+                    results[f"prune:host:{name}"] = False
+                    continue
+                wait()
+                try:
+                    ok = host.del_host(target_nps, host_id)
+                except NPSError as e:
+                    logger.error(f"Failed to prune host {name} on {target_name}: {e}")
+                    ok = False
+                results[f"prune:host:{name}"] = ok
+
+        if sync_clients:
+            source_vkeys = {
+                c.get("VerifyKey", "") for c in source_clients if c.get("VerifyKey")
+            }
+            for item in snapshot.clients or []:
+                vkey = item.get("VerifyKey", "")
+                if not vkey or vkey in source_vkeys:
+                    continue
+                name = item.get("Remark") or f"id:{item.get('Id', 0)}"
+                client_id = item.get("Id")
+                if not client_id:
+                    logger.warning(
+                        f"Cannot prune client {name} on {target_name}: missing ID"
+                    )
+                    results[f"prune:client:{name}"] = False
+                    continue
+                wait()
+                try:
+                    ok = client_mgmt.del_client(target_nps, client_id)
+                except NPSError as e:
+                    logger.error(f"Failed to prune client {name} on {target_name}: {e}")
+                    ok = False
+                results[f"prune:client:{name}"] = ok
+
+        return results
 
     def _sync_single_item(
         self,
@@ -1011,10 +1268,7 @@ class NPSCluster:
         item_type: str,
         item_info: SyncItem,
         source_clients: list[ClientInfo],
-        target_clients: list[ClientInfo],
-        existing_vkeys: set[str],
-        existing_tunnels: set[tuple[int, str, int]],
-        existing_hosts: set[str],
+        snapshot: _TargetSnapshot,
         rate_limiter: "RateLimiter | None" = None,
     ) -> tuple[str, str, str, bool]:
         """Sync a single item to a target edge.
@@ -1033,7 +1287,7 @@ class NPSCluster:
             remark = item_info.get("Remark", "")
 
             # Check if client already exists (by vkey)
-            if vkey and vkey in existing_vkeys:
+            if vkey and vkey in snapshot.vkeys:
                 logger.debug(f"Client {remark} already exists on {target_name}")
                 return (target_name, item_type, remark, True)
 
@@ -1045,7 +1299,9 @@ class NPSCluster:
                 return (target_name, item_type, remark, False)
 
         elif item_type == "tunnel":
-            id_mapping = self._build_client_id_mapping(source_clients, target_clients)
+            id_mapping = self._build_client_id_mapping(
+                source_clients, snapshot.clients or []
+            )
 
             source_client_id = item_info.get("Client", {}).get("Id", 0)
             target_client_id = id_mapping.get(source_client_id)
@@ -1063,7 +1319,7 @@ class NPSCluster:
 
             # Check if tunnel already exists
             tunnel_key = (target_client_id, tunnel_type, port)
-            if tunnel_key in existing_tunnels:
+            if tunnel_key in snapshot.tunnel_keys:
                 logger.debug(f"Tunnel {remark} already exists on {target_name}")
                 return (target_name, item_type, item_name, True)
 
@@ -1082,7 +1338,9 @@ class NPSCluster:
                 return (target_name, item_type, item_name, False)
 
         elif item_type == "host":
-            id_mapping = self._build_client_id_mapping(source_clients, target_clients)
+            id_mapping = self._build_client_id_mapping(
+                source_clients, snapshot.clients or []
+            )
 
             source_client_id = item_info.get("Client", {}).get("Id", 0)
             target_client_id = id_mapping.get(source_client_id)
@@ -1098,8 +1356,8 @@ class NPSCluster:
                 )
                 return (target_name, item_type, host_domain, False)
 
-            # Check if host already exists
-            if host_domain in existing_hosts:
+            # Check if host already exists (domain + location is the identity)
+            if (host_domain, location or "/") in snapshot.host_keys:
                 logger.debug(f"Host {host_domain} already exists on {target_name}")
                 return (target_name, item_type, host_domain, True)
 
@@ -1133,6 +1391,7 @@ class NPSCluster:
         show_progress: bool,
         max_workers: int,
         quiet: bool,
+        prune: bool = False,
     ) -> dict[str, dict[str, bool]]:
         """Sync to edges one by one (sequential mode).
 
@@ -1149,14 +1408,11 @@ class NPSCluster:
             edge_start = time.perf_counter()
 
             # Fetch existing data for this target
-            (
-                target_clients,
-                existing_vkeys,
-                existing_tunnels,
-                existing_hosts,
-            ) = self._fetch_target_existing_data(target_name, sync_tunnels, sync_hosts)
+            snapshot = self._fetch_target_existing_data(
+                target_name, sync_tunnels, sync_hosts
+            )
 
-            if target_clients is None:
+            if snapshot.clients is None:
                 if not quiet:
                     console.print(f"  [red]✗ Failed to connect to {target_name}[/red]")
                 results[target_name] = {"_edge_failed": True}
@@ -1205,10 +1461,7 @@ class NPSCluster:
                                 item_type,
                                 item_info,
                                 source_clients,
-                                target_clients,
-                                existing_vkeys,
-                                existing_tunnels,
-                                existing_hosts,
+                                snapshot,
                                 rate_limiter,
                             ): (item_type, item_info)
                             for item_type, item_info in tasks
@@ -1248,10 +1501,7 @@ class NPSCluster:
                             item_type,
                             item_info,
                             source_clients,
-                            target_clients,
-                            existing_vkeys,
-                            existing_tunnels,
-                            existing_hosts,
+                            snapshot,
                             rate_limiter,
                         ): (item_type, item_info)
                         for item_type, item_info in tasks
@@ -1278,6 +1528,23 @@ class NPSCluster:
                         except Exception as e:
                             logger.error(f"Unexpected error: {e}")
                             edge_results[f"{item_type}:error"] = False
+
+            if prune:
+                pruned = self._prune_target(
+                    target_name,
+                    snapshot,
+                    source_clients,
+                    source_tunnels,
+                    source_hosts,
+                    sync_clients,
+                    sync_tunnels,
+                    sync_hosts,
+                    rate_limiter,
+                )
+                edge_results.update(pruned)
+                if not quiet and pruned:
+                    ok = sum(1 for value in pruned.values() if value)
+                    console.print(f"  [dim]Pruned: {ok}/{len(pruned)} succeeded[/dim]")
 
             results[target_name] = edge_results
             edge_elapsed = time.perf_counter() - edge_start
@@ -1310,6 +1577,7 @@ class NPSCluster:
         show_progress: bool,
         max_workers: int,
         quiet: bool,
+        prune: bool = False,
     ) -> dict[str, dict[str, bool]]:
         """Sync to all edges in parallel (original behavior).
 
@@ -1325,15 +1593,7 @@ class NPSCluster:
             )
 
         # Fetch existing data from all targets in parallel
-        target_data: dict[
-            str,
-            tuple[
-                list[ClientInfo] | None,
-                set[str],
-                set[tuple[int, str, int]],
-                set[str],
-            ],
-        ] = {}
+        target_data: dict[str, _TargetSnapshot] = {}
         failed_targets: set[str] = set()
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -1351,12 +1611,14 @@ class NPSCluster:
                 try:
                     data = future.result()
                     target_data[target_name] = data
-                    if data[0] is None:
+                    if data.clients is None:
                         failed_targets.add(target_name)
                 except Exception as e:
                     logger.error(f"Failed to fetch data from {target_name}: {e}")
                     failed_targets.add(target_name)
-                    target_data[target_name] = (None, set(), set(), set())
+                    target_data[target_name] = _TargetSnapshot(
+                        None, set(), [], set(), [], set()
+                    )
 
         active_targets = [t for t in targets if t not in failed_targets]
         if failed_targets and not quiet:
@@ -1414,10 +1676,7 @@ class NPSCluster:
                             item_type,
                             item_info,
                             source_clients,
-                            target_data[target_name][0] or [],
-                            target_data[target_name][1],
-                            target_data[target_name][2],
-                            target_data[target_name][3],
+                            target_data[target_name],
                             rate_limiter,
                         ): (target_name, item_type, item_info)
                         for target_name, item_type, item_info in tasks
@@ -1452,10 +1711,7 @@ class NPSCluster:
                         item_type,
                         item_info,
                         source_clients,
-                        target_data[target_name][0] or [],
-                        target_data[target_name][1],
-                        target_data[target_name][2],
-                        target_data[target_name][3],
+                        target_data[target_name],
                         rate_limiter,
                     ): (target_name, item_type, item_info)
                     for target_name, item_type, item_info in tasks
@@ -1478,6 +1734,26 @@ class NPSCluster:
                         else:
                             name = item_info.get("Host", "")
                         results[target_name][f"{item_type}:{name}"] = False
+
+        if prune:
+            for target_name in active_targets:
+                pruned = self._prune_target(
+                    target_name,
+                    target_data[target_name],
+                    source_clients,
+                    source_tunnels,
+                    source_hosts,
+                    sync_clients,
+                    sync_tunnels,
+                    sync_hosts,
+                    rate_limiter,
+                )
+                results[target_name].update(pruned)
+                if not quiet and pruned:
+                    ok = sum(1 for value in pruned.values() if value)
+                    console.print(
+                        f"[dim]Pruned {target_name}: {ok}/{len(pruned)} succeeded[/dim]"
+                    )
 
         return results
 
