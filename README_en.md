@@ -255,6 +255,14 @@ make test
 make build
 ```
 
+### Binary builds
+
+`make build-binary` produces a native Nuitka binary; on Linux it links against
+glibc. `make build-binary-musl` builds inside Alpine and links against musl, so
+that artifact runs on musl distributions (such as Alpine) but not directly on
+glibc systems like Debian or Arch. The _Nuitka Binary Build_ workflow builds the
+full platform matrix and uploads the artifacts.
+
 ## License
 
 GPL-3.0 — see [LICENSE](LICENSE) for details.
