@@ -441,3 +441,170 @@ def test_prune_refuses_empty_source_hosts_when_target_has_rows(monkeypatch):
         )
 
     assert calls == []
+
+
+def test_prune_keeps_proxy_tunnel_across_mode_aliases(monkeypatch):
+    """A socks5 source row matches the target's mixProxy row at the same port."""
+    calls: list[int] = []
+    monkeypatch.setattr(
+        tunnel, "del_tunnel", lambda nps, tid: calls.append(tid) or True
+    )
+    snapshot = _snapshot()
+    snapshot.tunnels.append(
+        {
+            "Id": 203,
+            "Mode": "socks5",
+            "Port": 1080,
+            "Client": {"Id": 10, "VerifyKey": "vkey-a"},
+            "Remark": "proxy",
+        }
+    )
+    snapshot.tunnel_keys.add((10, "mixProxy", 1080))
+    source_tunnels = SOURCE_TUNNELS + [
+        {
+            "Id": 100,
+            "Mode": "mixProxy",
+            "Port": 1080,
+            "Client": {"Id": 1, "VerifyKey": "vkey-a"},
+            "Remark": "proxy",
+        }
+    ]
+
+    results = _cluster()._prune_target(
+        "edge-b",
+        snapshot,
+        SOURCE_CLIENTS,
+        source_tunnels,
+        SOURCE_HOSTS,
+        sync_clients=False,
+        sync_tunnels=True,
+        sync_hosts=False,
+    )
+
+    # The proxy tunnel exists on both edges under different mode names.
+    assert ("tunnel", 203) not in calls
+    assert "prune:tunnel:proxy" not in results
+    assert ("tunnel", 200) not in calls
+
+
+def test_sync_treats_aliased_proxy_tunnel_as_existing(monkeypatch):
+    added: list[dict] = []
+    monkeypatch.setattr(
+        tunnel, "add_tunnel", lambda *args, **kwargs: added.append(kwargs) or True
+    )
+    snapshot = _TargetSnapshot(
+        clients=[{"Id": 10, "VerifyKey": "vkey-a"}],
+        vkeys={"vkey-a"},
+        tunnels=[],
+        tunnel_keys={(10, "mixProxy", 1080)},
+        hosts=[],
+        host_keys=set(),
+    )
+    item = {
+        "Id": 100,
+        "Mode": "socks5",
+        "Port": 1080,
+        "Client": {"Id": 1, "VerifyKey": "vkey-a"},
+        "Remark": "proxy",
+    }
+
+    result = _cluster()._sync_single_item(
+        "edge-a", "edge-b", "tunnel", item, SOURCE_CLIENTS, snapshot
+    )
+
+    assert result == ("edge-b", "tunnel", "proxy", True)
+    assert added == []
+
+
+def test_sync_skips_tunnel_when_target_fetch_failed(monkeypatch):
+    added: list[dict] = []
+    monkeypatch.setattr(
+        tunnel, "add_tunnel", lambda *args, **kwargs: added.append(kwargs) or True
+    )
+    snapshot = _TargetSnapshot(
+        clients=[{"Id": 10, "VerifyKey": "vkey-a"}],
+        vkeys={"vkey-a"},
+        tunnels=[],
+        tunnel_keys=set(),
+        hosts=[],
+        host_keys=set(),
+        tunnels_ok=False,
+    )
+
+    result = _cluster()._sync_single_item(
+        "edge-a", "edge-b", "tunnel", SOURCE_TUNNELS[0], SOURCE_CLIENTS, snapshot
+    )
+
+    assert result == ("edge-b", "tunnel", "web", False)
+    assert added == []
+
+
+def test_sync_skips_host_when_target_fetch_failed(monkeypatch):
+    added: list[dict] = []
+    monkeypatch.setattr(
+        host, "add_host", lambda *args, **kwargs: added.append(kwargs) or True
+    )
+    snapshot = _TargetSnapshot(
+        clients=[{"Id": 10, "VerifyKey": "vkey-a"}],
+        vkeys={"vkey-a"},
+        tunnels=[],
+        tunnel_keys=set(),
+        hosts=[],
+        host_keys=set(),
+        hosts_ok=False,
+    )
+
+    result = _cluster()._sync_single_item(
+        "edge-a", "edge-b", "host", SOURCE_HOSTS[0], SOURCE_CLIENTS, snapshot
+    )
+
+    assert result == ("edge-b", "host", "app.example.com", False)
+    assert added == []
+
+
+def test_target_snapshot_canonicalizes_proxy_mode(monkeypatch):
+    monkeypatch.setattr(
+        client_mgmt,
+        "list_clients",
+        lambda nps: [{"Id": 10, "VerifyKey": "vkey-a"}],
+    )
+    monkeypatch.setattr(
+        tunnel,
+        "list_tunnels",
+        lambda nps: [
+            {
+                "Id": 200,
+                "Mode": "socks5",
+                "Port": 1080,
+                "Client": {"Id": 10, "VerifyKey": "vkey-a"},
+            }
+        ],
+    )
+    monkeypatch.setattr(host, "list_hosts", lambda nps: [])
+
+    snapshot = _cluster()._fetch_target_existing_data("edge-b", True, True)
+
+    assert snapshot.tunnel_keys == {(10, "mixProxy", 1080)}
+    assert snapshot.tunnels_ok is True
+    assert snapshot.hosts_ok is True
+
+
+def test_target_snapshot_marks_failed_resource_fetches(monkeypatch):
+    monkeypatch.setattr(
+        client_mgmt,
+        "list_clients",
+        lambda nps: [{"Id": 10, "VerifyKey": "vkey-a"}],
+    )
+
+    def fail(nps):
+        raise NPSError("connection refused")
+
+    monkeypatch.setattr(tunnel, "list_tunnels", fail)
+    monkeypatch.setattr(host, "list_hosts", fail)
+
+    snapshot = _cluster()._fetch_target_existing_data("edge-b", True, True)
+
+    assert snapshot.tunnels == []
+    assert snapshot.hosts == []
+    assert snapshot.tunnels_ok is False
+    assert snapshot.hosts_ok is False
