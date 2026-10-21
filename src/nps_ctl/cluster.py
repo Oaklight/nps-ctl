@@ -1159,8 +1159,25 @@ class NPSCluster:
             )
         if sync_hosts and any(not h.get("Host") for h in source_hosts):
             raise NPSError("Cannot prune hosts: a source host has no domain")
+        # Clients have the largest blast radius (NPS removes their tunnels and
+        # hosts with them), so an empty source read must not mean "delete all".
+        if sync_clients and snapshot.clients and not source_clients:
+            raise NPSError(
+                "Cannot prune clients: the source returned no clients while "
+                "the target has some"
+            )
         if sync_clients and any(not c.get("VerifyKey") for c in source_clients):
             raise NPSError("Cannot prune clients: a source client has no VerifyKey")
+        if sync_tunnels:
+            source_client_ids = {c.get("Id") for c in source_clients if c.get("Id")}
+            if any(
+                not (item.get("Client") or {}).get("Id")
+                or (item.get("Client") or {}).get("Id") not in source_client_ids
+                for item in source_tunnels
+            ):
+                raise NPSError(
+                    "Cannot prune tunnels: a source tunnel's client has no identity"
+                )
 
         if sync_tunnels:
             for item in snapshot.tunnels:

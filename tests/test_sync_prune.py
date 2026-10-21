@@ -319,6 +319,48 @@ def test_prune_clients_without_verify_keys_aborts(monkeypatch):
     assert calls == []
 
 
+def test_prune_clients_with_empty_source_aborts(monkeypatch):
+    calls: list[int] = []
+    monkeypatch.setattr(
+        client_mgmt, "del_client", lambda nps, cid: calls.append(cid) or True
+    )
+
+    with pytest.raises(NPSError, match="returned no clients"):
+        _cluster()._prune_target(
+            "edge-b",
+            _snapshot(),
+            [],
+            [],
+            [],
+            sync_clients=True,
+            sync_tunnels=False,
+            sync_hosts=False,
+        )
+
+    assert calls == []
+
+
+def test_prune_tunnels_with_anonymous_source_tunnel_aborts(monkeypatch):
+    calls: list[int] = []
+    monkeypatch.setattr(
+        tunnel, "del_tunnel", lambda nps, tid: calls.append(tid) or True
+    )
+
+    with pytest.raises(NPSError, match="source tunnel's client has no identity"):
+        _cluster()._prune_target(
+            "edge-b",
+            _snapshot(),
+            SOURCE_CLIENTS,
+            [{"Id": 100, "Mode": "tcp", "Port": 80, "Client": {}}],
+            SOURCE_HOSTS,
+            sync_clients=False,
+            sync_tunnels=True,
+            sync_hosts=False,
+        )
+
+    assert calls == []
+
+
 def test_strict_source_rejects_anonymous_client(monkeypatch):
     monkeypatch.setattr(
         client_mgmt, "list_clients", lambda nps: [{"Id": 1, "VerifyKey": ""}]

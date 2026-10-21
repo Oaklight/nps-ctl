@@ -475,9 +475,17 @@ def _action_edit_tunnel(cluster: NPSCluster, payload: dict[str, Any]) -> dict[st
     if current is None:
         raise ActionError(f"tunnel {tunnel_id} not found on {edge}")
 
-    tunnel_type = _optional(payload, "mode", current.get("Mode", "tcp")) or "tcp"
-    if tunnel_type not in WEB_TUNNEL_TYPES and tunnel_type != tunnel.MIX_PROXY:
+    current_mode = current.get("Mode", "tcp")
+    tunnel_type = _optional(payload, "mode", current_mode) or "tcp"
+    # Existing rows of any type stay editable (remark/target/port); only a
+    # mode *change* is restricted to the types the panel knows how to create.
+    if tunnel_type != current_mode and (
+        tunnel_type not in WEB_TUNNEL_TYPES and tunnel_type != tunnel.MIX_PROXY
+    ):
         raise ActionError(f"'mode' must be one of {', '.join(WEB_TUNNEL_TYPES)}")
+    proxy_mode = (
+        tunnel_type == tunnel.MIX_PROXY or tunnel_type in tunnel.MIX_PROXY_ALIASES
+    )
     port_value = payload.get("port", current.get("Port", 0))
     if not isinstance(port_value, int) or isinstance(port_value, bool):
         raise ActionError("'port' must be an integer between 1 and 65535")
@@ -503,8 +511,8 @@ def _action_edit_tunnel(cluster: NPSCluster, payload: dict[str, Any]) -> dict[st
         remark=_optional(payload, "remark", current.get("Remark", "")),
         password=current.get("Password", "") or "",
         auth=user_auth.get("Content", "") or "",
-        enable_socks5=current.get("Socks5Proxy") if tunnel_type == "mixProxy" else None,
-        enable_http=current.get("HttpProxy") if tunnel_type == "mixProxy" else None,
+        enable_socks5=current.get("Socks5Proxy") if proxy_mode else None,
+        enable_http=current.get("HttpProxy") if proxy_mode else None,
     )
     return _mutation_result(edge, tunnel_id, ok, "updated")
 

@@ -545,6 +545,69 @@ def test_edit_tunnel_preserves_password_and_flags(writable, monkeypatch):
     assert calls["enable_http"] is False
 
 
+def test_edit_tunnel_alias_preserves_proxy_flags(writable, monkeypatch):
+    current = {
+        "Id": 7,
+        "Mode": "socks5",
+        "Port": 1080,
+        "Password": "pw",
+        "Target": {"TargetStr": "127.0.0.1:1080"},
+        "Client": {"Id": 1},
+        "UserAuth": {"Content": ""},
+        "Socks5Proxy": True,
+        "HttpProxy": False,
+    }
+    calls = {}
+    monkeypatch.setattr(tunnel_mod, "get_tunnel", lambda nps, tid: current)
+    monkeypatch.setattr(
+        tunnel_mod,
+        "edit_tunnel",
+        lambda nps, tunnel_id, **kwargs: calls.update(kwargs) or True,
+    )
+
+    status, body = _post(
+        writable,
+        "/api/actions/tunnels/edit",
+        {"edge": "edge-a", "id": 7, "remark": "renamed"},
+    )
+
+    assert status == 200
+    assert body["results"]["edge-a"] == {"ok": True, "status": "updated"}
+    assert calls["tunnel_type"] == "socks5"
+    assert calls["enable_socks5"] is True
+    assert calls["enable_http"] is False
+
+
+def test_edit_tunnel_allows_existing_file_mode(writable, monkeypatch):
+    current = {
+        "Id": 9,
+        "Mode": "file",
+        "Port": 0,
+        "Password": "",
+        "Target": {"TargetStr": ""},
+        "Client": {"Id": 1},
+        "UserAuth": {"Content": ""},
+    }
+    calls = {}
+    monkeypatch.setattr(tunnel_mod, "get_tunnel", lambda nps, tid: current)
+    monkeypatch.setattr(
+        tunnel_mod,
+        "edit_tunnel",
+        lambda nps, tunnel_id, **kwargs: calls.update(kwargs) or True,
+    )
+
+    status, body = _post(
+        writable,
+        "/api/actions/tunnels/edit",
+        {"edge": "edge-a", "id": 9, "remark": "renamed"},
+    )
+
+    assert status == 200
+    assert body["results"]["edge-a"] == {"ok": True, "status": "updated"}
+    assert calls["tunnel_type"] == "file"
+    assert calls["port"] == 0
+
+
 def test_delete_tunnel_missing_item_is_bad_request(writable, monkeypatch):
     monkeypatch.setattr(tunnel_mod, "get_tunnel", lambda nps, tid: None)
 
