@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from functools import partial
 from pathlib import Path
 from threading import Lock
-from typing import Any, TypeVar
+from typing import Any, TypeVar, cast
 from collections.abc import Callable
 
 import tomllib
@@ -103,6 +103,8 @@ class _TargetSnapshot:
     tunnel_keys: set[tuple[int, str, int]]
     hosts: list[HostInfo]
     host_keys: set[tuple[str, str]]
+    tunnels_ok: bool = True
+    hosts_ok: bool = True
 
 
 @dataclass
@@ -1050,6 +1052,8 @@ class NPSCluster:
         clients_list: list[ClientInfo] | None = None
         tunnels: list[TunnelInfo] = []
         hosts: list[HostInfo] = []
+        tunnels_ok = not sync_tunnels
+        hosts_ok = not sync_hosts
 
         # Always fetch clients (needed for ID mapping)
         try:
@@ -1062,19 +1066,21 @@ class NPSCluster:
         if sync_tunnels:
             try:
                 tunnels = tunnel.list_tunnels(target_nps)
+                tunnels_ok = True
             except NPSError as e:
                 logger.warning(f"Failed to fetch tunnels from {target_name}: {e}")
 
         if sync_hosts:
             try:
                 hosts = host.list_hosts(target_nps)
+                hosts_ok = True
             except NPSError as e:
                 logger.warning(f"Failed to fetch hosts from {target_name}: {e}")
 
         tunnel_keys = {
             (
                 t.get("Client", {}).get("Id", 0),
-                t.get("Mode", ""),
+                tunnel.canonical_tunnel_mode(t),
                 t.get("Port", 0),
             )
             for t in tunnels
@@ -1087,6 +1093,8 @@ class NPSCluster:
             tunnel_keys=tunnel_keys,
             hosts=hosts,
             host_keys=host_keys,
+            tunnels_ok=tunnels_ok,
+            hosts_ok=hosts_ok,
         )
 
     def _prune_target(
@@ -1124,7 +1132,7 @@ class NPSCluster:
         source_keys = {
             (
                 id_mapping.get(t.get("Client", {}).get("Id", 0)),
-                t.get("Mode", ""),
+                tunnel.canonical_tunnel_mode(t),
                 t.get("Port", 0),
             )
             for t in source_tunnels
@@ -1184,7 +1192,7 @@ class NPSCluster:
                 client = item.get("Client", {})
                 key = (
                     client.get("Id", 0),
-                    item.get("Mode", ""),
+                    tunnel.canonical_tunnel_mode(item),
                     item.get("Port", 0),
                 )
                 if key in source_keys:
@@ -1299,6 +1307,14 @@ class NPSCluster:
                 return (target_name, item_type, remark, False)
 
         elif item_type == "tunnel":
+            if not snapshot.tunnels_ok:
+                name = item_info.get("Remark") or f"port:{item_info.get('Port', 0)}"
+                logger.warning(
+                    f"Cannot sync tunnel {name} to {target_name}: "
+                    "the target tunnel list is unavailable"
+                )
+                return (target_name, item_type, name, False)
+
             id_mapping = self._build_client_id_mapping(
                 source_clients, snapshot.clients or []
             )
@@ -1317,8 +1333,13 @@ class NPSCluster:
                 )
                 return (target_name, item_type, item_name, False)
 
-            # Check if tunnel already exists
-            tunnel_key = (target_client_id, tunnel_type, port)
+            # Check if tunnel already exists. Mode is compared canonically so
+            # socks5/httpProxy rows match their mixProxy form on the target.
+            tunnel_key = (
+                target_client_id,
+                tunnel.canonical_tunnel_mode(cast(TunnelInfo, item_info)),
+                port,
+            )
             if tunnel_key in snapshot.tunnel_keys:
                 logger.debug(f"Tunnel {remark} already exists on {target_name}")
                 return (target_name, item_type, item_name, True)
@@ -1338,6 +1359,14 @@ class NPSCluster:
                 return (target_name, item_type, item_name, False)
 
         elif item_type == "host":
+            if not snapshot.hosts_ok:
+                name = item_info.get("Host", "")
+                logger.warning(
+                    f"Cannot sync host {name} to {target_name}: "
+                    "the target host list is unavailable"
+                )
+                return (target_name, item_type, name, False)
+
             id_mapping = self._build_client_id_mapping(
                 source_clients, snapshot.clients or []
             )

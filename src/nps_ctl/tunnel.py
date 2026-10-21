@@ -47,6 +47,17 @@ MIX_PROXY = "mixProxy"
 MIX_PROXY_ALIASES = ("socks5", "httpProxy")
 
 
+def canonical_tunnel_mode(tunnel: TunnelInfo) -> str:
+    """Return the mode used to compare a tunnel across NPS builds.
+
+    djylb/nps stores socks5 and httpProxy tunnels under ``mixProxy``, while
+    older builds report those modes directly. Raw modes would make the same
+    tunnel look different on two edges of a mixed cluster.
+    """
+    mode = tunnel.get("Mode", "")
+    return MIX_PROXY if mode in MIX_PROXY_ALIASES else mode
+
+
 def tunnel_matches_type(tunnel: TunnelInfo, tunnel_type: str) -> bool:
     """Return whether a tunnel matches a type filter.
 
