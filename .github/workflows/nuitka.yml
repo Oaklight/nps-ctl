@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       ref:
-        description: "Git ref to build: tag (v0.7.0), branch (master), or commit SHA"
+        description: "Git ref to build: tag (v0.9.0), branch (master), or commit SHA"
         required: true
         type: string
         default: "master"
@@ -19,7 +19,7 @@ on:
         type: string
         default: ""
       upx:
-        description: "Apply UPX compression after build (Linux/Windows only)"
+        description: "Apply UPX compression after build (Linux/Windows only, breaks macOS code signing)"
         required: false
         type: boolean
         default: false
@@ -136,6 +136,7 @@ jobs:
           if [ "${{ matrix.os }}" = "linux" ]; then
             sudo apt-get install -y upx-ucl 2>/dev/null || sudo apt-get install -y upx
           fi
+          # Windows runners have choco; install if needed
           if [ "${{ matrix.os }}" = "windows" ]; then
             choco install upx -y 2>/dev/null || true
           fi
@@ -173,13 +174,27 @@ jobs:
           echo "  UPX:          $UPX_ENABLED"
           echo "  Build time:   ${MINS}m ${SECS}s (${ELAPSED}s total)"
           echo "  Binary size:  ${BINARY_SIZE_MB} MB (${BINARY_SIZE} bytes)"
+          echo "--------------------------------------------"
+          echo "  CPU info:"
+          if [ "${{ matrix.os }}" = "linux" ]; then
+            echo "    Cores: $(nproc)"
+            echo "    Model: $(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2 | xargs)"
+          elif [ "${{ matrix.os }}" = "macos" ]; then
+            echo "    Cores: $(sysctl -n hw.ncpu)"
+            echo "    Model: $(sysctl -n machdep.cpu.brand_string 2>/dev/null || echo 'Apple Silicon')"
+          else
+            echo "    Cores: $NUMBER_OF_PROCESSORS"
+          fi
+          echo "  Peak memory (build dir):"
+          du -sh build/ 2>/dev/null || true
           echo "============================================"
 
+          # Structured summary for cross-run comparison
           {
             echo "### ${{ matrix.platform }}"
             echo "| Metric | Value |"
             echo "|--------|-------|"
-            echo "| Binary size | ${BINARY_SIZE_MB} MB |"
+            echo "| Binary size | ${BINARY_SIZE_MB} MB (${BINARY_SIZE} bytes) |"
             echo "| Build time | ${MINS}m ${SECS}s |"
             echo "| Extra flags | \`${EXTRA_FLAGS}\` |"
             echo "| UPX | ${UPX_ENABLED} |"
@@ -276,13 +291,20 @@ jobs:
           echo "  UPX:          $UPX_ENABLED"
           echo "  Build time:   ${MINS}m ${SECS}s (${ELAPSED}s total)"
           echo "  Binary size:  ${BINARY_SIZE_MB} MB (${BINARY_SIZE} bytes)"
+          echo "--------------------------------------------"
+          echo "  CPU info:"
+          echo "    Cores: $(nproc)"
+          echo "    Model: $(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2 | xargs)"
+          echo "  Peak memory (build dir):"
+          du -sh build/ 2>/dev/null || true
           echo "============================================"
 
+          # Structured summary for cross-run comparison
           {
             echo "### ${{ matrix.platform }}"
             echo "| Metric | Value |"
             echo "|--------|-------|"
-            echo "| Binary size | ${BINARY_SIZE_MB} MB |"
+            echo "| Binary size | ${BINARY_SIZE_MB} MB (${BINARY_SIZE} bytes) |"
             echo "| Build time | ${MINS}m ${SECS}s |"
             echo "| Extra flags | \`${EXTRA_FLAGS}\` |"
             echo "| UPX | ${UPX_ENABLED} |"
@@ -292,6 +314,7 @@ jobs:
         run: |
           BINARY=$(ls build/nps-ctl-*-musl 2>/dev/null | head -1)
           docker run --rm -v "$(pwd)/build:/b:ro" alpine "/b/$(basename $BINARY)" --version
+          docker run --rm -v "$(pwd)/build:/b:ro" alpine "/b/$(basename $BINARY)" --help
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
