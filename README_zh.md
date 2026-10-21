@@ -246,6 +246,13 @@ make test
 make build
 ```
 
+### 二进制构建
+
+`make build-binary` 生成原生 Nuitka 二进制；在 Linux 上链接 glibc。
+`make build-binary-musl` 在 Alpine 中构建并链接 musl，因此该产物可在 musl
+发行版（如 Alpine）上运行，但无法直接在 Debian、Arch 等 glibc 系统上运行。
+如需构建完整平台矩阵并下载产物，请使用 _Nuitka Binary Build_ workflow。
+
 ## 许可证
 
 GPL-3.0 — 详见 [LICENSE](LICENSE)。

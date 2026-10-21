@@ -84,7 +84,7 @@ else
   BINARY_ARCH := arm64
 endif
 
-BINARY_NAME = nps-ctl-$(VERSION)-$(BINARY_OS)-$(BINARY_ARCH)
+BINARY_NAME = nps-ctl-$(VERSION)-$(BINARY_OS)-$(BINARY_ARCH)$(if $(filter linux,$(BINARY_OS)),-glibc,)
 BINARY_NAME_MUSL = nps-ctl-$(VERSION)-linux-$(BINARY_ARCH)-musl
 BINARY_DIR := build
 NUITKA_ENTRY := _nuitka_entry.py
