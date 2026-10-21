@@ -188,7 +188,11 @@ jobs:
       - name: Stage amd64 binary
         run: |
           V="${{ steps.meta.outputs.version }}"
-          cp "build/nps-ctl-${V}-linux-x86_64${{ matrix.suffix }}" build/nps-ctl
+          # The binary name depends on the ref: releases before v0.9.1 do not
+          # carry the libc suffix, so match on the prefix instead.
+          BIN=$(ls build/nps-ctl-"${V}"-linux-x86_64* | head -1)
+          echo "Staging ${BIN}"
+          cp "${BIN}" build/nps-ctl
           chmod +x build/nps-ctl
 
       - name: Build and push ${{ matrix.variant }} amd64
@@ -198,6 +202,7 @@ jobs:
           file: docker/Dockerfile.binary
           platforms: linux/amd64
           push: true
+          load: true
           build-args: |
             BASE_IMAGE=${{ matrix.base_image }}
             BINARY=build/nps-ctl
@@ -205,10 +210,18 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.variant }}-amd64
           cache-to: type=gha,mode=max,scope=${{ matrix.variant }}-amd64
 
+      - name: Smoke test ${{ matrix.variant }} amd64 image
+        run: |
+          docker run --rm \
+            "${IMAGE}:${{ steps.meta.outputs.version }}-${{ matrix.variant }}-amd64" \
+            --version
+
       - name: Stage arm64 binary
         run: |
           V="${{ steps.meta.outputs.version }}"
-          cp "build/nps-ctl-${V}-linux-arm64${{ matrix.suffix }}" build/nps-ctl
+          BIN=$(ls build/nps-ctl-"${V}"-linux-arm64* | head -1)
+          echo "Staging ${BIN}"
+          cp "${BIN}" build/nps-ctl
           chmod +x build/nps-ctl
 
       - name: Build and push ${{ matrix.variant }} arm64
