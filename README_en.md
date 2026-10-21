@@ -153,9 +153,42 @@ as `null`, and credentials (client verification keys, tunnel passwords, and
 Basic Auth) are redacted from its JSON output. The built-in server speaks
 plain HTTP, so terminate TLS in front of it before exposing it beyond
 loopback; ready-to-use systemd and Caddy files are in
-[`deploy/web`](deploy/web). Container images are published to Docker Hub as
-[`oaklight/nps-ctl`](https://hub.docker.com/r/oaklight/nps-ctl); see
-[`docker/README.md`](docker/README.md).
+[`deploy/web`](deploy/web).
+
+### Docker
+
+Images are published to Docker Hub as
+[`oaklight/nps-ctl`](https://hub.docker.com/r/oaklight/nps-ctl):
+
+| Tag | Base | Notes |
+| --- | --- | --- |
+| `latest`, `latest-python` | `python:3.12-slim` | Installs the wheel; full CLI |
+| `<version>-alpine` | `alpine` | Nuitka musl binary; no Python runtime |
+| `<version>-glibc` | `ubuntu:24.04` | Nuitka glibc binary; no Python runtime |
+
+Start the dashboard with:
+
+```bash
+docker run -d --name nps-ctl-web \
+  -p 8080:8080 \
+  -v "$PWD/config:/config" \
+  -e NPS_WEB_USERNAME=admin \
+  -e NPS_WEB_PASSWORD='choose-a-password' \
+  oaklight/nps-ctl:latest
+```
+
+The container reads `/config/edges.toml` and requires either
+`/config/web-users.toml` or `NPS_WEB_USERNAME`/`NPS_WEB_PASSWORD`. Append
+`--allow-writes` to enable actions. Other commands run with
+`--config /config/edges.toml` prepended:
+
+```bash
+docker run --rm -v "$PWD/config:/config" oaklight/nps-ctl:latest edge status
+```
+
+See [`docker/README.md`](docker/README.md) for Compose files, environment
+variables, and local image builds. The glibc variant needs a base at least
+as new as its build runner, so the Alpine image is the small one.
 
 ## Configuration
 
@@ -264,6 +297,13 @@ glibc. `make build-binary-musl` builds inside Alpine and links against musl, so
 that artifact runs on musl distributions (such as Alpine) but not directly on
 glibc systems like Debian or Arch. The _Nuitka Binary Build_ workflow builds the
 full platform matrix and uploads the artifacts.
+
+## Credits
+
+- Partial-failure exit codes for `client status` and `edge sync` (#35) came
+  from [@dannyward630](https://github.com/dannyward630)'s
+  [`fix/35-partial-failure-exit-codes`](https://github.com/dannyward630/nps-ctl/tree/fix/35-partial-failure-exit-codes)
+  branch.
 
 ## License
 

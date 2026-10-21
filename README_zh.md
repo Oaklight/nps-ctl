@@ -149,9 +149,41 @@ nps-ctl web --users-file web-users.toml --allow-writes
 域名映射；不可用的数量以 `null` 返回，JSON 输出会隐藏凭据（客户端验证密钥、
 隧道密码和 Basic Auth）。内置服务器只提供 HTTP，如需暴露到回环地址之外，请
 在前置代理上终止 TLS；可直接使用的 systemd 与 Caddy 配置见
-[`deploy/web`](deploy/web)。容器镜像发布在 Docker Hub
-（[`oaklight/nps-ctl`](https://hub.docker.com/r/oaklight/nps-ctl)），使用方式见
-[`docker/README.md`](docker/README.md)。
+[`deploy/web`](deploy/web)。
+
+### Docker
+
+镜像发布在 Docker Hub
+[`oaklight/nps-ctl`](https://hub.docker.com/r/oaklight/nps-ctl)：
+
+| 标签 | 基础镜像 | 说明 |
+| --- | --- | --- |
+| `latest`、`latest-python` | `python:3.12-slim` | 安装 wheel，包含完整 CLI |
+| `<version>-alpine` | `alpine` | Nuitka musl 二进制，不含 Python 运行时 |
+| `<version>-glibc` | `ubuntu:24.04` | Nuitka glibc 二进制，不含 Python 运行时 |
+
+启动面板：
+
+```bash
+docker run -d --name nps-ctl-web \
+  -p 8080:8080 \
+  -v "$PWD/config:/config" \
+  -e NPS_WEB_USERNAME=admin \
+  -e NPS_WEB_PASSWORD='choose-a-password' \
+  oaklight/nps-ctl:latest
+```
+
+容器读取 `/config/edges.toml`，并要求提供 `/config/web-users.toml` 或
+`NPS_WEB_USERNAME`/`NPS_WEB_PASSWORD`。追加 `--allow-writes` 可启用变更操作。
+其他命令会自动在前面加上 `--config /config/edges.toml`：
+
+```bash
+docker run --rm -v "$PWD/config:/config" oaklight/nps-ctl:latest edge status
+```
+
+Compose 文件、环境变量和本地构建方式见
+[`docker/README.md`](docker/README.md)。glibc 版本的基础镜像必须不旧于其构建
+环境，因此体积更小的是 Alpine 镜像。
 
 ## 配置
 
@@ -254,6 +286,13 @@ make build
 `make build-binary-musl` 在 Alpine 中构建并链接 musl，因此该产物可在 musl
 发行版（如 Alpine）上运行，但无法直接在 Debian、Arch 等 glibc 系统上运行。
 如需构建完整平台矩阵并下载产物，请使用 _Nuitka Binary Build_ workflow。
+
+## 致谢
+
+- `client status` 与 `edge sync` 的部分失败退出码（#35）来自
+  [@dannyward630](https://github.com/dannyward630) 的
+  [`fix/35-partial-failure-exit-codes`](https://github.com/dannyward630/nps-ctl/tree/fix/35-partial-failure-exit-codes)
+  分支。
 
 ## 许可证
 
