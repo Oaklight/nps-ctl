@@ -63,6 +63,7 @@ nps-ctl 的所有重要变更均记录于此。本项目遵循 [Keep a Changelog
 
 - **`edge status`** 在可达性之外新增客户端、域名映射和目标端口数量；任一客户端或域名映射抓取失败即退出 1，而不再只检查节点是否离线
 - `edge status` 的 JSON 保留 `summary: {configured, online, offline}`，新增逐边缘数量与顶层 `totals`
+- `client status` 与 `edge sync` 在任一客户端或目标节点失败时退出 1，并输出 ok/failed 汇总（#35）——感谢 [@dannyward630](https://github.com/dannyward630)
 
 ---
 

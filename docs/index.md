@@ -8,9 +8,9 @@ hide:
 
 **用于管理 NPS 代理服务器集群的 Python CLI 和库。**
 
-[![PyPI version](https://img.shields.io/pypi/v/nps-ctl)](https://pypi.org/project/nps-ctl/)
-[![Python version](https://img.shields.io/pypi/pyversions/nps-ctl)](https://pypi.org/project/nps-ctl/)
-[![License](https://img.shields.io/github/license/Oaklight/nps-ctl)](https://github.com/Oaklight/nps-ctl)
+[![PyPI version](https://img.shields.io/pypi/v/nps-ctl?color=green)](https://pypi.org/project/nps-ctl/)
+[![Python version](https://img.shields.io/pypi/pyversions/nps-ctl?color=blue)](https://pypi.org/project/nps-ctl/)
+[![License](https://img.shields.io/github/license/Oaklight/nps-ctl?color=green)](https://github.com/Oaklight/nps-ctl)
 [![CI](https://img.shields.io/github/actions/workflow/status/Oaklight/nps-ctl/ci.yml)](https://github.com/Oaklight/nps-ctl/actions/workflows/ci.yml)
 
 !!! note "上游 NPS 分支"
