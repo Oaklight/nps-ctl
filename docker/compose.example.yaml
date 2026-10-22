@@ -1,0 +1,34 @@
+# Example deployment of the nps-ctl dashboard from Docker Hub.
+#
+#   mkdir -p config
+#   cp edges.toml web-users.toml config/     # see docker/README_en.md
+#   docker compose -f docker/compose.example.yaml up -d
+#
+# The container listens on 0.0.0.0:8080. Put a TLS-terminating reverse proxy
+# (Caddy, nginx, Traefik) in front of it before exposing it beyond your host.
+services:
+  nps-ctl-web:
+    # `latest` is the Python image; pin a version for reproducible deploys,
+    # or use `<version>-alpine` / `<version>-glibc` for the binary images.
+    image: oaklight/nps-ctl:${IMAGE_TAG:-latest}
+    container_name: nps-ctl-web
+    ports:
+      - "${NPS_CTL_PORT:-8080}:8080"
+    volumes:
+      - ${NPS_CTL_CONFIG:-./config}:/config
+    environment:
+      # Used only when /config/web-users.toml is absent.
+      - NPS_WEB_USERNAME=${NPS_WEB_USERNAME:-}
+      - NPS_WEB_PASSWORD=${NPS_WEB_PASSWORD:-}
+    # Defaults to the read-only dashboard. Uncomment to enable sync, add and
+    # edit/delete actions (the container user must be able to write
+    # /config/edges.toml):
+    # command: ["--allow-writes"]
+    restart: unless-stopped
+    # Optional hardening. /config stays writable because Add edge appends to
+    # edges.toml; the Nuitka binary images unpack into /tmp.
+    # security_opt:
+    #   - no-new-privileges:true
+    # read_only: true
+    # tmpfs:
+    #   - /tmp
