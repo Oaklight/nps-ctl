@@ -205,8 +205,7 @@ build-docker-glibc:
 	@test -f $(BINARY_DIR)/$(BINARY_NAME) || \
 		{ echo "Native binary not found. Run 'make build-binary' first."; exit 1; }
 	@cp $(BINARY_DIR)/$(BINARY_NAME) $(BINARY_DIR)/nps-ctl
-	DOCKER_BUILDKIT=1 docker build -f docker/Dockerfile.binary \
-		--build-arg BASE_IMAGE=ubuntu:24.04 \
+	DOCKER_BUILDKIT=1 docker build -f docker/Dockerfile.binary.glibc \
 		--build-arg BINARY=$(BINARY_DIR)/nps-ctl \
 		-t $(DOCKER_IMAGE):$(VERSION)-glibc .
 

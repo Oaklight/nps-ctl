@@ -9,16 +9,18 @@ Three image variants are published to Docker Hub as
 | --- | --- | --- | --- |
 | `latest`, `latest-python`, `<version>`, `<version>-python` | `python:3.12-slim` | ~130 MB | Installs the wheel from PyPI; full CLI |
 | `<version>-alpine` (and `latest-alpine` on releases) | `alpine` | ~22 MB | Nuitka musl binary; no Python runtime |
-| `<version>-glibc` (and `latest-glibc` on releases) | `ubuntu:24.04` | ~110 MB | Nuitka glibc binary; no Python runtime |
+| `<version>-glibc` (and `latest-glibc` on releases) | `scratch` + glibc runtime | ~28 MB | Nuitka glibc binary; no Python runtime |
 
 All images run as a non-root user (uid 10001), listen on `8080`, and keep
 configuration in `/config`. `latest` points at the Python image; on a release
 it moves together with `latest-python`, `latest-alpine` and `latest-glibc`.
 
-The glibc variant needs a base at least as new as the runner that compiles
-the binary (Ubuntu 24.04), which is why it is larger than the Alpine image.
-Prefer `-alpine` for a small footprint and the default `python` image when
-you want the most portable glibc build.
+The glibc variant is assembled `FROM scratch`: the image carries only the
+glibc runtime pieces from Ubuntu 24.04 (the version its binary links against),
+zlib, CA certificates, and a static busybox for the entrypoint. It is close to
+the Alpine image in size while running on glibc hosts. Use `-alpine` on musl
+systems, `-glibc` on glibc systems, and the default `python` image when you
+want the most portable build.
 
 ## Quick start
 

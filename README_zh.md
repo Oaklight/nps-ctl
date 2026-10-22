@@ -162,7 +162,7 @@ nps-ctl web --users-file web-users.toml --allow-writes
 | --- | --- | --- |
 | `latest`、`latest-python` | `python:3.12-slim` | 安装 wheel，包含完整 CLI |
 | `<version>-alpine` | `alpine` | Nuitka musl 二进制，不含 Python 运行时 |
-| `<version>-glibc` | `ubuntu:24.04` | Nuitka glibc 二进制，不含 Python 运行时 |
+| `<version>-glibc` | `scratch` + glibc 运行时 | Nuitka glibc 二进制，不含 Python 运行时 |
 
 启动面板：
 
@@ -184,8 +184,8 @@ docker run --rm -v "$PWD/config:/config" oaklight/nps-ctl:latest edge status
 ```
 
 Compose 文件、环境变量和本地构建方式见
-[`docker/README.md`](docker/README.md)。glibc 版本的基础镜像必须不旧于其构建
-环境，因此体积更小的是 Alpine 镜像。
+[`docker/README.md`](docker/README.md)。两个二进制镜像体积都很小：glibc 版本
+基于 `scratch`，只包含其二进制所需的运行库。
 
 ## 配置
 

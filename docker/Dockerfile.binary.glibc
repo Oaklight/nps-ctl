@@ -1,0 +1,58 @@
+# syntax=docker/dockerfile:1
+#
+# Minimal glibc image: static busybox + only the glibc runtime the Nuitka
+# binary needs. The result is ~28 MB instead of ~103 MB for a full
+# ubuntu:24.04 base, while still matching the glibc version the binary was
+# linked against.
+#
+#   docker build -f docker/Dockerfile.binary.glibc \
+#     --build-arg BINARY=build/nps-ctl .
+#
+# Ubuntu 24.04 is used only as the source of the runtime files; the final
+# image is FROM scratch. It must not be older than the runner that built the
+# binary (GLIBC_2.38 for ubuntu-24.04 builds).
+
+FROM ubuntu:24.04 AS rootfs
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends zlib1g ca-certificates busybox-static && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN mkdir -p /rootfs/bin /rootfs/lib /rootfs/etc/ssl/certs /rootfs/tmp \
+             /rootfs/config /rootfs/usr/local/bin /rootfs/home/appuser && \
+    cp -L /bin/busybox /rootfs/bin/busybox && \
+    ln -s busybox /rootfs/bin/sh && \
+    for f in libc.so.6 libm.so.6 libdl.so.2 libpthread.so.0 librt.so.1 \
+             libresolv.so.2 libnss_dns.so.2 libnss_files.so.2 libgcc_s.so.1 libz.so.1; do \
+        src=$(find /lib /usr/lib -name "$f" -print -quit); \
+        [ -n "$src" ] || { echo "missing $f" >&2; exit 1; }; \
+        cp -L "$src" /rootfs/lib/; \
+    done && \
+    cd / && find -H lib lib64 usr/lib -maxdepth 4 -name 'ld-linux*' -exec \
+        cp --parents -L {} /rootfs/ \; && \
+    cp /etc/ssl/certs/ca-certificates.crt /rootfs/etc/ssl/certs/ && \
+    printf 'root:x:0:0:root:/root:/bin/sh\nappuser:x:10001:10001::/home/appuser:/bin/sh\n' > /rootfs/etc/passwd && \
+    printf 'root:x:0:\nappgroup:x:10001:\n' > /rootfs/etc/group && \
+    printf 'hosts: files dns\n' > /rootfs/etc/nsswitch.conf && \
+    chmod 1777 /rootfs/tmp && \
+    chown 10001:10001 /rootfs/config /rootfs/home/appuser
+
+FROM scratch
+COPY --from=rootfs /rootfs/ /
+
+# Nuitka bundles OpenSSL; point it at the CA bundle we copied in.
+ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+ENV SSL_CERT_DIR=/etc/ssl/certs
+
+ARG BINARY=nps-ctl
+COPY --chmod=755 ${BINARY} /usr/local/bin/nps-ctl
+
+COPY --chmod=755 docker/entrypoint-binary.sh /entrypoint.sh
+
+VOLUME /config
+
+USER appuser
+
+EXPOSE 8080
+
+ENTRYPOINT ["/entrypoint.sh"]

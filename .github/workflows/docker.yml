@@ -165,10 +165,12 @@ jobs:
       matrix:
         include:
           - variant: alpine
+            dockerfile: docker/Dockerfile.binary
             base_image: alpine
             suffix: -musl
           - variant: glibc
-            base_image: ubuntu:24.04
+            dockerfile: docker/Dockerfile.binary.glibc
+            base_image: ""
             suffix: -glibc
     name: docker-${{ matrix.variant }}
     steps:
@@ -217,7 +219,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: docker/Dockerfile.binary
+          file: ${{ matrix.dockerfile }}
           platforms: linux/amd64
           push: true
           load: true
@@ -246,7 +248,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: docker/Dockerfile.binary
+          file: ${{ matrix.dockerfile }}
           platforms: linux/arm64
           push: true
           build-args: |
