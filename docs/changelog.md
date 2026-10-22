@@ -8,6 +8,29 @@ nps-ctl 的所有重要变更均记录于此。本项目遵循 [Keep a Changelog
 
 ---
 
+## v0.9.1 — 2026-10-21
+
+### 新增
+
+- **Docker 镜像**：`oaklight/nps-ctl` 发布到 Docker Hub，包含 Python 镜像（`latest`、`latest-python`、`<version>`、`<version>-python`）和 Nuitka 二进制镜像（`<version>-alpine`、`<version>-glibc`），均提供 amd64 与 arm64。发布流程会自动构建并推送，并对每个镜像执行 `--version` 冒烟测试
+- `docker/`：Dockerfile、在 `0.0.0.0:8080` 启动面板并要求认证的入口脚本、Compose 文件，以及避免把配置和凭据打进镜像的 `.dockerignore`
+
+### 变更
+
+- Linux Nuitka 产物按 libc 命名：`linux-x86_64-glibc`、`linux-arm64-musl`，产物名称即可说明其链接的 libc（#75）
+- glibc 二进制镜像基于 `ubuntu:24.04` 构建，Nuitka 的 Linux runner 固定为 `ubuntu-24.04`，确保基础镜像不旧于二进制所需的 libc
+
+### 修复
+
+- `edge sync` 按规范化模式比较隧道标识，源端上报 `socks5`/`httpProxy` 时能匹配目标端存储的 `mixProxy`（#72）
+- Docker 镜像构建按前缀匹配下载的二进制，因此可以从早于 libc 后缀重命名的 tag 构建镜像（#77）
+
+### 致谢
+
+- 感谢 [@dannyward630](https://github.com/dannyward630) 贡献 `client status` 与 `edge sync` 的部分失败退出码（#35）
+
+---
+
 ## v0.9.0 — 2026-10-21
 
 ### 新增
