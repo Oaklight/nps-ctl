@@ -8,6 +8,29 @@ All notable changes to nps-ctl are documented here. This project follows [Keep a
 
 ---
 
+## v0.9.1 — 2026-10-21
+
+### Added
+
+- **Docker images**: `oaklight/nps-ctl` is published on Docker Hub — a Python image (`latest`, `latest-python`, `<version>`, `<version>-python`) and Nuitka binary images (`<version>-alpine`, `<version>-glibc`) for amd64 and arm64. The release workflow builds and pushes them, and a smoke test runs each image's `--version`
+- `docker/`: Dockerfiles, entrypoints that start the dashboard on `0.0.0.0:8080` and require authentication, Compose files, and a `.dockerignore` that keeps configuration and credentials out of images
+
+### Changed
+
+- Linux Nuitka artifacts are named by libc — `linux-x86_64-glibc`, `linux-arm64-musl` — so the artifact name states what it links against (#75)
+- The glibc binary images build on `ubuntu:24.04` and the Nuitka Linux runners are pinned to `ubuntu-24.04`, keeping the base at least as new as the libc the binary needs
+
+### Fixed
+
+- `edge sync` compares tunnel identity by canonical mode, so a source reporting `socks5`/`httpProxy` matches targets that store `mixProxy` (#72)
+- Docker image builds stage the downloaded binary by prefix, so images can be built from tags that predate the libc-suffix rename (#77)
+
+### Credits
+
+- Thanks to [@dannyward630](https://github.com/dannyward630) for the partial-failure exit codes in `client status` and `edge sync` (#35)
+
+---
+
 ## v0.9.0 — 2026-10-21
 
 ### Added
