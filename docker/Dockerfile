@@ -6,10 +6,10 @@ FROM ${REGISTRY_MIRROR:-docker.io}/python:${PYTHON_VERSION}-slim
 
 # Install source: PyPI (PACKAGE_VERSION), TestPyPI (EXTRA_INDEX_URL), or a
 # wheel placed in dist/ (LOCAL_WHEEL).
-ARG PYPI_MIRROR
-ARG EXTRA_INDEX_URL
-ARG LOCAL_WHEEL
-ARG PACKAGE_VERSION
+ARG PYPI_MIRROR=""
+ARG EXTRA_INDEX_URL=""
+ARG LOCAL_WHEEL=""
+ARG PACKAGE_VERSION=""
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
@@ -26,7 +26,8 @@ RUN adduser \
 RUN mkdir -p /tmp/dist/
 COPY dist/ /tmp/dist/
 
-RUN PIP_FLAGS="--no-cache-dir"; \
+RUN set -eu; \
+    PIP_FLAGS="--no-cache-dir"; \
     if [ -n "$PYPI_MIRROR" ]; then \
         PIP_FLAGS="$PIP_FLAGS -i $PYPI_MIRROR"; \
     fi; \
@@ -46,6 +47,10 @@ RUN PIP_FLAGS="--no-cache-dir"; \
         pip install $PIP_FLAGS nps-ctl; \
     fi; \
     rm -rf /tmp/dist/
+
+# Fail the build if the package is missing. Without this a pip failure could
+# leave an image with no nps-ctl at all.
+RUN nps-ctl --version
 
 RUN mkdir -p /config && chown appuser:appuser /config
 
