@@ -3,6 +3,8 @@
 [![PyPI version](https://img.shields.io/pypi/v/nps-ctl?color=green)](https://pypi.org/project/nps-ctl/)
 [![CI](https://github.com/Oaklight/nps-ctl/actions/workflows/ci.yml/badge.svg)](https://github.com/Oaklight/nps-ctl/actions/workflows/ci.yml)
 [![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-green.svg)](https://www.gnu.org/licenses/gpl-3.0)
+[![Docker Hub](https://img.shields.io/docker/v/oaklight/nps-ctl?sort=semver&label=docker%20hub&color=green)](https://hub.docker.com/r/oaklight/nps-ctl)
+[![Docker pulls](https://img.shields.io/docker/pulls/oaklight/nps-ctl?label=docker%20pulls)](https://hub.docker.com/r/oaklight/nps-ctl)
 
 [English](README_en.md) | [中文](README_zh.md)
 
