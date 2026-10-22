@@ -69,6 +69,7 @@ jobs:
     uses: ./.github/workflows/docker.yml
     with:
       tag: ${{ inputs.version }}
+      push_latest: true
     secrets:
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}

@@ -15,6 +15,11 @@ on:
         required: false
         type: string
         default: ""
+      push_latest:
+        description: "Also move the latest, latest-python, latest-alpine and latest-glibc tags"
+        required: false
+        type: boolean
+        default: false
       testpypi:
         description: "Install the Python image from Test PyPI"
         required: false
@@ -36,6 +41,11 @@ on:
         required: false
         type: string
         default: ""
+      push_latest:
+        description: "Also move the latest, latest-python, latest-alpine and latest-glibc tags"
+        required: false
+        type: boolean
+        default: false
       testpypi:
         description: "Install the Python image from Test PyPI"
         required: false
@@ -74,23 +84,31 @@ jobs:
         run: |
           VERSION="${{ steps.meta.outputs.version }}"
           if [ "${{ inputs.testpypi }}" = "true" ]; then
-            URL="https://test.pypi.org/pypi/nps-ctl/${VERSION}/json"
+            JSON="https://test.pypi.org/pypi/nps-ctl/${VERSION}/json"
+            SIMPLE="https://test.pypi.org/simple/nps-ctl/"
             LABEL="Test PyPI"
           else
-            URL="https://pypi.org/pypi/nps-ctl/${VERSION}/json"
+            JSON="https://pypi.org/pypi/nps-ctl/${VERSION}/json"
+            SIMPLE="https://pypi.org/simple/nps-ctl/"
             LABEL="PyPI"
           fi
-          echo "Waiting for nps-ctl==${VERSION} on ${LABEL}..."
+          echo "Waiting for nps-ctl==${VERSION} on ${LABEL} (JSON and simple index)..."
           for i in $(seq 1 30); do
-            CODE=$(curl -fsS -o /dev/null -w "%{http_code}" "$URL" || true)
-            if [ "$CODE" = "200" ]; then
+            JSON_OK=0
+            SIMPLE_OK=0
+            curl -fsS -o /dev/null "$JSON" && JSON_OK=1
+            # pip installs from the simple index, which can lag the JSON API.
+            if curl -fsS "$SIMPLE" | grep -qE "nps_ctl-${VERSION}[-.]"; then
+              SIMPLE_OK=1
+            fi
+            if [ "$JSON_OK" = "1" ] && [ "$SIMPLE_OK" = "1" ]; then
               echo "Found on ${LABEL} (attempt $i)"
               exit 0
             fi
-            echo "  Attempt $i/30: waiting 20s..."
+            echo "  Attempt $i/30: JSON=${JSON_OK} simple=${SIMPLE_OK}, waiting 20s..."
             sleep 20
           done
-          echo "::error::nps-ctl ${VERSION} not found on ${LABEL} after 10 minutes"
+          echo "::error::nps-ctl ${VERSION} not available on ${LABEL} after 10 minutes"
           exit 1
 
       - name: Ensure dist/ exists
@@ -109,7 +127,7 @@ jobs:
         run: |
           V="${{ steps.meta.outputs.version }}"
           TAGS="${IMAGE}:${V}-python,${IMAGE}:latest-python,${IMAGE}:${V}"
-          if [ "${{ github.event_name }}" = "workflow_call" ]; then
+          if [ "${{ inputs.push_latest }}" = "true" ]; then
             TAGS="${TAGS},${IMAGE}:latest"
           fi
           echo "tags=${TAGS}" >> "$GITHUB_OUTPUT"
@@ -242,7 +260,11 @@ jobs:
         run: |
           V="${{ steps.meta.outputs.version }}"
           VARIANT="${{ matrix.variant }}"
+          TAGS="-t ${IMAGE}:${V}-${VARIANT}"
+          if [ "${{ inputs.push_latest }}" = "true" ]; then
+            TAGS="${TAGS} -t ${IMAGE}:latest-${VARIANT}"
+          fi
           docker buildx imagetools create \
-            -t "${IMAGE}:${V}-${VARIANT}" \
+            ${TAGS} \
             "${IMAGE}:${V}-${VARIANT}-amd64" \
             "${IMAGE}:${V}-${VARIANT}-arm64"
