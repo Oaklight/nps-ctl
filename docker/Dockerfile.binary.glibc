@@ -28,8 +28,13 @@ RUN mkdir -p /rootfs/bin /rootfs/lib /rootfs/etc/ssl/certs /rootfs/tmp \
         [ -n "$src" ] || { echo "missing $f" >&2; exit 1; }; \
         cp -L "$src" /rootfs/lib/; \
     done && \
-    cd / && find -H lib lib64 usr/lib -maxdepth 4 -name 'ld-linux*' -exec \
-        cp --parents -L {} /rootfs/ \; && \
+    for d in lib lib64 usr/lib; do \
+        [ -e "/$d" ] || continue; \
+        ( cd / && find -H "$d" -maxdepth 4 -name 'ld-linux*' -exec \
+            cp --parents -L {} /rootfs/ \; ); \
+    done && \
+    { [ -n "$(find /rootfs -name 'ld-linux*' -print -quit)" ] || \
+        { echo "missing dynamic loader" >&2; exit 1; }; } && \
     cp /etc/ssl/certs/ca-certificates.crt /rootfs/etc/ssl/certs/ && \
     printf 'root:x:0:0:root:/root:/bin/sh\nappuser:x:10001:10001::/home/appuser:/bin/sh\n' > /rootfs/etc/passwd && \
     printf 'root:x:0:\nappgroup:x:10001:\n' > /rootfs/etc/group && \
