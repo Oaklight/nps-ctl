@@ -12,6 +12,8 @@ hide:
 [![Python version](https://img.shields.io/pypi/pyversions/nps-ctl?color=blue)](https://pypi.org/project/nps-ctl/)
 [![License](https://img.shields.io/github/license/Oaklight/nps-ctl?color=green)](https://github.com/Oaklight/nps-ctl)
 [![CI](https://img.shields.io/github/actions/workflow/status/Oaklight/nps-ctl/ci.yml)](https://github.com/Oaklight/nps-ctl/actions/workflows/ci.yml)
+[![Docker Hub](https://img.shields.io/docker/v/oaklight/nps-ctl?sort=semver&label=docker%20hub&color=green)](https://hub.docker.com/r/oaklight/nps-ctl)
+[![Docker pulls](https://img.shields.io/docker/pulls/oaklight/nps-ctl?label=docker%20pulls)](https://hub.docker.com/r/oaklight/nps-ctl)
 
 !!! note "上游 NPS 分支"
     nps-ctl 针对 [djylb/nps](https://github.com/djylb/nps) 分支开发，该分支是原始 NPS 项目的活跃维护延续版本。请确保你的 NPS 服务器实例运行的是此分支。
