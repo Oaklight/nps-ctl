@@ -12,6 +12,8 @@ hide:
 [![Python version](https://img.shields.io/pypi/pyversions/nps-ctl?color=blue)](https://pypi.org/project/nps-ctl/)
 [![License](https://img.shields.io/github/license/Oaklight/nps-ctl?color=green)](https://github.com/Oaklight/nps-ctl)
 [![CI](https://img.shields.io/github/actions/workflow/status/Oaklight/nps-ctl/ci.yml)](https://github.com/Oaklight/nps-ctl/actions/workflows/ci.yml)
+[![Docker Hub](https://img.shields.io/docker/v/oaklight/nps-ctl?sort=semver&label=docker%20hub&color=green)](https://hub.docker.com/r/oaklight/nps-ctl)
+[![Docker pulls](https://img.shields.io/docker/pulls/oaklight/nps-ctl?label=docker%20pulls)](https://hub.docker.com/r/oaklight/nps-ctl)
 
 !!! note "Upstream NPS fork"
     nps-ctl targets the [djylb/nps](https://github.com/djylb/nps) fork, which
