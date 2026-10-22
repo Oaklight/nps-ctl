@@ -9,15 +9,16 @@
 | --- | --- | --- | --- |
 | `latest`、`latest-python`、`<version>`、`<version>-python` | `python:3.12-slim` | ~130 MB | 从 PyPI 安装 wheel，包含完整 CLI |
 | `<version>-alpine`（发布时同时更新 `latest-alpine`） | `alpine` | ~22 MB | Nuitka musl 二进制，不含 Python 运行时 |
-| `<version>-glibc`（发布时同时更新 `latest-glibc`） | `ubuntu:24.04` | ~110 MB | Nuitka glibc 二进制，不含 Python 运行时 |
+| `<version>-glibc`（发布时同时更新 `latest-glibc`） | `scratch` + glibc 运行时 | ~28 MB | Nuitka glibc 二进制，不含 Python 运行时 |
 
 所有镜像以非 root 用户（uid 10001）运行，监听 `8080`，配置保存在 `/config`。
 `latest` 指向 Python 镜像；发布时与 `latest-python`、`latest-alpine`、
 `latest-glibc` 一起更新。
 
-glibc 版本的基础镜像必须不旧于编译二进制的 runner（Ubuntu 24.04），因此比
-Alpine 镜像大。追求小体积请用 `-alpine`；需要最通用的 glibc 版本请用默认的
-Python 镜像。
+glibc 版本基于 `scratch` 组装：镜像只包含其二进制所链接的 Ubuntu 24.04 glibc
+运行时组件、zlib、CA 证书，以及用于入口脚本的静态 busybox。体积接近 Alpine
+镜像，同时可在 glibc 系统上运行。musl 系统请用 `-alpine`，glibc 系统用
+`-glibc`；需要最通用的版本时使用默认的 Python 镜像。
 
 ## 快速开始
 

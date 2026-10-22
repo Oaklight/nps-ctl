@@ -166,7 +166,7 @@ Images are published to Docker Hub as
 | --- | --- | --- |
 | `latest`, `latest-python` | `python:3.12-slim` | Installs the wheel; full CLI |
 | `<version>-alpine` | `alpine` | Nuitka musl binary; no Python runtime |
-| `<version>-glibc` | `ubuntu:24.04` | Nuitka glibc binary; no Python runtime |
+| `<version>-glibc` | `scratch` + glibc runtime | Nuitka glibc binary; no Python runtime |
 
 Start the dashboard with:
 
@@ -189,8 +189,9 @@ docker run --rm -v "$PWD/config:/config" oaklight/nps-ctl:latest edge status
 ```
 
 See [`docker/README.md`](docker/README.md) for Compose files, environment
-variables, and local image builds. The glibc variant needs a base at least
-as new as its build runner, so the Alpine image is the small one.
+variables, and local image builds. Both binary images are small: the glibc
+one is assembled `FROM scratch` with only the runtime pieces its binary
+needs.
 
 ## Configuration
 
