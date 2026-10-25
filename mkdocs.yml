@@ -81,6 +81,7 @@ nav:
       - CLI Reference: guides/cli.md
       - Web Dashboard: guides/web.md
       - Python Library: guides/library.md
+      - Tunnel Checks: guides/checks.md
   - Reference:
       - API Reference: reference/api.md
       - CLI Quick Reference: reference/cli-flags.md

@@ -69,6 +69,16 @@ them.
 | `--allow-writes` | `web` | Enable add/sync/edit/delete and add-edge actions |
 | `--insecure` | `web` | Allow a non-loopback read-only bind without authentication |
 | `--iterations` N | `util hash-password` | PBKDF2 iteration count |
+| `--since` DURATION | `check links` | Window to examine, e.g. `90m`, `6h`, `2d` (default `6h`) |
+| `--log-path` PATH | `check links` | NPC log path on the client hosts (default `/var/log/npc.log`) |
+| `--tail-bytes` N | `check links` | How much of each log's end to read (default 4 MiB) |
+| `--profile` NAME | `check stress` | `smoke`, `ladder`, `slow`, `churn` or `soak` |
+| `--duration` DURATION | `check stress` | Soak length (default `10m`) |
+| `--size`, `--count`, `--concurrency` | `check probe` | Body size (`64K`, `1M`), requests, parallelism |
+| `--mode`, `--chunk-kb`, `--gap-ms` | `check probe` | `slow` uploads: chunk size and gap between chunks |
+| `--http-proxy-port` N | `check probe/stress` | NPS HTTP proxy port (default: read from `nps.conf`, else 30080) |
+| `--fail-on` LEVEL | `check` | `error` for probe/stress; `warn` for links |
+| `--dry-run` | `check probe/stress` | Print the plan and change nothing |
 
 ## Command groups
 
@@ -78,5 +88,6 @@ them.
 | `edge` | `list`, `status`, `install`, `upgrade`, `reconfig`, `uninstall`, `primary`, `add`, `sync`, `export` |
 | `tunnel` | `list`, `status`, `add`, `del`, `edit`, `start`, `stop` |
 | `host` | `list`, `status`, `add`, `del`, `edit` |
+| `check` | `links`, `probe`, `stress` |
 | `util` | `generate-auth-key`, `hash-password` |
 | `web` | Dashboard server (read-only unless `--allow-writes`) |

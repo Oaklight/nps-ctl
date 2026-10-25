@@ -8,6 +8,16 @@ All notable changes to nps-ctl are documented here. This project follows [Keep a
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- **`check links`**: report per-(client, edge) bridge health from each NPC client's established sockets and log, without generating traffic. Outages start at the last answered ping, are attributed to an edge through the following `Start server` line, and a near-constant interval between them is flagged as periodic
+- **`check probe` / `check stress`**: push self-verifying bodies through one edge's tunnel. A temporary hash-echo service runs on the client, a throwaway `nps-ctl-check-*.nps-ctl-check.invalid` mapping points at it on the chosen edge, and every answer is compared with what was sent, so truncation, damage and bytes spliced in from another request are all detected. A client-local run without the tunnel is the baseline
+- **Stress profiles**: `smoke`, `ladder` (concurrency x body size), `slow` (chunked uploads), `churn` (connection churn) and `soak` (steady load for `--duration`), with failures matched against the outages in the client's NPC log
+
+---
+
 ## v0.9.1 — 2026-10-21
 
 ### Added
