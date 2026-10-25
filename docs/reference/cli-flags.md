@@ -64,7 +64,16 @@ nps-ctl [全局选项] <命令> <子命令> [选项]
 | `--users-file` PATH | `web` | 多用户 TOML 文件，支持 `operator`/`viewer` 角色 |
 | `--allow-writes` | `web` | 启用新增/同步/编辑/删除与添加边缘节点操作 |
 | `--insecure` | `web` | 允许无认证的非回环只读绑定 |
-| `--iterations` N | `util hash-password` | PBKDF2 迭代次数 |
+| `--iterations` N | `util hash-password` | PBKDF2 迭代次数 || `--since` 时长 | `check links` | 检查窗口，如 `90m`、`6h`、`2d`（默认 `6h`） |
+| `--log-path` 路径 | `check links` | 客户端主机上的 NPC 日志路径（默认 `/var/log/npc.log`） |
+| `--tail-bytes` N | `check links` | 读取日志尾部的字节数（默认 4 MiB） |
+| `--profile` 名称 | `check stress` | `smoke`、`ladder`、`slow`、`churn` 或 `soak` |
+| `--duration` 时长 | `check stress` | soak 持续时间（默认 `10m`） |
+| `--size`、`--count`、`--concurrency` | `check probe` | 请求体大小（`64K`、`1M`）、请求数、并发 |
+| `--mode`、`--chunk-kb`、`--gap-ms` | `check probe` | `slow` 上传：分块大小与间隔 |
+| `--http-proxy-port` N | `check probe/stress` | NPS HTTP 代理端口（默认读 `nps.conf`，否则 30080） |
+| `--fail-on` 级别 | `check` | probe/stress 默认 `error`；links 默认 `warn` |
+| `--dry-run` | `check probe/stress` | 只打印计划，不做改动 |
 
 ## 命令组
 
@@ -74,5 +83,6 @@ nps-ctl [全局选项] <命令> <子命令> [选项]
 | `edge` | `list`、`status`、`install`、`upgrade`、`reconfig`、`uninstall`、`primary`、`add`、`sync`、`export` |
 | `tunnel` | `list`、`status`、`add`、`del`、`edit`、`start`、`stop` |
 | `host` | `list`、`status`、`add`、`del`、`edit` |
+| `check` | `links`、`probe`、`stress` |
 | `util` | `generate-auth-key`、`hash-password` |
 | `web` | 面板服务（默认只读，`--allow-writes` 启用变更） |

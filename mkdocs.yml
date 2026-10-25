@@ -81,6 +81,7 @@ nav:
       - 命令行参考: guides/cli.md
       - Web 管理面板: guides/web.md
       - Python 库: guides/library.md
+      - 隧道健康检查: guides/checks.md
   - 参考:
       - API 参考: reference/api.md
       - 命令行速查: reference/cli-flags.md
