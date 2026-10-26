@@ -257,8 +257,9 @@ nps-ctl check leftovers --delete -a -y       # remove them
 
 A run killed outright cannot clean up. `check leftovers` lists mappings carrying
 the check's own remark and `.nps-ctl-check.invalid` domain, and removes them
-through the same verified delete path. Leftovers matter beyond a wasted row: a
-mapping present on one edge only reads as drift in `edge status`.
+through the same verified delete path. An edge that does not answer is reported
+and the others still run. Leftovers matter beyond a wasted row: a mapping
+present on one edge only reads as drift in `edge status`.
 
 ### What a check run leaves behind
 

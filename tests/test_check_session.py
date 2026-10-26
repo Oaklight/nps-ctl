@@ -229,9 +229,17 @@ class FakeCluster:
 
 
 class FakeMapping:
-    def __init__(self, fail_add=False, fail_remove=False, orphan_on_add=False):
+    def __init__(
+        self,
+        fail_add=False,
+        fail_remove=False,
+        orphan_on_add=False,
+        lists_nothing=False,
+    ):
         self.fail_add = fail_add
         self.fail_remove = fail_remove
+        self.lists_nothing = lists_nothing
+        self.write_attempted = False
         # The edge accepts the create, then the id lookup misses it.
         self.orphan_on_add = orphan_on_add
         self.added: list[tuple] = []
@@ -241,8 +249,10 @@ class FakeMapping:
     def add(self, edge, client_remark, domain, target):
         if self.fail_add:
             raise SessionError("nps refused")
+        self.write_attempted = True
         self.added.append((edge, client_remark, domain, target))
-        self.rows.append((domain, 7))
+        if not self.lists_nothing:
+            self.rows.append((domain, 7))
         if self.orphan_on_add:
             raise SessionError(
                 f"host mapping {domain} not found on {edge} after adding it"
@@ -470,6 +480,33 @@ def test_create_that_returns_no_id_is_reclaimed_by_domain(world):
 
 def mapping_domain(mapping):
     return mapping.added[0][2]
+
+
+def test_a_create_refused_before_the_write_reports_nothing_to_clean(world):
+    w = world()
+    mapping = FakeMapping(fail_add=True)
+    session = _session(w, mapping)
+
+    with pytest.raises(SessionError, match="nps refused"):
+        with session:
+            pytest.fail("the session must not open")
+
+    assert session.cleanup_problems == []
+    assert ("client.host", "echo_stop") in w.calls
+
+
+def test_a_sweep_that_finds_nothing_is_not_a_problem(world):
+    w = world()
+    # The edge accepted the create but lists no row for it, so nothing is left.
+    mapping = FakeMapping(orphan_on_add=True, lists_nothing=True)
+    session = _session(w, mapping)
+
+    with pytest.raises(SessionError):
+        with session:
+            pytest.fail("the session must not open")
+
+    assert mapping.removed == []
+    assert session.cleanup_problems == []
 
 
 def test_reclaim_that_fails_is_reported_with_the_manual_command(world):
