@@ -509,9 +509,56 @@ def test_a_tie_is_redeemed_after_the_first_bridge_reconnects():
     assert abs(outages[1].duration(now=0) - 122) < 2
 
 
-def test_a_tie_keeps_the_late_bridge_however_long_its_reconnect_takes():
-    # A real outage routinely lasts minutes; the fold is what counts it, not
-    # how soon after the drop the bridge comes back.
+def test_a_tie_keeps_the_late_bridge_while_the_drop_is_still_open():
+    # A third bridge that has not come back holds the drop open, so the tied
+    # bridge's own reconnect can be minutes later and still count from the
+    # shared stamp.
+    same = "2026-10-25 08:59:58 +0000 UTC"
+    other = "nps-other.example.test:51235"
+    third = "nps-third.example.test:51235"
+    text = "\n".join(
+        [
+            _line(
+                "2026-10-25T08:59:00+00:00",
+                f"Successful connection with server {SERVER}",
+            ),
+            _line(
+                "2026-10-25T08:59:01+00:00",
+                f"Successful connection with server {other}",
+            ),
+            _line(
+                "2026-10-25T08:59:02+00:00",
+                f"Successful connection with server {third}",
+            ),
+            _timeout("2026-10-25T09:00:28+00:00", same),
+            _timeout("2026-10-25T09:00:29+00:00", same),
+            _timeout("2026-10-25T09:00:29+00:00", "2026-10-25 08:59:59 +0000 UTC"),
+            _line("2026-10-25T09:00:30+00:00", f"Start server: {SERVER} vkey: X"),
+            _line(
+                "2026-10-25T09:00:50+00:00",
+                f"Successful connection with server {SERVER}",
+            ),
+            _line("2026-10-25T09:00:40+00:00", f"Start server: {third} vkey: X"),
+            _line("2026-10-25T09:04:00+00:00", f"Start server: {other} vkey: X"),
+            _line(
+                "2026-10-25T09:04:20+00:00",
+                f"Successful connection with server {other}",
+            ),
+        ]
+    )
+
+    outages = find_outages(parse_log(text))
+
+    assert [o.server for o in outages] == [SERVER, third, other]
+    assert abs(outages[2].duration(now=0) - 262) < 2
+    assert outages[1].reconnected is None
+
+
+def test_a_start_after_the_drop_is_over_starts_at_that_line():
+    # Nothing of the drop is still open and its last outage closed minutes ago,
+    # so this Start is the client starting a bridge again rather than a tied
+    # bridge coming back. Dating it from the drop would report hours that never
+    # happened; the line itself is the earliest evidence there is.
     same = "2026-10-25 08:59:58 +0000 UTC"
     other = "nps-other.example.test:51235"
     text = "\n".join(
@@ -542,7 +589,7 @@ def test_a_tie_keeps_the_late_bridge_however_long_its_reconnect_takes():
     outages = find_outages(parse_log(text))
 
     assert [o.server for o in outages] == [SERVER, other]
-    assert abs(outages[1].duration(now=0) - 262) < 2
+    assert abs(outages[1].duration(now=0) - 20) < 2
 
 
 def test_a_bridge_that_reconnected_after_the_fold_is_not_handed_one():
@@ -649,6 +696,44 @@ def test_a_stamp_less_drop_takes_both_bridges_with_it():
 
     assert [o.server for o in outages] == [SERVER, other]
     assert all(o.reconnected is not None for o in outages)
+
+
+def test_a_restarted_bridge_is_not_given_the_old_drops_downtime():
+    # One bridge drops and repeats its timeout, so it leaves a fold behind; the
+    # other bridge was up the whole time and is restarted much later. The fold
+    # must not turn that restart into an outage measured from the old drop.
+    same = "2026-10-25 08:59:58 +0000 UTC"
+    other = "nps-other.example.test:51235"
+    text = "\n".join(
+        [
+            _line(
+                "2026-10-25T08:59:00+00:00",
+                f"Successful connection with server {SERVER}",
+            ),
+            _line(
+                "2026-10-25T08:59:00+00:00",
+                f"Successful connection with server {other}",
+            ),
+            _timeout("2026-10-25T09:00:28+00:00", same),
+            _timeout("2026-10-25T09:00:58+00:00", same),
+            _line("2026-10-25T09:01:08+00:00", f"Start server: {SERVER} vkey: X"),
+            _line(
+                "2026-10-25T09:01:28+00:00",
+                f"Successful connection with server {SERVER}",
+            ),
+            _line("2026-10-25T09:05:00+00:00", f"Start server: {other} vkey: X"),
+            _line(
+                "2026-10-25T09:05:01+00:00",
+                f"Successful connection with server {other}",
+            ),
+        ]
+    )
+
+    outages = find_outages(parse_log(text))
+
+    assert [o.server for o in outages] == [SERVER, other]
+    assert abs(outages[0].duration(now=0) - 90) < 2
+    assert abs(outages[1].duration(now=0) - 1) < 2
 
 
 def test_a_reconnect_for_an_unknown_bridge_leaves_the_open_outage_open():

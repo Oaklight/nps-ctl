@@ -206,56 +206,64 @@ def _repeat_of(open_outages: list[Outage], last_alive: float) -> Outage | None:
     return None
 
 
+# How long after a drop's last outage has closed a ``Start server`` line still
+# counts as that drop's recovery rather than a fresh start.
+TIE_GRACE = 60.0
+
 # How many folded timeouts stay available for a tied bridge to claim. Only one
 # per pending bridge can ever be redeemed, and the list is cleared when a new
 # drop begins; the cap just bounds a long retry loop's log.
 TIE_MEMORY = 32
 
 
-def _open_tied(
+def _open_for_start(
     event: NpcEvent,
-    pending: set[str],
-    connected_at: dict[str, float],
+    pending: set[str] | None,
     folds: list[tuple[float, float]],
+    episode_closed_at: float | None,
 ) -> Outage | None:
-    """Open the outage a tied bridge never got, if *event* is its Start line.
+    """Open the outage a ``Start server`` line accounts for, or ``None``.
 
     NPC stamps the last-answered ping to the second, so two bridges that stop
     answering in the same second produce identical stamps and the second is
     folded into the first. Its ``Start server`` line then names a bridge no open
-    outage carries — the moment this outage can be created, with the tied stamp
-    the fold recorded.
+    outage carries — the moment this outage can be created. While the drop it
+    belongs to still counts as running — an outage of it is open, or the last
+    one closed moments ago — the fold supplies the shared stamp.
 
-    Two facts keep a ``Start server`` line that has nothing to do with a drop
-    from inventing one, and neither depends on how long the reconnect took: the
-    bridges that were connected when the drop began are known from the
-    ``Successful connection`` events before it, and a bridge that connected
-    again after the fold was recorded is up and was not down with the drop.
+    A drop that is over has no such stamp to offer: a ``Start server`` long
+    after the fact is the client's own restart of a bridge, and dating it from
+    the old drop would report hours of downtime that never happened. That
+    outage starts at the ``Start server`` line instead, the earliest moment the
+    log proves the bridge was not serving.
+
+    Only a bridge that was connected when the drop began can have gone down
+    with it; a client's first start, or a bridge added since, invents nothing.
 
     Args:
         event: A ``Start server`` event that matched no open outage.
         pending: Bridges that were connected when the current drop began, less
-            the ones an outage has already been opened for. Empty when the log
-            has no connection history to go on.
-        connected_at: Epoch seconds of the last ``Successful connection`` per
-            bridge.
-        folds: ``(last_alive, seen_at)`` for each timeout folded into an open
-            outage of the current drop, oldest first.
+            the ones the log has shown connected again since — or ``None`` when
+            the log gives no way to tell.
+        folds: ``(last_alive, seen_at)`` for each timeout folded into an
+            unnamed outage of the current drop, oldest first.
+        episode_closed_at: Epoch seconds the drop's last outage closed, or
+            ``None`` while one is still open.
 
     Returns:
-        The outage to open, or ``None`` when nothing points at this bridge.
+        The outage to open, or ``None`` when the event proves nothing.
     """
-    if pending and event.server not in pending:
+    if pending is not None and event.server not in pending:
         return None
-    if not folds:
+    if pending is None and not folds:
         return None
-    last_alive, seen_at = folds[0]
-    reconnected = connected_at.get(event.server)
-    if reconnected is not None and reconnected > seen_at:
-        return None
-    pending.discard(event.server)
-    del folds[0]
-    return Outage(server=event.server, last_alive=last_alive, detected=seen_at)
+    if pending is not None:
+        pending.discard(event.server)
+    running = episode_closed_at is None or event.time - episode_closed_at <= TIE_GRACE
+    if folds and running:
+        last_alive, seen_at = folds.pop(0)
+        return Outage(server=event.server, last_alive=last_alive, detected=seen_at)
+    return Outage(server=event.server, last_alive=event.time, detected=event.time)
 
 
 def find_outages(events: list[NpcEvent]) -> list[Outage]:
@@ -270,17 +278,20 @@ def find_outages(events: list[NpcEvent]) -> list[Outage]:
 
     Two timeouts can share a stamp, because NPC records the last answer to the
     second: both bridges stopped answering in the same second. The second is
-    folded into the first as a repeat, and the fold is remembered. The tied
-    bridge has no outage of its own, so when its ``Start server`` line arrives
-    and the bridge was connected when the drop began, the fold gives it one
-    with the shared stamp — however long either bridge takes to reconnect. A
+    folded into the first as a repeat, and the fold is remembered while that
+    outage still has no name — an outage that has been named has already had
+    its ``Start server`` line, so nothing is waiting to claim a fold for it. The
+    tied bridge then gets its own outage when its ``Start server`` line arrives,
+    with the shared stamp, however long either bridge takes to reconnect. A
     timeout line with no stamp at all cannot be compared, so the drop time is
     estimated from the timeout line itself.
 
     An outage ends at the ``Successful connection`` naming the same server, or
     the oldest unnamed outage when the event carries no name. A ``Start
     server`` or ``Successful connection`` with no outage open is the client's
-    initial connection and is ignored.
+    initial connection and is ignored, unless the bridge was connected when the
+    current drop began and the log has not shown it back since: that line is the
+    earliest moment the log proves it stopped serving.
 
     Args:
         events: Events in time order, as returned by :func:`parse_log`.
@@ -293,10 +304,15 @@ def find_outages(events: list[NpcEvent]) -> list[Outage]:
     open_outages: list[Outage] = []
     folds: list[tuple[float, float]] = []
     connected_at: dict[str, float] = {}
-    pending: set[str] = set()
+    pending: set[str] | None = None
+    episode_closed_at: float | None = None
     for event in events:
         if event.kind == CONNECTED:
             connected_at[event.server] = event.time
+            # A bridge that connected again is up, so it did not stay down
+            # with the drop; it is no longer a candidate for a tied outage.
+            if pending is not None:
+                pending.discard(event.server)
 
         if event.kind == PING_TIMEOUT:
             if event.last_alive is None:
@@ -308,8 +324,9 @@ def find_outages(events: list[NpcEvent]) -> list[Outage]:
                 newest = open_outages[-1] if open_outages else None
                 if newest is not None:
                     newest.detected = event.time
-                    folds.append((event.time, event.time))
-                    del folds[:-TIE_MEMORY]
+                    if not newest.server:
+                        folds.append((event.time, event.time))
+                        del folds[:-TIE_MEMORY]
                     continue
                 last_alive = event.time
             else:
@@ -318,14 +335,16 @@ def find_outages(events: list[NpcEvent]) -> list[Outage]:
             if repeat is not None:
                 repeat.last_alive = min(repeat.last_alive, last_alive)
                 repeat.detected = event.time
-                folds.append((last_alive, event.time))
-                del folds[:-TIE_MEMORY]
+                if not repeat.server:
+                    folds.append((last_alive, event.time))
+                    del folds[:-TIE_MEMORY]
                 continue
             if not open_outages:
                 # A new drop: the bridges connected right now are the ones that
                 # can have gone down with it, and folds left by an earlier drop
                 # are stale.
-                pending = set(connected_at)
+                pending = set(connected_at) or None
+                episode_closed_at = None
                 folds.clear()
             outage = Outage(server="", last_alive=last_alive, detected=event.time)
             outages.append(outage)
@@ -334,7 +353,7 @@ def find_outages(events: list[NpcEvent]) -> list[Outage]:
         target = _oldest_open(open_outages, event.server)
         if target is None:
             if event.kind == START_SERVER:
-                opened = _open_tied(event, pending, connected_at, folds)
+                opened = _open_for_start(event, pending, folds, episode_closed_at)
                 if opened is not None:
                     outages.append(opened)
                     open_outages.append(opened)
@@ -342,12 +361,14 @@ def find_outages(events: list[NpcEvent]) -> list[Outage]:
         if event.kind == START_SERVER:
             if not target.server:
                 target.server = event.server
-                pending.discard(event.server)
+                if pending is not None:
+                    pending.discard(event.server)
         elif event.kind == CONNECT_FAILED:
             target.failed_attempts += 1
             if not target.server:
                 target.server = event.server
-            pending.discard(event.server)
+                if pending is not None:
+                    pending.discard(event.server)
             reason = classify_error(event.detail)
             if reason not in target.reasons:
                 target.reasons.append(reason)
@@ -355,6 +376,7 @@ def find_outages(events: list[NpcEvent]) -> list[Outage]:
             target.reconnected = event.time
             if not target.server:
                 target.server = event.server
-            pending.discard(event.server)
             open_outages.remove(target)
+            if not open_outages:
+                episode_closed_at = event.time
     return outages
