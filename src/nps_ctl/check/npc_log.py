@@ -188,7 +188,10 @@ def _repeat_of(open_outages: list[Outage], last_alive: float) -> Outage | None:
     drop, and NPC reports the same ``last alive`` stamp for it. Matching on that
     stamp is what separates a repeat from a second bridge dropping at the same
     moment: the second bridge stopped answering at its own time, which the
-    message carries even when the two timeouts are logged a second apart.
+    message carries even when the two timeouts are logged a second apart. A
+    timeout with no stamp at all cannot be compared that way; the caller folds
+    it in provisionally and a later ``Start server`` line decides whether it was
+    a repeat or a second bridge.
 
     Args:
         open_outages: Outages that have not reconnected yet, oldest first.
@@ -268,11 +271,16 @@ def find_outages(events: list[NpcEvent]) -> list[Outage]:
     for event in events:
         if event.kind == PING_TIMEOUT:
             if event.last_alive is None:
-                # No stamp to compare: only an outage that no Start server line
-                # has named yet can be the one this repeat belongs to.
+                # No stamp to compare, so the timeout is provisional: fold it
+                # into the newest outage and let the next Start server line
+                # decide. A line naming a bridge that already has an outage
+                # confirms the repeat; a line naming a new bridge claims the
+                # fold and opens that bridge's outage.
                 newest = open_outages[-1] if open_outages else None
-                if newest is not None and not newest.server:
+                if newest is not None:
                     newest.detected = event.time
+                    folded.append((event.time, event.time))
+                    del folded[:-TIE_MEMORY]
                     continue
                 last_alive = event.time
             else:
