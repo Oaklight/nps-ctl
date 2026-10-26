@@ -30,7 +30,7 @@ For each NPC client, the command opens one SSH session and reads three things: t
 
 A ping timeout opens an outage that starts at the last answered ping, not at the moment NPC noticed. The edge a timeout belongs to is named by the `Start server` line that follows it, because the timeout line itself carries no server. An outage ends at the next `Successful connection`. This is why a link can be reported as "down 5% of the time" while the same log looks healthy at a glance.
 
-When a client bridges several edges whose network blips together, each bridge keeps its own outage: events are paired oldest-first, so one edge is never credited with another's downtime. An outage whose server no configured bridge matches — a changed bridge port, or a client whose configuration drifted — is reported as `outages_unattributed` instead of vanishing from every row.
+When a client bridges several edges whose network blips together, each bridge keeps its own outage: events are paired oldest-first, so one edge is never credited with another's downtime. A bridge that repeats its ping timeout while still down reports the same last-answered ping, and that repeat extends the outage rather than opening a second one. An outage whose server no configured bridge matches — a changed bridge port, or a client whose configuration drifted — is reported as `outages_unattributed` instead of vanishing from every row.
 
 The exit code is 1 when a link is down, a client cannot be reached, or a link flaps three times or more in the window. Add `--fail-on error` to ignore warnings.
 
@@ -105,7 +105,10 @@ nps-ctl check leftovers --delete -a -y       # remove them all
 
 Only rows carrying the check's own remark and the
 `.nps-ctl-check.invalid` domain are reported or deleted, so a real host mapping
-that happens to share the prefix is left alone. `--delete` requires an explicit
+that happens to share the prefix is left alone. An edge that does not answer is
+reported in `errors` and in a `leftover_edge_unreachable` finding while the
+other edges' results are still printed, because an unreachable edge is often
+the reason to run the sweep. `--delete` requires an explicit
 target (`-e` or `-a`) like every other mutation, and reuses the same verified
 delete path the runs use.
 

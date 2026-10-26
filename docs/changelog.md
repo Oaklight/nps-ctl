@@ -25,6 +25,9 @@ All notable changes to nps-ctl are documented here. This project follows [Keep a
 - `check probe`/`stress --json` print a single JSON document: they no longer prompt on stdout, and without `-y` they exit 2 with a JSON error. The confirmation prompt elsewhere goes to stderr
 - A check run interrupted with Ctrl-C reports what cleanup did and exits 130 instead of printing a traceback
 - Getting the NPS HTTP proxy port on the edge needs only `grep`; a missing `python3` on the edge no longer blocks a run
+- A bridge that repeats its ping timeout while still down reports the same last-answered ping, and the repeat now extends its outage instead of opening a phantom that surfaced as an unattributable outage
+- `check leftovers` reports an unreachable edge in `errors` and carries on with the edges that answered, instead of a traceback and empty `--json` output
+- A create refused before any write no longer claims that a mapping "may still be on" the edge; only a write that reached the edge can leave a row
 
 ---
 
