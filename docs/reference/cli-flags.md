@@ -79,6 +79,7 @@ them.
 | `--http-proxy-port` N | `check probe/stress` | NPS HTTP proxy port (default: read from `nps.conf`, else 30080) |
 | `--fail-on` LEVEL | `check` | `error` for probe/stress; `warn` for links |
 | `--dry-run` | `check probe/stress` | Print the plan and change nothing |
+| `--delete` | `check leftovers` | Delete the leftovers found (requires `-e` or `-a`) |
 
 ## Command groups
 
@@ -88,6 +89,6 @@ them.
 | `edge` | `list`, `status`, `install`, `upgrade`, `reconfig`, `uninstall`, `primary`, `add`, `sync`, `export` |
 | `tunnel` | `list`, `status`, `add`, `del`, `edit`, `start`, `stop` |
 | `host` | `list`, `status`, `add`, `del`, `edit` |
-| `check` | `links`, `probe`, `stress` |
+| `check` | `links`, `probe`, `stress`, `leftovers` |
 | `util` | `generate-auth-key`, `hash-password` |
 | `web` | Dashboard server (read-only unless `--allow-writes`) |

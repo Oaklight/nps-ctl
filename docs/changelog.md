@@ -15,6 +15,16 @@ All notable changes to nps-ctl are documented here. This project follows [Keep a
 - **`check links`**: report per-(client, edge) bridge health from each NPC client's established sockets and log, without generating traffic. Outages start at the last answered ping, are attributed to an edge through the following `Start server` line, and a near-constant interval between them is flagged as periodic
 - **`check probe` / `check stress`**: push self-verifying bodies through one edge's tunnel. A temporary hash-echo service runs on the client, a throwaway `nps-ctl-check-*.nps-ctl-check.invalid` mapping points at it on the chosen edge, and every answer is compared with what was sent, so truncation, damage and bytes spliced in from another request are all detected. A client-local run without the tunnel is the baseline
 - **Stress profiles**: `smoke`, `ladder` (concurrency x body size), `slow` (chunked uploads), `churn` (connection churn) and `soak` (steady load for `--duration`), with failures matched against the outages in the client's NPC log
+- **`check leftovers`**: list, and with `--delete` remove, host mappings left by a check run that was killed before it could clean up. Only rows carrying the check's own remark and domain are touched
+
+### Fixed
+
+- `check links` keeps one outage per bridge when several of a client's bridges time out together, instead of merging them and crediting one edge with another's downtime
+- An outage whose server matches no configured bridge is reported as `outages_unattributed` rather than disappearing from every row
+- A host mapping whose create returned no id is found again by domain and remark and removed, instead of being orphaned silently
+- `check probe`/`stress --json` print a single JSON document: they no longer prompt on stdout, and without `-y` they exit 2 with a JSON error. The confirmation prompt elsewhere goes to stderr
+- A check run interrupted with Ctrl-C reports what cleanup did and exits 130 instead of printing a traceback
+- Getting the NPS HTTP proxy port on the edge needs only `grep`; a missing `python3` on the edge no longer blocks a run
 
 ---
 

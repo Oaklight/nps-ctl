@@ -30,6 +30,8 @@ For each NPC client, the command opens one SSH session and reads three things: t
 
 A ping timeout opens an outage that starts at the last answered ping, not at the moment NPC noticed. The edge a timeout belongs to is named by the `Start server` line that follows it, because the timeout line itself carries no server. An outage ends at the next `Successful connection`. This is why a link can be reported as "down 5% of the time" while the same log looks healthy at a glance.
 
+When a client bridges several edges whose network blips together, each bridge keeps its own outage: events are paired oldest-first, so one edge is never credited with another's downtime. An outage whose server no configured bridge matches — a changed bridge port, or a client whose configuration drifted — is reported as `outages_unattributed` instead of vanishing from every row.
+
 The exit code is 1 when a link is down, a client cannot be reached, or a link flaps three times or more in the window. Add `--fail-on error` to ignore warnings.
 
 The periodic pattern is worth reading closely. Outages every 16 minutes on one edge, seen from every client in every region, point at the edge or the path to it rather than at any single client.
@@ -69,6 +71,12 @@ Options shared by `probe` and `stress`:
 
 `probe` sends one step: `--size` (`64K`, `1M`), `--count`, `--concurrency`, and optionally `--mode slow` with `--chunk-kb` and `--gap-ms` to send a body in small pieces with pauses, which is closer to how a language model client uploads a long conversation.
 
+With `--json`, `probe` and `stress` never prompt: they print exactly one JSON
+document, so pass `-y` (or `--dry-run`) or the command exits 2 with a JSON
+error. Without `--json` the confirmation prompt goes to stderr, leaving stdout
+clean as well. A run interrupted with Ctrl-C removes what it created and exits
+130.
+
 `stress` sends a named profile:
 
 | Profile | What it does |
@@ -80,6 +88,26 @@ Options shared by `probe` and `stress`:
 | `soak` | Steady load for `--duration` (default 10m), sized to catch a periodic fault |
 
 When a run has failures, `stress` reads the client's NPC log for the same window and reports how many failures fall inside logged outages, next to the share of the run those outages cover. A result of "9 of 9 failures inside outages that cover 9% of the run" is evidence for the link; failures with no outage anywhere near them are evidence against it.
+
+## Reclaiming what an interrupted run left behind
+
+A run that is killed outright — SIGKILL, a closed terminal, a job timeout —
+cannot clean up. Its mapping is recognisable, and it is worth removing: NPS
+identifies a host mapping by domain and location, so a mapping that exists on
+one edge and nowhere else counts as drift in `edge status` and on the dashboard
+for as long as it lives.
+
+```bash
+nps-ctl check leftovers                      # list, every edge
+nps-ctl check leftovers -e nps-europe --json
+nps-ctl check leftovers --delete -a -y       # remove them all
+```
+
+Only rows carrying the check's own remark and the
+`.nps-ctl-check.invalid` domain are reported or deleted, so a real host mapping
+that happens to share the prefix is left alone. `--delete` requires an explicit
+target (`-e` or `-a`) like every other mutation, and reuses the same verified
+delete path the runs use.
 
 ## What a run leaves behind
 
