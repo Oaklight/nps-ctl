@@ -203,6 +203,36 @@ def _repeat_of(open_outages: list[Outage], last_alive: float) -> Outage | None:
     return None
 
 
+# How many folded timeouts stay available for a tie to claim, and for how long
+# after the timeout a ``Start server`` may claim one.
+TIE_MEMORY = 32
+TIE_WINDOW = 60.0
+
+
+def _open_tied(event: NpcEvent, folded: list[tuple[float, float]]) -> Outage | None:
+    """Open the outage a tied bridge never got, if *event* is its Start line.
+
+    NPC stamps the last-answered ping to the second, so two bridges that stop
+    answering in the same second produce identical stamps and the second is
+    folded into the first. Its ``Start server`` line then names a bridge no open
+    outage carries — the moment this outage can be created, with the tied stamp
+    the fold recorded. The window keeps a ``Start server`` logged long after the
+    fold (the client's own startup, or a bridge that was already down when the
+    log begins) from inventing one.
+
+    Args:
+        event: A ``Start server`` event that matched no open outage.
+        folded: ``(last_alive, seen_at)`` for each folded timeout, oldest first.
+
+    Returns:
+        The outage to open, or ``None`` when no recent fold accounts for it.
+    """
+    for last_alive, seen_at in reversed(folded):
+        if event.time - seen_at <= TIE_WINDOW:
+            return Outage(server=event.server, last_alive=last_alive, detected=seen_at)
+    return None
+
+
 def find_outages(events: list[NpcEvent]) -> list[Outage]:
     """Group link events into outage windows.
 
@@ -212,6 +242,11 @@ def find_outages(events: list[NpcEvent]) -> list[Outage]:
     oldest-first: when a client bridges several edges and its own network
     blips, several muxes time out within seconds of each other, and folding
     them together would credit one edge with another's downtime.
+
+    Two timeouts can share a stamp, because NPC records the last answer to the
+    second. The second is folded into the first; when its own ``Start server``
+    line arrives without an outage to claim, one is opened with the shared
+    stamp, so both bridges report their own downtime.
 
     An outage ends at the ``Successful connection`` naming the same server, or
     the oldest unnamed outage when the event carries no name. A ``Start
@@ -227,6 +262,7 @@ def find_outages(events: list[NpcEvent]) -> list[Outage]:
     """
     outages: list[Outage] = []
     open_outages: list[Outage] = []
+    folded: list[tuple[float, float]] = []
     for event in events:
         if event.kind == PING_TIMEOUT:
             last_alive = event.last_alive or event.time
@@ -234,6 +270,8 @@ def find_outages(events: list[NpcEvent]) -> list[Outage]:
             if repeat is not None:
                 repeat.last_alive = min(repeat.last_alive, last_alive)
                 repeat.detected = event.time
+                folded.append((last_alive, event.time))
+                del folded[:-TIE_MEMORY]
                 continue
             outage = Outage(server="", last_alive=last_alive, detected=event.time)
             outages.append(outage)
@@ -243,6 +281,10 @@ def find_outages(events: list[NpcEvent]) -> list[Outage]:
             continue
         target = _oldest_open(open_outages, event.server)
         if target is None:
+            opened = _open_tied(event, folded)
+            if opened is not None:
+                outages.append(opened)
+                open_outages.append(opened)
             continue
         if event.kind == START_SERVER:
             if not target.server:
