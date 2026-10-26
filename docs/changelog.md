@@ -29,7 +29,8 @@ All notable changes to nps-ctl are documented here. This project follows [Keep a
 - `check leftovers` reports an unreachable edge in `errors` and carries on with the edges that answered, instead of a traceback and empty `--json` output
 - A create refused before any write no longer claims that a mapping "may still be on" the edge; only a write that reached the edge can leave a row
 - Two bridges that stop answering in the same second no longer lose one edge's downtime: the folded outage is opened when that bridge's `Start server` line arrives, and a reconnect that matches no open outage is dropped instead of closing another bridge's window
-- A tied bridge keeps its outage however long its reconnect takes — the fold is claimed by a bridge the log saw connected just before the drop, not by a bridge starting within a fixed window — and a bridge that reconnected after the drop is never handed one
+- A tied bridge keeps its outage while the drop it belongs to is still running, however long its reconnect takes; a `Start server` after the drop is over starts its outage at that line, so a later restart is never dated from an old drop
+- A bridge that was not connected when the drop began is never handed an outage from it
 - A tie is still counted when the client reconnects its bridges one at a time, which is the order NPC logs `Start server` and `Successful connection` in
 - A ping timeout with no time stamp no longer opens one phantom outage per repeat: the first one folds provisionally and the following `Start server` line decides, so a second bridge that went down with the same drop is still reported
 
