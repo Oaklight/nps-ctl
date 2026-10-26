@@ -93,6 +93,9 @@ def create_parser() -> argparse.ArgumentParser:
     # ========== host commands ==========
     _add_host_commands(subparsers)
 
+    # ========== check commands ==========
+    _add_check_commands(subparsers)
+
     # ========== util commands ==========
     _add_util_commands(subparsers)
 
@@ -100,6 +103,192 @@ def create_parser() -> argparse.ArgumentParser:
     _add_web_command(subparsers)
 
     return parser
+
+
+STRESS_PROFILES = ("smoke", "ladder", "slow", "churn", "soak")
+
+
+def _add_session_arguments(parser: argparse.ArgumentParser) -> None:
+    """Add the arguments shared by the checks that open a probe session.
+
+    Args:
+        parser: The leaf parser to add the arguments to.
+    """
+    add_edge_argument(parser, required=True, help_text="Edge whose tunnel to test")
+    add_client_argument(
+        parser, required=True, help_text="NPC client name from clients.toml"
+    )
+    parser.add_argument(
+        "--http-proxy-port",
+        type=int,
+        default=None,
+        help="NPS HTTP proxy port on the edge (default: read from nps.conf, else 30080)",
+    )
+    parser.add_argument(
+        "--fail-on",
+        choices=["warn", "error"],
+        default="error",
+        help="Lowest finding level that makes the exit code 1 (default: error)",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print what would be created and exit without touching anything",
+    )
+    add_yes_argument(parser)
+    add_output_arguments(parser)
+    parser.set_defaults(requires_config=True)
+
+
+def _add_check_commands(subparsers) -> None:
+    """Add the ``check`` command group.
+
+    Args:
+        subparsers: Parent subparsers object.
+    """
+    check_parser = subparsers.add_parser(
+        "check",
+        help="Health and integrity checks for NPS/NPC deployments",
+        description=(
+            "Check NPS/NPC deployments. 'links' only reads sockets and logs. "
+            "'probe' and 'stress' push self-verifying traffic through a tunnel and "
+            "temporarily add a host mapping on one edge, which they remove again."
+        ),
+    )
+    check_sub = check_parser.add_subparsers(dest="subcommand", help="Check action")
+
+    # check links
+    links_parser = check_sub.add_parser(
+        "links",
+        help="Report bridge-link health from NPC sockets and logs",
+        description=(
+            "For each NPC client, read its established bridge sockets and the "
+            "tail of its log over SSH, then report outages per edge: how often "
+            "the link dropped, for how long, and whether the drops recur at a "
+            "fixed interval. Generates no tunnel traffic."
+        ),
+    )
+    add_client_argument(
+        links_parser, help_text="Client name from clients.toml (default: all)"
+    )
+    links_parser.add_argument(
+        "--since",
+        default="6h",
+        help="Window to examine, e.g. 90m, 6h, 2d (default: 6h)",
+    )
+    links_parser.add_argument(
+        "--log-path",
+        default="/var/log/npc.log",
+        help="NPC log path on the client hosts (default: /var/log/npc.log)",
+    )
+    links_parser.add_argument(
+        "--tail-bytes",
+        type=int,
+        default=4 * 1024 * 1024,
+        help="How much of each log's end to read (default: 4 MiB)",
+    )
+    links_parser.add_argument(
+        "--fail-on",
+        choices=["warn", "error"],
+        default="warn",
+        help="Lowest finding level that makes the exit code 1 (default: warn)",
+    )
+    add_output_arguments(links_parser)
+    links_parser.set_defaults(requires_config=True)
+
+    # check probe
+    probe_parser = check_sub.add_parser(
+        "probe",
+        help="Send self-verifying requests through an edge's tunnel",
+        description=(
+            "Start a temporary hash-echo service on an NPC client, map a throwaway "
+            "domain to it on one NPS edge, and send request bodies that differ from "
+            "request to request through NPS. Each answer is compared with what was "
+            "sent, so truncation, damage and bytes from another request are "
+            "detected. A client-local run without the tunnel is the baseline. The "
+            "mapping and the echo service are removed afterwards."
+        ),
+    )
+    _add_session_arguments(probe_parser)
+    probe_parser.add_argument(
+        "--size", default="256K", help="Body size, e.g. 64K, 1M (default: 256K)"
+    )
+    probe_parser.add_argument(
+        "--count", type=int, default=30, help="Requests (default: 30)"
+    )
+    probe_parser.add_argument(
+        "--concurrency", type=int, default=4, help="Parallel requests (default: 4)"
+    )
+    probe_parser.add_argument(
+        "--mode",
+        choices=["normal", "slow"],
+        default="normal",
+        help="slow sends the body in small chunks with gaps (default: normal)",
+    )
+    probe_parser.add_argument(
+        "--chunk-kb",
+        type=float,
+        default=16.0,
+        help="Chunk size for slow mode (default: 16)",
+    )
+    probe_parser.add_argument(
+        "--gap-ms",
+        type=float,
+        default=20.0,
+        help="Gap between chunks for slow mode (default: 20)",
+    )
+    probe_parser.add_argument(
+        "--timeout",
+        type=float,
+        default=30.0,
+        help="Per-request timeout in seconds (default: 30)",
+    )
+
+    # check leftovers
+    leftovers_parser = check_sub.add_parser(
+        "leftovers",
+        help="List host mappings left by an interrupted check run",
+        description=(
+            "A run that was killed outright cannot clean up after itself. This "
+            "lists the throwaway mappings it left (they carry a fixed remark and "
+            "an .nps-ctl-check.invalid domain) and, with --delete, removes them "
+            "through the same verified path the runs use."
+        ),
+    )
+    add_edge_argument(leftovers_parser, help_text="Edge to inspect (default: all)")
+    add_all_argument(leftovers_parser, help_text="Inspect every configured edge")
+    leftovers_parser.add_argument(
+        "--delete",
+        action="store_true",
+        help="Delete the leftovers (requires -e or -a)",
+    )
+    add_yes_argument(leftovers_parser)
+    add_output_arguments(leftovers_parser)
+    leftovers_parser.set_defaults(requires_config=True)
+
+    # check stress
+    stress_parser = check_sub.add_parser(
+        "stress",
+        help="Run a named stress profile through an edge's tunnel",
+        description=(
+            "Like 'probe', but runs a profile of load steps: smoke (quick sanity), "
+            "ladder (concurrency x body size), slow (slow uploaders), churn (many "
+            "small connections) or soak (steady load for --duration). Failures are "
+            "matched against the link outages in the client's NPC log."
+        ),
+    )
+    _add_session_arguments(stress_parser)
+    stress_parser.add_argument(
+        "--profile",
+        choices=sorted(STRESS_PROFILES),
+        default="smoke",
+        help="Load profile (default: smoke)",
+    )
+    stress_parser.add_argument(
+        "--duration",
+        default="10m",
+        help="Soak length, e.g. 30m, 2h (default: 10m; only used by soak)",
+    )
 
 
 def _add_web_command(subparsers) -> None:
