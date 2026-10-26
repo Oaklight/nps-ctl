@@ -377,6 +377,10 @@ def find_outages(events: list[NpcEvent]) -> list[Outage]:
             if not target.server:
                 target.server = event.server
             open_outages.remove(target)
-            if not open_outages:
+            if not open_outages and episode_closed_at is None:
+                # The drop is over. A later outage opened by a ``Start server``
+                # line must not move this forward: that would keep re-arming
+                # the grace window and let an old fold be redeemed long after
+                # its drop.
                 episode_closed_at = event.time
     return outages
