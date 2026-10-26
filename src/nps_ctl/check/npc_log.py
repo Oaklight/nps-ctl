@@ -159,8 +159,9 @@ def _oldest_open(open_outages: list[Outage], server: str) -> Outage | None:
 
     An event that names a server belongs to the oldest outage already carrying
     that name, so reconnects pair correctly when several bridges are down at
-    once. Otherwise the oldest outage that has no name yet takes it, which is
-    what the ``Start server`` line after a ping timeout relies on.
+    once. Failing that, the oldest outage that has no name yet takes it, which
+    is what the ``Start server`` line after a ping timeout relies on. A named
+    event never falls back to an outage named for a different bridge.
 
     Args:
         open_outages: Outages that have not reconnected yet, oldest first.
@@ -173,9 +174,10 @@ def _oldest_open(open_outages: list[Outage], server: str) -> Outage | None:
         for outage in open_outages:
             if outage.server == server:
                 return outage
-    for outage in open_outages:
-        if not outage.server:
-            return outage
+        # Never credit a named event to another bridge's outage: that would
+        # close, or extend, the wrong bridge's downtime. An event nothing can
+        # be attributed to is dropped and shows up as unattributed instead.
+        return next((outage for outage in open_outages if not outage.server), None)
     return open_outages[0] if open_outages else None
 
 

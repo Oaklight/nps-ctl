@@ -293,6 +293,57 @@ def test_two_bridges_dropping_a_second_apart_keep_their_own_stamps():
     assert [o.server for o in outages] == [SERVER, other]
 
 
+def test_a_tie_on_the_stamp_never_credits_one_bridge_to_another():
+    # NPC stamps ``last alive`` to the second, so two bridges that stopped
+    # answering in the same second produce the same stamp. The tie is folded
+    # into one outage; what must not happen is that one bridge's reconnect
+    # closes, or is credited to, the outage named for the other.
+    other = "nps-other.example.test:51235"
+    same = "2026-10-25 08:59:58 +0000 UTC"
+    text = "\n".join(
+        [
+            _timeout("2026-10-25T09:00:28+00:00", same),
+            _timeout("2026-10-25T09:00:28+00:00", same),
+            _line("2026-10-25T09:00:30+00:00", f"Start server: {SERVER} vkey: X"),
+            _line("2026-10-25T09:00:31+00:00", f"Start server: {other} vkey: X"),
+            _line(
+                "2026-10-25T09:01:40+00:00",
+                f"Successful connection with server {SERVER}",
+            ),
+            _line(
+                "2026-10-25T09:02:20+00:00",
+                f"Successful connection with server {other}",
+            ),
+        ]
+    )
+
+    (outage,) = find_outages(parse_log(text))
+
+    assert outage.server == SERVER
+    assert outage.reconnected == _epoch("2026-10-25T09:01:40+00:00")
+
+
+def test_a_reconnect_for_an_unknown_bridge_leaves_the_open_outage_open():
+    other = "nps-other.example.test:51235"
+    same = "2026-10-25 08:59:58 +0000 UTC"
+    text = "\n".join(
+        [
+            _timeout("2026-10-25T09:00:28+00:00", same),
+            _timeout("2026-10-25T09:00:28+00:00", same),
+            _line("2026-10-25T09:00:30+00:00", f"Start server: {SERVER} vkey: X"),
+            _line(
+                "2026-10-25T09:02:20+00:00",
+                f"Successful connection with server {other}",
+            ),
+        ]
+    )
+
+    (outage,) = find_outages(parse_log(text))
+
+    assert outage.server == SERVER
+    assert outage.reconnected is None
+
+
 def test_startup_lines_with_no_outage_open_are_ignored():
     text = "\n".join(
         [
