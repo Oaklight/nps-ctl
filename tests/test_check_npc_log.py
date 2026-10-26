@@ -347,6 +347,75 @@ def test_a_tie_where_only_the_second_bridge_returns_keeps_the_first_open():
     ]
 
 
+def test_a_reconnect_after_a_fold_does_not_invent_an_outage():
+    # Only a Start server line may claim a folded timeout: a bridge that was
+    # never down must not be handed one from a Successful connection.
+    same = "2026-10-25 08:59:58 +0000 UTC"
+    other = "nps-other.example.test:51235"
+    text = "\n".join(
+        [
+            _timeout("2026-10-25T09:00:28+00:00", same),
+            _timeout("2026-10-25T09:00:29+00:00", same),
+            _line("2026-10-25T09:00:30+00:00", f"Start server: {SERVER} vkey: X"),
+            _line(
+                "2026-10-25T09:02:30+00:00",
+                f"Successful connection with server {other}",
+            ),
+        ]
+    )
+
+    outages = find_outages(parse_log(text))
+
+    assert [o.server for o in outages] == [SERVER]
+    assert outages[0].reconnected is None
+
+
+def test_one_fold_backs_only_one_invented_outage():
+    same = "2026-10-25 08:59:58 +0000 UTC"
+    second = "nps-second.example:8024"
+    third = "nps-third.example:8024"
+    text = "\n".join(
+        [
+            _timeout("2026-10-25T09:00:28+00:00", same),
+            _timeout("2026-10-25T09:00:29+00:00", same),
+            _line("2026-10-25T09:00:30+00:00", f"Start server: {SERVER} vkey: X"),
+            _line("2026-10-25T09:00:40+00:00", f"Start server: {second} vkey: X"),
+            _line("2026-10-25T09:00:50+00:00", f"Start server: {third} vkey: X"),
+        ]
+    )
+
+    outages = find_outages(parse_log(text))
+
+    assert [o.server for o in outages] == [SERVER, second]
+
+
+def test_a_timeout_without_a_stamp_folds_into_the_open_outage():
+    # A different NPC build, or a truncated tail, may omit the stamp.
+    text = "\n".join(
+        [
+            _line(
+                "2026-10-25T09:00:00+00:00", "mux: ping timeout timeout 30s", "debug"
+            ),
+            _line(
+                "2026-10-25T09:00:40+00:00", "mux: ping timeout timeout 30s", "debug"
+            ),
+            _line(
+                "2026-10-25T09:01:20+00:00", "mux: ping timeout timeout 30s", "debug"
+            ),
+            _line("2026-10-25T09:01:30+00:00", f"Start server: {SERVER} vkey: X"),
+            _line(
+                "2026-10-25T09:02:00+00:00",
+                f"Successful connection with server {SERVER}",
+            ),
+        ]
+    )
+
+    (outage,) = find_outages(parse_log(text))
+
+    assert outage.server == SERVER
+    assert outage.reconnected is not None
+
+
 def test_a_start_line_long_after_a_fold_does_not_invent_an_outage():
     # A bridge already down when the log begins still logs Start server.
     same = "2026-10-25 08:59:58 +0000 UTC"

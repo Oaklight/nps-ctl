@@ -227,8 +227,10 @@ def _open_tied(event: NpcEvent, folded: list[tuple[float, float]]) -> Outage | N
     Returns:
         The outage to open, or ``None`` when no recent fold accounts for it.
     """
-    for last_alive, seen_at in reversed(folded):
+    for index in range(len(folded) - 1, -1, -1):
+        last_alive, seen_at = folded[index]
         if event.time - seen_at <= TIE_WINDOW:
+            del folded[index]
             return Outage(server=event.server, last_alive=last_alive, detected=seen_at)
     return None
 
@@ -265,7 +267,16 @@ def find_outages(events: list[NpcEvent]) -> list[Outage]:
     folded: list[tuple[float, float]] = []
     for event in events:
         if event.kind == PING_TIMEOUT:
-            last_alive = event.last_alive or event.time
+            if event.last_alive is None:
+                # No stamp to compare: only an outage that no Start server line
+                # has named yet can be the one this repeat belongs to.
+                newest = open_outages[-1] if open_outages else None
+                if newest is not None and not newest.server:
+                    newest.detected = event.time
+                    continue
+                last_alive = event.time
+            else:
+                last_alive = event.last_alive
             repeat = _repeat_of(open_outages, last_alive)
             if repeat is not None:
                 repeat.last_alive = min(repeat.last_alive, last_alive)
@@ -281,10 +292,11 @@ def find_outages(events: list[NpcEvent]) -> list[Outage]:
             continue
         target = _oldest_open(open_outages, event.server)
         if target is None:
-            opened = _open_tied(event, folded)
-            if opened is not None:
-                outages.append(opened)
-                open_outages.append(opened)
+            if event.kind == START_SERVER:
+                opened = _open_tied(event, folded)
+                if opened is not None:
+                    outages.append(opened)
+                    open_outages.append(opened)
             continue
         if event.kind == START_SERVER:
             if not target.server:
