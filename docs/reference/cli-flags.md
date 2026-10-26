@@ -74,6 +74,7 @@ nps-ctl [全局选项] <命令> <子命令> [选项]
 | `--http-proxy-port` N | `check probe/stress` | NPS HTTP 代理端口（默认读 `nps.conf`，否则 30080） |
 | `--fail-on` 级别 | `check` | probe/stress 默认 `error`；links 默认 `warn` |
 | `--dry-run` | `check probe/stress` | 只打印计划，不做改动 |
+| `--delete` | `check leftovers` | 删除找到的遗留映射（需要 `-e` 或 `-a`） |
 
 ## 命令组
 
@@ -83,6 +84,6 @@ nps-ctl [全局选项] <命令> <子命令> [选项]
 | `edge` | `list`、`status`、`install`、`upgrade`、`reconfig`、`uninstall`、`primary`、`add`、`sync`、`export` |
 | `tunnel` | `list`、`status`、`add`、`del`、`edit`、`start`、`stop` |
 | `host` | `list`、`status`、`add`、`del`、`edit` |
-| `check` | `links`、`probe`、`stress` |
+| `check` | `links`、`probe`、`stress`、`leftovers` |
 | `util` | `generate-auth-key`、`hash-password` |
 | `web` | 面板服务（默认只读，`--allow-writes` 启用变更） |

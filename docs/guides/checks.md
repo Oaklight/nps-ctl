@@ -28,7 +28,7 @@ nps-ctl check links --since 24h --json
 | Down | 窗口内处于中断状态的比例 |
 | Period | 中断开始时间的间隔中位数；至少 60% 的间隔落在中位数 15% 以内时标 `*` |
 
-一次 ping 超时开启的一段中断，起点是最后一个被回应的 ping，而不是 NPC 发现问题的时刻。超时行本身不带服务器信息，它所属的边缘由随后的 `Start server` 行给出。中断在下一次 `Successful connection` 结束。因此一条"中断占 5%"的链路，日志粗看可能完全正常。
+一次 ping 超时开启的一段中断，起点是最后一个被回应的 ping，而不是 NPC 发现问题的时刻。客户端同时连接多个边缘、本机网络一起抖动时，每条桥接各自保留自己的中断，事件按最先开启的顺序配对，不会合并。断连所指的服务器与任何已配置桥接都不匹配时（例如改了桥接端口，或客户端配置漂移），会报告为 `outages_unattributed`，而不是从所有行里消失。超时行本身不带服务器信息，它所属的边缘由随后的 `Start server` 行给出。中断在下一次 `Successful connection` 结束。因此一条"中断占 5%"的链路，日志粗看可能完全正常。
 
 退出码为 1 的情况：链路断开、客户端连不上、或者窗口内抖动三次以上。加 `--fail-on error` 可以忽略警告。
 
@@ -69,6 +69,8 @@ nps-ctl check stress -e nps-europe -c cloud.usa2 --profile soak --duration 30m
 
 `probe` 只跑一步：`--size`（如 `64K`、`1M`）、`--count`、`--concurrency`；可选 `--mode slow` 配 `--chunk-kb` 与 `--gap-ms`，把请求体分成小段、每段之间停顿，更接近大模型客户端上传长对话的方式。
 
+`--json` 下 `probe` 与 `stress` 不会提示交互：它们只输出一个 JSON 文档，因此必须加 `-y`（或用 `--dry-run`），否则以退出码 2 和 JSON 错误结束。不加 `--json` 时，确认提示写到 stderr，stdout 同样保持干净。用 Ctrl-C 中断的运行会删除自己创建的对象并以 130 退出。
+
 `stress` 跑命名负载：
 
 | 负载 | 内容 |
@@ -80,6 +82,18 @@ nps-ctl check stress -e nps-europe -c cloud.usa2 --profile soak --duration 30m
 | `soak` | 按 `--duration`（默认 10m）持续施压，用于捕捉周期性故障 |
 
 有失败时，`stress` 会读取同一时间窗口的 NPC 日志，报告有多少失败落在记录的中断窗口内，并给出这些窗口占整次运行的比例。"9 个失败全部落在占时 9% 的中断窗口内"支持链路有问题；失败附近没有任何中断则说明另有原因。
+
+## 回收被中断运行留下的映射
+
+被直接杀掉（SIGKILL、关掉终端、任务超时）的运行无法清理。它的映射是可识别的，而且值得清理：NPS 用域名加路径标识一个主机映射，只存在于单个边缘的映射，会一直让 `edge status` 和面板把它算作 drift。
+
+```bash
+nps-ctl check leftovers                      # 列出所有边缘
+nps-ctl check leftovers -e nps-europe --json
+nps-ctl check leftovers --delete -a -y       # 全部删除
+```
+
+只有同时带有检查自身备注和 `.nps-ctl-check.invalid` 域名的记录会被列出或删除，碰巧前缀相同的真实映射不会被动到。`--delete` 和其它写操作一样必须显式指定目标（`-e` 或 `-a`），并复用与运行相同的校验删除路径。
 
 ## 运行会留下什么
 
