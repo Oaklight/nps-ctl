@@ -67,8 +67,9 @@ def test_find_leftovers_returns_only_ephemeral_mappings(nps_world):
         _row(13, domain="other.test"),
     ]
 
-    found = find_leftovers(FakeCluster(), ["edge-a"])
+    found, errors = find_leftovers(FakeCluster(), ["edge-a"])
 
+    assert errors == {}
     assert [item.host_id for item in found] == [11]
     assert found[0].target == "127.0.0.1:4321"
     assert found[0].to_dict()["edge"] == "edge-a"
@@ -78,7 +79,7 @@ def test_find_leftovers_scans_every_requested_edge(nps_world):
     nps_world["rows"]["edge-a"] = [_row(11)]
     nps_world["rows"]["edge-b"] = [_row(21)]
 
-    found = find_leftovers(FakeCluster(), ["edge-a", "edge-b"])
+    found, errors = find_leftovers(FakeCluster(), ["edge-a", "edge-b"])
 
     assert [(item.edge, item.host_id) for item in found] == [
         ("edge-a", 11),
@@ -89,7 +90,8 @@ def test_find_leftovers_scans_every_requested_edge(nps_world):
 def test_find_leftovers_skips_an_edge_with_no_api_client(nps_world):
     nps_world["rows"]["edge-b"] = [_row(21)]
 
-    assert find_leftovers(FakeCluster(with_api=("edge-a",)), ["edge-b"]) == []
+    found, errors = find_leftovers(FakeCluster(with_api=("edge-a",)), ["edge-b"])
+    assert found == [] and "edge-b" in errors
 
 
 def test_find_leftovers_tolerates_a_row_without_a_target(nps_world):
@@ -97,9 +99,53 @@ def test_find_leftovers_tolerates_a_row_without_a_target(nps_world):
     del row["Target"]
     nps_world["rows"]["edge-a"] = [row]
 
-    (found,) = find_leftovers(FakeCluster(), ["edge-a"])
+    found, _ = find_leftovers(FakeCluster(), ["edge-a"])
+    (found,) = found
 
     assert found.target == ""
+
+
+def test_find_leftovers_reports_an_unreachable_edge_and_keeps_the_rest(
+    nps_world, monkeypatch
+):
+    nps_world["rows"]["edge-a"] = [_row(11)]
+    good = host.list_hosts
+
+    def flaky(nps, search="", **kwargs):
+        if nps.edge == "edge-b":
+            raise RuntimeError("Failed to get server time")
+        return good(nps, search, **kwargs)
+
+    monkeypatch.setattr(host, "list_hosts", flaky)
+
+    found, errors = find_leftovers(FakeCluster(), ["edge-a", "edge-b"])
+
+    assert [item.host_id for item in found] == [11]
+    assert "edge-b" in errors and "server time" in errors["edge-b"]
+
+
+def test_find_leftovers_reports_an_edge_with_no_api_client(nps_world):
+    found, errors = find_leftovers(FakeCluster(with_api=("edge-a",)), ["edge-b"])
+
+    assert found == []
+    assert errors == {"edge-b": "no API client configured"}
+
+
+def test_leftovers_unreachable_edge_still_prints_json(cli_env, monkeypatch, capsys):
+    leftover = Leftover("edge-a", 11, DOMAIN, "")
+    monkeypatch.setattr(
+        cmd_check,
+        "find_leftovers",
+        lambda c, edges: ([leftover], {"edge-b": "NPSAuthError: no route"}),
+    )
+
+    code = cmd_check.cmd_check_leftovers(_parse("check", "leftovers", "--json"))
+
+    payload = json.loads(capsys.readouterr().out)
+    assert code == 1
+    assert payload["errors"] == {"edge-b": "NPSAuthError: no route"}
+    assert [item["host_id"] for item in payload["leftovers"]] == [11]
+    assert any(f["code"] == "leftover_edge_unreachable" for f in payload["findings"])
 
 
 def test_remove_leftovers_deletes_and_confirms(nps_world):
@@ -141,7 +187,7 @@ def cli_env(monkeypatch):
     monkeypatch.setattr(cmd_check, "NPSCluster", lambda config: cluster)
     state = {"found": [], "failures": []}
     monkeypatch.setattr(
-        cmd_check, "find_leftovers", lambda c, edges: list(state["found"])
+        cmd_check, "find_leftovers", lambda c, edges: (list(state["found"]), {})
     )
     monkeypatch.setattr(
         cmd_check, "remove_leftovers", lambda c, items: list(state["failures"])

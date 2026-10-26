@@ -179,6 +179,28 @@ def _oldest_open(open_outages: list[Outage], server: str) -> Outage | None:
     return open_outages[0] if open_outages else None
 
 
+def _repeat_of(open_outages: list[Outage], last_alive: float) -> Outage | None:
+    """Return the open outage a timeout belongs to, or ``None`` for a new drop.
+
+    A bridge that has not reconnected emits another ping timeout for the same
+    drop, and NPC reports the same ``last alive`` stamp for it. Matching on that
+    stamp is what separates a repeat from a second bridge dropping at the same
+    moment: the second bridge stopped answering at its own time, which the
+    message carries even when the two timeouts are logged a second apart.
+
+    Args:
+        open_outages: Outages that have not reconnected yet, oldest first.
+        last_alive: The last answered ping reported by this timeout.
+
+    Returns:
+        The outage to extend, or ``None`` when this is a new drop.
+    """
+    for outage in reversed(open_outages):
+        if outage.last_alive == last_alive:
+            return outage
+    return None
+
+
 def find_outages(events: list[NpcEvent]) -> list[Outage]:
     """Group link events into outage windows.
 
@@ -205,11 +227,13 @@ def find_outages(events: list[NpcEvent]) -> list[Outage]:
     open_outages: list[Outage] = []
     for event in events:
         if event.kind == PING_TIMEOUT:
-            outage = Outage(
-                server="",
-                last_alive=event.last_alive or event.time,
-                detected=event.time,
-            )
+            last_alive = event.last_alive or event.time
+            repeat = _repeat_of(open_outages, last_alive)
+            if repeat is not None:
+                repeat.last_alive = min(repeat.last_alive, last_alive)
+                repeat.detected = event.time
+                continue
+            outage = Outage(server="", last_alive=last_alive, detected=event.time)
             outages.append(outage)
             open_outages.append(outage)
             continue

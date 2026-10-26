@@ -243,6 +243,56 @@ def test_back_to_back_cycles_for_one_server_stay_two_outages():
     assert all(o.server == SERVER and o.reconnected for o in outages)
 
 
+def test_a_repeated_timeout_for_the_same_drop_is_not_a_second_outage():
+    # A bridge that never reconnects keeps reporting the same last-answered
+    # ping; each report used to open a phantom outage that never closed.
+    same = "2026-10-25 08:59:58.5 +0000 UTC"
+    text = "\n".join(
+        [
+            _timeout("2026-10-25T09:00:28+00:00", same),
+            _line("2026-10-25T09:00:29+00:00", f"Start server: {SERVER} vkey: X"),
+            _timeout("2026-10-25T09:01:12+00:00", same),
+            _timeout("2026-10-25T09:02:00+00:00", same),
+            _line(
+                "2026-10-25T09:02:20+00:00",
+                f"Successful connection with server {SERVER}",
+            ),
+        ]
+    )
+
+    outages = find_outages(parse_log(text))
+
+    assert len(outages) == 1
+    assert outages[0].server == SERVER
+    assert outages[0].reconnected is not None
+
+
+def test_two_bridges_dropping_a_second_apart_keep_their_own_stamps():
+    # The two timeouts are logged a second apart but each carries the time its
+    # own bridge stopped answering, which is what keeps them apart.
+    other = "nps-other.example.test:51235"
+    text = "\n".join(
+        [
+            _timeout("2026-10-25T09:00:28+00:00", "2026-10-25 08:59:58.1 +0000 UTC"),
+            _timeout("2026-10-25T09:00:29+00:00", "2026-10-25 08:59:59.9 +0000 UTC"),
+            _line("2026-10-25T09:00:35+00:00", f"Start server: {SERVER} vkey: X"),
+            _line("2026-10-25T09:00:36+00:00", f"Start server: {other} vkey: X"),
+            _line(
+                "2026-10-25T09:01:20+00:00",
+                f"Successful connection with server {SERVER}",
+            ),
+            _line(
+                "2026-10-25T09:01:21+00:00",
+                f"Successful connection with server {other}",
+            ),
+        ]
+    )
+
+    outages = find_outages(parse_log(text))
+
+    assert [o.server for o in outages] == [SERVER, other]
+
+
 def test_startup_lines_with_no_outage_open_are_ignored():
     text = "\n".join(
         [

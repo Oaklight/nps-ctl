@@ -384,7 +384,7 @@ def cmd_check_leftovers(args: argparse.Namespace) -> int:
         )
     targets = [edge] if edge else list(cluster.edge_names)
 
-    leftovers = find_leftovers(cluster, targets)
+    leftovers, edge_errors = find_leftovers(cluster, targets)
     removed: list[Any] = []
     failures: list[tuple[Any, str]] = []
     if args.delete and leftovers:
@@ -431,11 +431,17 @@ def cmd_check_leftovers(args: argparse.Namespace) -> int:
         Finding("error", "leftover_delete_failed", f"{item.edge}:{item.domain}", error)
         for item, error in failures
     ]
+    findings += [
+        Finding("error", "leftover_edge_unreachable", edge, reason)
+        for edge, reason in sorted(edge_errors.items())
+    ]
 
     if json_mode:
         print_json(
             {
                 "leftovers": [item.to_dict() for item in leftovers],
+                "errors": edge_errors,
+                "findings": [finding.to_dict() for finding in findings],
                 "removed": [item.to_dict() for item in removed],
                 "failures": [
                     {"leftover": item.to_dict(), "error": error}
@@ -479,6 +485,6 @@ def cmd_check_leftovers(args: argparse.Namespace) -> int:
                 f"[bold]{finding.code}[/bold] - {finding.message}"
             )
 
-    if failures:
+    if failures or edge_errors:
         return 1
     return 0 if not leftovers or args.delete else 1

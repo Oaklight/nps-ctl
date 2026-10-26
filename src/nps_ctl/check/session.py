@@ -60,12 +60,16 @@ class MappingApi(Protocol):
             How many rows were removed.
         """
 
+    write_attempted: bool
+    """Whether the create call reached the edge, set by ``add``."""
+
 
 class NpsMapping:
     """:class:`MappingApi` backed by the NPS HTTP API of a real cluster."""
 
     def __init__(self, cluster: Any):
         self.cluster = cluster
+        self.write_attempted = False
 
     def _nps(self, edge: str) -> Any:
         nps = self.cluster.get_client(edge)
@@ -79,6 +83,7 @@ class NpsMapping:
         matching = [c for c in clients if c.get("Remark") == client_remark]
         if not matching:
             raise SessionError(f"client '{client_remark}' not found on {edge}")
+        self.write_attempted = True
         if not host.add_host(
             nps,
             client_id=matching[0]["Id"],
@@ -399,11 +404,12 @@ class ProbeSession:
                     f"host mapping {self.domain} (id {self._host_id}) is still on "
                     f"{self.edge}: {exc}; {manual}"
                 )
-        elif self._mapping_attempted:
+        elif self._mapping_attempted and getattr(self.mapping, "write_attempted", True):
+            # Only a create that reached the edge can have left a row; a
+            # validation failure before the write has nothing to reclaim, and
+            # zero rows found is the good outcome, not a problem.
             try:
-                removed = self.mapping.remove_unclaimed(self.edge, self.domain)
-                if removed == 0:
-                    raise SessionError("the edge lists no mapping for it either")
+                self.mapping.remove_unclaimed(self.edge, self.domain)
             except Exception as exc:  # noqa: BLE001
                 problems.append(
                     f"a host mapping for {self.domain} may still be on "

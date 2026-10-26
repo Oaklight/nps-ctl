@@ -45,24 +45,39 @@ def _target_of(entry: HostInfo) -> str:
     return str(target.get("TargetStr", "")) if isinstance(target, dict) else ""
 
 
-def find_leftovers(cluster: Any, edge_names: list[str]) -> list[Leftover]:
+def find_leftovers(
+    cluster: Any, edge_names: list[str]
+) -> tuple[list[Leftover], dict[str, str]]:
     """List host mappings left by a check run.
+
+    An edge that does not answer is reported rather than aborting the sweep: the
+    unreachable edge is often the reason to run this command in the first place,
+    and the edges that did answer still have results worth seeing.
 
     Args:
         cluster: Cluster exposing ``get_client(edge)``.
         edge_names: Edges to inspect.
 
     Returns:
-        One entry per matching mapping, in edge order. Only rows carrying both
-        this module's remark and the throwaway domain suffix are returned, so a
-        similarly named host someone else created is never touched.
+        ``(leftovers, errors)``: one entry per matching mapping in edge order,
+        and an edge -> reason mapping for edges that could not be listed. Only
+        rows carrying both this module's remark and the throwaway domain suffix
+        are returned, so a similarly named host someone else created is never
+        touched.
     """
     found: list[Leftover] = []
+    errors: dict[str, str] = {}
     for edge in edge_names:
-        nps = cluster.get_client(edge)
-        if nps is None:
+        try:
+            nps = cluster.get_client(edge)
+            if nps is None:
+                errors[edge] = "no API client configured"
+                continue
+            entries = host.list_hosts(nps, search=SEARCH)
+        except Exception as exc:  # noqa: BLE001 - one edge must not end the sweep
+            errors[edge] = f"{type(exc).__name__}: {exc}"
             continue
-        for entry in host.list_hosts(nps, search=SEARCH):
+        for entry in entries:
             domain = str(entry.get("Host", ""))
             if entry.get("Remark") != REMARK or not domain.endswith(DOMAIN_SUFFIX):
                 continue
@@ -74,7 +89,7 @@ def find_leftovers(cluster: Any, edge_names: list[str]) -> list[Leftover]:
                     target=_target_of(entry),
                 )
             )
-    return found
+    return found, errors
 
 
 def remove_leftovers(
