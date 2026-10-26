@@ -189,8 +189,11 @@ An outage starts at the last answered ping, not when NPC noticed, and is
 attributed to an edge by the `Start server` line that follows the timeout. A
 link can therefore read "down 5% of the time" while its log looks quiet. When
 several of a client's bridges time out together, each keeps its own outage
-(oldest-first pairing). An outage whose server matches no configured bridge is
-reported as `outages_unattributed` rather than dropped.
+(oldest-first pairing); two bridges that stop answering in the same second share
+a stamp, and the second one's outage is opened from that shared stamp when its
+own `Start server` line arrives, or from that line itself if it comes after the
+drop is over. An outage whose server matches no configured bridge is reported as
+`outages_unattributed` rather than dropped.
 
 `--fail-on warn` (default) or `error` sets the level that makes the exit
 code 1. A link that is down, an unreachable client, or three or more outages
