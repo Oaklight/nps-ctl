@@ -28,6 +28,7 @@ All notable changes to nps-ctl are documented here. This project follows [Keep a
 - A bridge that repeats its ping timeout while still down reports the same last-answered ping, and the repeat now extends its outage instead of opening a phantom that surfaced as an unattributable outage
 - `check leftovers` reports an unreachable edge in `errors` and carries on with the edges that answered, instead of a traceback and empty `--json` output
 - A create refused before any write no longer claims that a mapping "may still be on" the edge; only a write that reached the edge can leave a row
+- Two bridges that stop answering in the same second no longer lose one edge's downtime: the folded outage is opened when that bridge's `Start server` line arrives, and a reconnect that matches no open outage is dropped instead of closing another bridge's window
 
 ---
 
