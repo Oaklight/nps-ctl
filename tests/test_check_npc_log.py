@@ -389,6 +389,61 @@ def test_one_fold_backs_only_one_invented_outage():
     assert [o.server for o in outages] == [SERVER, second]
 
 
+def test_a_stamp_less_repeat_after_the_outage_is_named_does_not_open_a_phantom():
+    text = "\n".join(
+        [
+            _line(
+                "2026-10-25T09:00:00+00:00", "mux: ping timeout timeout 30s", "debug"
+            ),
+            _line("2026-10-25T09:00:04+00:00", f"Start server: {SERVER} vkey: X"),
+            _line(
+                "2026-10-25T09:00:30+00:00", "mux: ping timeout timeout 30s", "debug"
+            ),
+            _line(
+                "2026-10-25T09:01:00+00:00", "mux: ping timeout timeout 30s", "debug"
+            ),
+            _line(
+                "2026-10-25T09:01:40+00:00",
+                f"Successful connection with server {SERVER}",
+            ),
+        ]
+    )
+
+    (outage,) = find_outages(parse_log(text))
+
+    assert outage.server == SERVER
+    assert outage.reconnected is not None
+
+
+def test_stamp_less_drops_of_two_bridges_are_separated_by_their_start_lines():
+    other = "nps-other.example.test:51235"
+    text = "\n".join(
+        [
+            _line(
+                "2026-10-25T09:00:00+00:00", "mux: ping timeout timeout 30s", "debug"
+            ),
+            _line(
+                "2026-10-25T09:00:02+00:00", "mux: ping timeout timeout 30s", "debug"
+            ),
+            _line("2026-10-25T09:00:05+00:00", f"Start server: {SERVER} vkey: X"),
+            _line("2026-10-25T09:00:06+00:00", f"Start server: {other} vkey: X"),
+            _line(
+                "2026-10-25T09:01:00+00:00",
+                f"Successful connection with server {SERVER}",
+            ),
+            _line(
+                "2026-10-25T09:01:10+00:00",
+                f"Successful connection with server {other}",
+            ),
+        ]
+    )
+
+    outages = find_outages(parse_log(text))
+
+    assert [o.server for o in outages] == [SERVER, other]
+    assert all(o.reconnected is not None for o in outages)
+
+
 def test_a_timeout_without_a_stamp_folds_into_the_open_outage():
     # A different NPC build, or a truncated tail, may omit the stamp.
     text = "\n".join(
