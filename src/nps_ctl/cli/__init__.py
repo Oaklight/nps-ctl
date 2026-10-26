@@ -190,7 +190,12 @@ def _dispatch(args) -> int:
     """
     from .cmd_deploy import cmd_install, cmd_reconfig, cmd_uninstall, cmd_upgrade
     from .cmd_clients import cmd_client_del
-    from .cmd_check import cmd_check_links, cmd_check_probe, cmd_check_stress
+    from .cmd_check import (
+        cmd_check_leftovers,
+        cmd_check_links,
+        cmd_check_probe,
+        cmd_check_stress,
+    )
     from .cmd_hosts import (
         cmd_add_host,
         cmd_host_del,
@@ -265,6 +270,7 @@ def _dispatch(args) -> int:
         ("host", "edit"): cmd_host_edit,
         # check commands
         ("check", "links"): cmd_check_links,
+        ("check", "leftovers"): cmd_check_leftovers,
         ("check", "probe"): cmd_check_probe,
         ("check", "stress"): cmd_check_stress,
         # util commands

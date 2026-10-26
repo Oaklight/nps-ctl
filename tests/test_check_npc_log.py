@@ -142,19 +142,119 @@ def test_outage_without_reconnect_stays_open_until_now():
     assert outage.duration(now) > 600
 
 
-def test_second_ping_timeout_inside_an_outage_extends_it():
-    lines = CYCLE.splitlines()
-    second = _line(
-        "2026-10-25T04:19:50-04:00",
-        "mux: ping timeout, last alive 2026-10-25 04:19:20.0 -0400 EDT timeout 30s\n",
+def _timeout(at: str, last_alive: str) -> str:
+    return _line(
+        at,
+        f"mux: ping timeout, last alive {last_alive} timeout 30s\n",
         "debug",
     )
-    text = "\n".join(lines[:4] + [second] + lines[4:])
+
+
+def _cycle(server: str, timeout_at: str, last_alive: str, start_at: str, back_at: str):
+    return [
+        _timeout(timeout_at, last_alive),
+        _line(start_at, f"Start server: {server} vkey: X"),
+        _line(back_at, f"Successful connection with server {server}"),
+    ]
+
+
+def test_two_bridges_down_together_stay_separate_outages():
+    # A client bridging two edges whose own network blips: both muxes time out
+    # within a second of each other. Each edge keeps its own downtime.
+    other = "nps-other.example.test:51235"
+    text = "\n".join(
+        [
+            _timeout("2026-10-25T09:00:00+00:00", "2026-10-25 08:59:58.0 +0000 UTC"),
+            _timeout("2026-10-25T09:00:01+00:00", "2026-10-25 08:59:59.0 +0000 UTC"),
+            _line("2026-10-25T09:00:05+00:00", f"Start server: {SERVER} vkey: X"),
+            _line("2026-10-25T09:00:06+00:00", f"Start server: {other} vkey: X"),
+            # The second bridge comes back first, which used to misattribute both.
+            _line(
+                "2026-10-25T09:00:53+00:00",
+                f"Successful connection with server {other}",
+            ),
+            _line(
+                "2026-10-25T09:00:47+00:00",
+                f"Successful connection with server {SERVER}",
+            ),
+        ]
+    )
 
     outages = find_outages(parse_log(text))
 
-    assert len(outages) == 1
-    assert outages[0].reconnected == _epoch("2026-10-25T04:20:08-04:00")
+    assert [o.server for o in outages] == [SERVER, other]
+    assert abs(outages[0].duration(now=0) - 49) < 2
+    assert abs(outages[1].duration(now=0) - 54) < 2
+
+
+def test_a_failure_lines_up_with_the_outage_of_the_same_server():
+    other = "nps-other.example.test:51235"
+    text = "\n".join(
+        [
+            _timeout("2026-10-25T09:00:00+00:00", "2026-10-25 08:59:58.0 +0000 UTC"),
+            _timeout("2026-10-25T09:00:01+00:00", "2026-10-25 08:59:59.0 +0000 UTC"),
+            _line("2026-10-25T09:00:02+00:00", f"Start server: {SERVER} vkey: X"),
+            _line("2026-10-25T09:00:02+00:00", f"Start server: {other} vkey: X"),
+            _line(
+                "2026-10-25T09:00:20+00:00",
+                f"Failed to connect to server {other} error: i/o timeout",
+                "error",
+            ),
+            _line(
+                "2026-10-25T09:00:30+00:00",
+                f"Successful connection with server {SERVER}",
+            ),
+            _line(
+                "2026-10-25T09:00:40+00:00",
+                f"Successful connection with server {other}",
+            ),
+        ]
+    )
+
+    outages = find_outages(parse_log(text))
+
+    assert [o.server for o in outages] == [SERVER, other]
+    assert outages[0].failed_attempts == 0
+    assert outages[1].failed_attempts == 1
+    assert outages[1].reasons == ["timeout"]
+
+
+def test_back_to_back_cycles_for_one_server_stay_two_outages():
+    text = "\n".join(
+        _cycle(
+            SERVER,
+            "2026-10-25T09:00:00+00:00",
+            "2026-10-25 08:59:58.0 +0000 UTC",
+            "2026-10-25T09:00:05+00:00",
+            "2026-10-25T09:00:20+00:00",
+        )
+        + _cycle(
+            SERVER,
+            "2026-10-25T09:10:00+00:00",
+            "2026-10-25 09:09:58.0 +0000 UTC",
+            "2026-10-25T09:10:05+00:00",
+            "2026-10-25T09:10:20+00:00",
+        )
+    )
+
+    outages = find_outages(parse_log(text))
+
+    assert len(outages) == 2
+    assert all(o.server == SERVER and o.reconnected for o in outages)
+
+
+def test_startup_lines_with_no_outage_open_are_ignored():
+    text = "\n".join(
+        [
+            _line("2026-10-25T09:00:00+00:00", f"Start server: {SERVER} vkey: X"),
+            _line(
+                "2026-10-25T09:00:05+00:00",
+                f"Successful connection with server {SERVER}",
+            ),
+        ]
+    )
+
+    assert find_outages(parse_log(text)) == []
 
 
 def test_a_connection_with_no_outage_open_is_not_an_outage():

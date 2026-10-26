@@ -229,22 +229,39 @@ class FakeCluster:
 
 
 class FakeMapping:
-    def __init__(self, fail_add=False, fail_remove=False):
+    def __init__(self, fail_add=False, fail_remove=False, orphan_on_add=False):
         self.fail_add = fail_add
         self.fail_remove = fail_remove
+        # The edge accepts the create, then the id lookup misses it.
+        self.orphan_on_add = orphan_on_add
         self.added: list[tuple] = []
         self.removed: list[tuple] = []
+        self.rows: list[tuple[str, int]] = []
 
     def add(self, edge, client_remark, domain, target):
         if self.fail_add:
             raise SessionError("nps refused")
         self.added.append((edge, client_remark, domain, target))
+        self.rows.append((domain, 7))
+        if self.orphan_on_add:
+            raise SessionError(
+                f"host mapping {domain} not found on {edge} after adding it"
+            )
         return 7
 
     def remove(self, edge, host_id, domain):
         if self.fail_remove:
             raise SessionError("nps unreachable")
         self.removed.append((edge, host_id, domain))
+        self.rows = [r for r in self.rows if r[1] != host_id]
+
+    def remove_unclaimed(self, edge, domain):
+        if self.fail_remove:
+            raise SessionError("nps unreachable")
+        mine = [r for r in self.rows if r[0] == domain]
+        self.rows = [r for r in self.rows if r[0] != domain]
+        self.removed.extend((edge, host_id, domain) for _, host_id in mine)
+        return len(mine)
 
 
 class World:
@@ -436,6 +453,49 @@ def test_unreachable_mapping_removes_everything_it_created(world):
 
     assert len(mapping.removed) == 1
     assert ("client.host", "echo_stop") in w.calls
+
+
+def test_create_that_returns_no_id_is_reclaimed_by_domain(world):
+    w = world()
+    mapping = FakeMapping(orphan_on_add=True)
+
+    with pytest.raises(SessionError, match="not found .* after adding it"):
+        with _session(w, mapping):
+            pytest.fail("the session must not open")
+
+    assert mapping.rows == []
+    assert mapping.removed == [(EDGE, 7, mapping_domain(mapping))]
+    assert ("client.host", "echo_stop") in w.calls
+
+
+def mapping_domain(mapping):
+    return mapping.added[0][2]
+
+
+def test_reclaim_that_fails_is_reported_with_the_manual_command(world):
+    w = world()
+    mapping = FakeMapping(orphan_on_add=True, fail_remove=True)
+    session = _session(w, mapping)
+
+    with pytest.raises(SessionError):
+        with session:
+            pytest.fail("the session must not open")
+
+    (problem,) = session.cleanup_problems
+    assert "may still be on" in problem
+    assert f"nps-ctl host del -e {EDGE}" in problem
+
+
+def test_a_clean_run_does_not_claim_an_unclaimed_mapping(world):
+    w = world()
+    mapping = FakeMapping()
+    session = _session(w, mapping)
+
+    with session:
+        pass
+
+    assert mapping.removed == [(EDGE, 7, session.domain)]
+    assert session.cleanup_problems == []
 
 
 def test_cleanup_reports_a_mapping_it_could_not_remove(world):
@@ -705,6 +765,80 @@ def test_nps_mapping_raises_when_the_row_survives_the_delete(monkeypatch):
         mapping.remove(EDGE, 11, "d.invalid")
 
     assert 11 in state["hosts"]
+
+
+def test_nps_mapping_reclaims_a_row_whose_create_returned_no_id(monkeypatch):
+    mapping, state = _nps_world(monkeypatch)
+    state["hosts"][21] = {"Id": 21, "Host": "d.invalid", "Remark": REMARK}
+    state["hosts"][22] = {"Id": 22, "Host": "other.invalid", "Remark": REMARK}
+
+    removed = mapping.remove_unclaimed(EDGE, "d.invalid")
+
+    assert removed == 1
+    assert state["deleted"] == [21]
+    assert 22 in state["hosts"]
+
+
+def test_nps_mapping_reclaim_leaves_a_foreign_row_alone(monkeypatch):
+    mapping, state = _nps_world(monkeypatch, host_remark="somebody's real site")
+    state["hosts"][21] = {
+        "Id": 21,
+        "Host": "d.invalid",
+        "Remark": "somebody's real site",
+    }
+
+    removed = mapping.remove_unclaimed(EDGE, "d.invalid")
+
+    assert removed == 0
+    assert state["deleted"] == []
+
+
+def test_nps_mapping_reclaim_raises_when_the_row_survives(monkeypatch):
+    mapping, state = _nps_world(monkeypatch)
+    state["hosts"][21] = {"Id": 21, "Host": "d.invalid", "Remark": REMARK}
+    monkeypatch.setattr(host, "del_host", lambda n, hid: True)
+
+    with pytest.raises(SessionError, match="still lists host 21"):
+        mapping.remove_unclaimed(EDGE, "d.invalid")
+
+
+def test_port_discovery_needs_only_grep():
+    seen = []
+
+    def ssh(ssh_host, script, timeout=120, ssh_user=""):
+        seen.append(script)
+        return DeployResult(True, "ok", stdout="30080\n")
+
+    session = ProbeSession(
+        FakeCluster(),
+        EDGE,
+        CLIENT,
+        ssh=ssh,
+        mapping=FakeMapping(),
+        sleep=lambda _s: None,
+    )
+    session.http_proxy_port = None
+
+    assert session._discover_http_proxy_port() == 30080
+    assert "python3" not in seen[0]
+    assert "http_proxy_port" in seen[0]
+
+
+def test_port_discovery_falls_back_when_nps_conf_has_no_port():
+    def ssh(ssh_host, script, timeout=120, ssh_user=""):
+        return DeployResult(True, "ok", stdout="")
+
+    session = ProbeSession(
+        FakeCluster(),
+        EDGE,
+        CLIENT,
+        ssh=ssh,
+        mapping=FakeMapping(),
+        sleep=lambda _s: None,
+    )
+    session.http_proxy_port = None
+
+    assert session._discover_http_proxy_port() == 30080
 
 
 def test_nps_mapping_reports_an_unknown_client(monkeypatch):

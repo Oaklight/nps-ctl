@@ -235,8 +235,13 @@ def collect_client(
 
 def report_for(
     snapshot: ClientSnapshot, since: float, edge_by_host: dict[str, str]
-) -> list[LinkReport]:
+) -> tuple[list[LinkReport], list[Outage]]:
     """Assess every bridge link of a collected client.
+
+    Outages whose server is not among the configured ones are returned
+    separately rather than dropped: a bridge-port change or a client whose
+    config drifted would otherwise make a real outage look like a healthy
+    link.
 
     Args:
         snapshot: Output of :func:`collect_client`.
@@ -244,11 +249,14 @@ def report_for(
         edge_by_host: Server hostname -> edge name, for display.
 
     Returns:
-        One report per configured server, in configured order.
+        ``(reports, unattributed)``: one report per configured server in
+        configured order, and the outages no configured server matched.
     """
     cutoff = snapshot.now - since
     events = [event for event in snapshot.events if event.time >= cutoff]
     outages = find_outages(events)
+    known = {server.address for server in snapshot.servers}
+    unattributed = [outage for outage in outages if outage.server not in known]
     reports: list[LinkReport] = []
     for server in snapshot.servers:
         mine = [o for o in outages if o.server == server.address]
@@ -265,7 +273,7 @@ def report_for(
                 findings=assess(summary, server.established, subject),
             )
         )
-    return reports
+    return reports, unattributed
 
 
 def collect_links(
@@ -277,7 +285,7 @@ def collect_links(
     tail_bytes: int = DEFAULT_TAIL_BYTES,
     ssh: SshRunner = ssh_execute,
     max_workers: int = 4,
-) -> tuple[list[LinkReport], dict[str, str]]:
+) -> tuple[list[LinkReport], dict[str, str], dict[str, list[Outage]]]:
     """Collect and assess the bridge links of several NPC clients.
 
     Args:
@@ -291,8 +299,9 @@ def collect_links(
         max_workers: Clients inspected in parallel.
 
     Returns:
-        ``(reports, errors)``: link reports for clients that answered, and a
-        client -> reason mapping for those that did not.
+        ``(reports, errors, unattributed)``: link reports for clients that
+        answered, a client -> reason mapping for those that did not, and, per
+        client, the outages whose server no configured bridge matched.
     """
 
     def one(name: str) -> tuple[str, ClientSnapshot, dict[str, str]]:
@@ -317,6 +326,7 @@ def collect_links(
 
     reports: list[LinkReport] = []
     errors: dict[str, str] = {}
+    unattributed: dict[str, list[Outage]] = {}
     with ThreadPoolExecutor(
         max_workers=max(1, min(max_workers, len(client_names)))
     ) as pool:
@@ -325,7 +335,10 @@ def collect_links(
         if snapshot.error and not snapshot.servers:
             errors[name] = snapshot.error
             continue
-        reports.extend(report_for(snapshot, since, edge_by_host))
+        client_reports, orphans = report_for(snapshot, since, edge_by_host)
+        reports.extend(client_reports)
+        if orphans:
+            unattributed[name] = orphans
         if snapshot.error:
             errors[name] = snapshot.error
-    return reports, errors
+    return reports, errors, unattributed

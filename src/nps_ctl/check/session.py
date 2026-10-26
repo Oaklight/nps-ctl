@@ -50,6 +50,16 @@ class MappingApi(Protocol):
     def remove(self, edge: str, host_id: int, domain: str) -> None:
         """Delete the mapping with *host_id*."""
 
+    def remove_unclaimed(self, edge: str, domain: str) -> int:
+        """Delete any mapping for *domain* this session created, without an id.
+
+        Used when the create call raised after the edge had already accepted
+        it, so no id was ever returned.
+
+        Returns:
+            How many rows were removed.
+        """
+
 
 class NpsMapping:
     """:class:`MappingApi` backed by the NPS HTTP API of a real cluster."""
@@ -82,6 +92,32 @@ class NpsMapping:
                 return int(entry["Id"])
         raise SessionError(f"host mapping {domain} not found on {edge} after adding it")
 
+    def _ours(self, nps: Any, domain: str) -> list[HostInfo]:
+        """Return the host rows for *domain* that carry this session's remark."""
+        return [
+            entry
+            for entry in host.list_hosts(nps, search=domain)
+            if entry.get("Host") == domain and entry.get("Remark") == REMARK
+        ]
+
+    def _delete(self, nps: Any, edge: str, host_id: int, domain: str) -> None:
+        """Delete one row and confirm it is gone.
+
+        Raises:
+            SessionError: If the row is not this session's mapping, or if it
+                is still listed after the delete.
+        """
+        entry = next(
+            (row for row in self._ours(nps, domain) if row.get("Id") == host_id),
+            None,
+        )
+        if entry is None:
+            return
+        if not host.del_host(nps, host_id):
+            raise SessionError(f"{edge} refused to delete host mapping {host_id}")
+        if any(row.get("Id") == host_id for row in self._ours(nps, domain)):
+            raise SessionError(f"{edge} still lists host {host_id} after deleting it")
+
     def remove(self, edge: str, host_id: int, domain: str) -> None:
         """Delete the session's mapping and confirm it is gone.
 
@@ -93,29 +129,39 @@ class NpsMapping:
                 is still listed after the delete.
         """
         nps = self._nps(edge)
-
-        def find() -> HostInfo | None:
-            return next(
-                (
-                    h
-                    for h in host.list_hosts(nps, search=domain)
-                    if h.get("Id") == host_id
-                ),
-                None,
-            )
-
-        entry = find()
-        if entry is None:
+        known = next(
+            (row for row in self._ours(nps, domain) if row.get("Id") == host_id),
+            None,
+        )
+        if known is None:
+            if any(
+                row.get("Host") == domain for row in host.list_hosts(nps, search=domain)
+            ):
+                raise SessionError(
+                    f"refusing to delete host {host_id} on {edge}: it is not the "
+                    "mapping this session created"
+                )
             return
-        if entry.get("Host") != domain or entry.get("Remark") != REMARK:
-            raise SessionError(
-                f"refusing to delete host {host_id} on {edge}: it is not the "
-                "mapping this session created"
-            )
-        if not host.del_host(nps, host_id):
-            raise SessionError(f"{edge} refused to delete host mapping {host_id}")
-        if find() is not None:
-            raise SessionError(f"{edge} still lists host {host_id} after deleting it")
+        self._delete(nps, edge, host_id, domain)
+
+    def remove_unclaimed(self, edge: str, domain: str) -> int:
+        """Delete every row for *domain* that this session created.
+
+        The create call can be accepted by the edge and then fail to show up in
+        the follow-up listing, so no id is returned. The domain carries a
+        random token and the remark is this session's own, so a row matching
+        both is this session's mapping.
+
+        Raises:
+            SessionError: If a row survives the delete.
+        """
+        nps = self._nps(edge)
+        removed = 0
+        for entry in self._ours(nps, domain):
+            host_id = int(entry["Id"])
+            self._delete(nps, edge, host_id, domain)
+            removed += 1
+        return removed
 
 
 @dataclass
@@ -248,6 +294,7 @@ class ProbeSession:
         self._echo_pid = ""
         self._echo_port = 0
         self._host_id: int | None = None
+        self._mapping_attempted = False
 
         edge_config = cluster.get_edge(edge)
         npc = cluster.get_npc_client(client)
@@ -294,6 +341,9 @@ class ProbeSession:
         if self.http_proxy_port is None:
             self.http_proxy_port = self._discover_http_proxy_port()
 
+        # The create can be accepted and still fail to return an id; cleanup
+        # then has to look for the row by domain.
+        self._mapping_attempted = True
         self._host_id = self.mapping.add(
             self.edge,
             self.client_remark,
@@ -304,7 +354,6 @@ class ProbeSession:
 
     def _discover_http_proxy_port(self) -> int:
         script = (
-            "command -v python3 >/dev/null || { echo NOPY; exit 0; }\n"
             "grep -hE '^http_proxy_port' /etc/nps/conf/nps.conf 2>/dev/null "
             "| head -1 | cut -d= -f2 | tr -d ' \\r'\n"
         )
@@ -312,8 +361,6 @@ class ProbeSession:
         if not result.success:
             raise SessionError(f"cannot reach edge {self.edge_ssh}: {result.message}")
         out = result.stdout.strip()
-        if out == "NOPY":
-            raise SessionError(f"python3 is not installed on edge {self.edge_ssh}")
         return int(out) if out.isdigit() else DEFAULT_HTTP_PROXY_PORT
 
     def _wait_ready(self, attempts: int = 10) -> None:
@@ -339,6 +386,10 @@ class ProbeSession:
             stored in :attr:`cleanup_problems`.
         """
         problems: list[str] = []
+        manual = (
+            f"remove it with 'nps-ctl host del -e {self.edge} "
+            f"--domain {self.domain} -y'"
+        )
         if self._host_id is not None:
             try:
                 self.mapping.remove(self.edge, self._host_id, self.domain)
@@ -346,8 +397,18 @@ class ProbeSession:
             except Exception as exc:  # noqa: BLE001 - report, never mask the original error
                 problems.append(
                     f"host mapping {self.domain} (id {self._host_id}) is still on "
-                    f"{self.edge}: {exc}; remove it with "
-                    f"'nps-ctl host del -e {self.edge} --domain {self.domain} -y'"
+                    f"{self.edge}: {exc}; {manual}"
+                )
+        elif self._mapping_attempted:
+            try:
+                removed = self.mapping.remove_unclaimed(self.edge, self.domain)
+                if removed == 0:
+                    raise SessionError("the edge lists no mapping for it either")
+            except Exception as exc:  # noqa: BLE001
+                problems.append(
+                    f"a host mapping for {self.domain} may still be on "
+                    f"{self.edge} from a create whose id was never returned: "
+                    f"{exc}; {manual}"
                 )
         if self._echo_dir:
             try:
@@ -431,7 +492,7 @@ class ProbeSession:
             Outages of the bridge to this session's edge; empty when the log
             could not be read.
         """
-        reports, _ = collect_links(
+        reports, _, _ = collect_links(
             self.cluster, [self.client], since=since, ssh=self.ssh, max_workers=1
         )
         return [o for r in reports if r.edge == self.edge for o in r.outages]

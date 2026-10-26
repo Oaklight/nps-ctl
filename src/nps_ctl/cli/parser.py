@@ -244,6 +244,28 @@ def _add_check_commands(subparsers) -> None:
         help="Per-request timeout in seconds (default: 30)",
     )
 
+    # check leftovers
+    leftovers_parser = check_sub.add_parser(
+        "leftovers",
+        help="List host mappings left by an interrupted check run",
+        description=(
+            "A run that was killed outright cannot clean up after itself. This "
+            "lists the throwaway mappings it left (they carry a fixed remark and "
+            "an .nps-ctl-check.invalid domain) and, with --delete, removes them "
+            "through the same verified path the runs use."
+        ),
+    )
+    add_edge_argument(leftovers_parser, help_text="Edge to inspect (default: all)")
+    add_all_argument(leftovers_parser, help_text="Inspect every configured edge")
+    leftovers_parser.add_argument(
+        "--delete",
+        action="store_true",
+        help="Delete the leftovers (requires -e or -a)",
+    )
+    add_yes_argument(leftovers_parser)
+    add_output_arguments(leftovers_parser)
+    leftovers_parser.set_defaults(requires_config=True)
+
     # check stress
     stress_parser = check_sub.add_parser(
         "stress",

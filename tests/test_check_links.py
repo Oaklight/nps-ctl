@@ -306,7 +306,9 @@ def test_report_for_only_counts_outages_inside_the_window():
         ssh=FakeSsh(_remote_output(log=old + "\n" + new)),
     )
 
-    (report,) = report_for(snapshot, 6 * 3600, {HOST: "nps-europe"})
+    reports, unattributed = report_for(snapshot, 6 * 3600, {HOST: "nps-europe"})
+    (report,) = reports
+    assert unattributed == []
 
     assert report.summary.outages == 1
     assert report.edge == "nps-europe"
@@ -345,8 +347,11 @@ def test_collect_links_separates_reports_from_unreachable_clients():
             return DeployResult(False, "SSH command timed out")
         return DeployResult(True, "ok", stdout=good)
 
-    reports, errors = collect_links(FakeCluster(), ["usa2", "broken"], ssh=ssh)
+    reports, errors, unattributed = collect_links(
+        FakeCluster(), ["usa2", "broken"], ssh=ssh
+    )
 
     assert [r.client for r in reports] == ["usa2"]
     assert errors == {"broken": "SSH command timed out"}
+    assert unattributed == {}
     assert reports[0].to_dict()["edge"] == "nps-europe"

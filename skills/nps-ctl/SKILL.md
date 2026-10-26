@@ -1,6 +1,6 @@
 ---
 name: nps-ctl
-version: 2.0.0
+version: 2.1.0
 description: "NPS/NPC tunnel cluster management and health checking via nps-ctl. Use when the user asks to manage NPS edges, NPC clients, host mappings or TCP/UDP tunnels, to sync or back up edge configuration, to run the web dashboard, or to diagnose tunnel instability, dropped connections, truncated or corrupted uploads through a tunnel."
 ---
 
@@ -187,7 +187,10 @@ configured edges resolve to, and the tail of the NPC log (`/var/log/npc.log`,
 
 An outage starts at the last answered ping, not when NPC noticed, and is
 attributed to an edge by the `Start server` line that follows the timeout. A
-link can therefore read "down 5% of the time" while its log looks quiet.
+link can therefore read "down 5% of the time" while its log looks quiet. When
+several of a client's bridges time out together, each keeps its own outage
+(oldest-first pairing). An outage whose server matches no configured bridge is
+reported as `outages_unattributed` rather than dropped.
 
 `--fail-on warn` (default) or `error` sets the level that makes the exit
 code 1. A link that is down, an unreachable client, or three or more outages
@@ -220,6 +223,10 @@ blaming the path.
 `--mode slow` with `--chunk-kb` / `--gap-ms` imitates a slow uploader such as a
 language-model client sending a long conversation.
 
+`--json` never prompts: `probe` and `stress` print one JSON document, so pass
+`-y` (or `--dry-run`) or they exit 2 with a JSON error. Without `--json` the
+confirmation prompt goes to stderr. Ctrl-C cleans up and exits 130.
+
 ### Stress profiles (creates temporary objects)
 
 ```bash
@@ -240,6 +247,18 @@ client's NPC log and prints both the share of failures inside outage windows
 and the share of the run those windows cover. "All failures inside outages
 that cover 9% of the run" is evidence for the link; failures with no outage
 anywhere near them are evidence against it.
+
+### Leftover mappings
+
+```bash
+nps-ctl check leftovers                      # list, every edge
+nps-ctl check leftovers --delete -a -y       # remove them
+```
+
+A run killed outright cannot clean up. `check leftovers` lists mappings carrying
+the check's own remark and `.nps-ctl-check.invalid` domain, and removes them
+through the same verified delete path. Leftovers matter beyond a wasted row: a
+mapping present on one edge only reads as drift in `edge status`.
 
 ### What a check run leaves behind
 
@@ -345,7 +364,7 @@ Remember to list the new edge in the relevant clients' `edges` in
 | `client` | `list`, `add`, `push`, `del`, `status`, `install`, `upgrade`, `reconfig`, `restart`, `uninstall` |
 | `host` | `list`, `status`, `add`, `edit`, `del` |
 | `tunnel` | `list`, `status`, `add`, `edit`, `del`, `start`, `stop` |
-| `check` | `links`, `probe`, `stress` |
+| `check` | `links`, `probe`, `stress`, `leftovers` |
 | `util` | `generate-auth-key`, `hash-password` |
 | `web` | dashboard server (read-only unless `--allow-writes`) |
 

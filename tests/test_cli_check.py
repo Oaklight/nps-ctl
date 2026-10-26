@@ -123,7 +123,7 @@ def test_parse_size():
 def test_links_json_reports_links_and_exits_zero_when_stable(monkeypatch, capsys):
     _patch_cluster(monkeypatch)
     monkeypatch.setattr(
-        cmd_check, "collect_links", lambda *a, **k: ([_link_report()], {})
+        cmd_check, "collect_links", lambda *a, **k: ([_link_report()], {}, {})
     )
 
     code = cmd_check.cmd_check_links(_parse("check", "links", "--json"))
@@ -139,7 +139,7 @@ def test_links_exits_one_for_a_down_link(monkeypatch, capsys):
     monkeypatch.setattr(
         cmd_check,
         "collect_links",
-        lambda *a, **k: ([_link_report(established=False)], {}),
+        lambda *a, **k: ([_link_report(established=False)], {}, {}),
     )
 
     assert cmd_check.cmd_check_links(_parse("check", "links", "--json")) == 1
@@ -149,7 +149,7 @@ def test_links_exits_one_for_a_down_link(monkeypatch, capsys):
 def test_links_exits_one_for_an_unreachable_client(monkeypatch, capsys):
     _patch_cluster(monkeypatch)
     monkeypatch.setattr(
-        cmd_check, "collect_links", lambda *a, **k: ([], {"client-a": "SSH error"})
+        cmd_check, "collect_links", lambda *a, **k: ([], {"client-a": "SSH error"}, {})
     )
 
     code = cmd_check.cmd_check_links(_parse("check", "links", "--json"))
@@ -174,7 +174,7 @@ def test_links_fail_on_error_ignores_warnings(monkeypatch):
     ]
     report = _link_report(outages=flapping)
     assert any(f.level == "warn" for f in report.findings)
-    monkeypatch.setattr(cmd_check, "collect_links", lambda *a, **k: ([report], {}))
+    monkeypatch.setattr(cmd_check, "collect_links", lambda *a, **k: ([report], {}, {}))
 
     warn = cmd_check.cmd_check_links(_parse("check", "links", "--json"))
     error = cmd_check.cmd_check_links(
@@ -216,7 +216,7 @@ def test_links_missing_config_exits_one(monkeypatch, capsys):
 def test_links_table_output_lists_each_link(monkeypatch, capsys):
     _patch_cluster(monkeypatch)
     monkeypatch.setattr(
-        cmd_check, "collect_links", lambda *a, **k: ([_link_report()], {})
+        cmd_check, "collect_links", lambda *a, **k: ([_link_report()], {}, {})
     )
 
     code = cmd_check.cmd_check_links(_parse("check", "links", "--no-color"))
@@ -377,7 +377,7 @@ def test_probe_without_yes_and_without_a_tty_is_a_usage_error(
 
 
 def test_probe_declined_confirmation_aborts_cleanly(session_env, monkeypatch, capsys):
-    monkeypatch.setattr("builtins.input", lambda prompt: "n")
+    monkeypatch.setattr("builtins.input", lambda: "n")
 
     code = cmd_check.cmd_check_probe(
         _parse("check", "probe", "-e", "nps-x", "-c", "client-a", "--no-color")
@@ -419,6 +419,114 @@ def test_probe_bad_size_is_a_usage_error(session_env, capsys):
     )
 
     assert code == 2
+
+
+def test_json_without_yes_refuses_instead_of_prompting(session_env, capsys):
+    code = cmd_check.cmd_check_probe(
+        _parse("check", "probe", "-e", "nps-x", "-c", "client-a", "--json")
+    )
+
+    out = capsys.readouterr().out
+    assert code == 2
+    assert json.loads(out)["error"].startswith("--json runs without a prompt")
+    assert FakeSession.opened == []
+
+
+def test_json_mode_emits_one_document_only(session_env, capsys):
+    session_env["report"] = _report([Finding("info", "path_clean", "s", "ok")])
+
+    code = cmd_check.cmd_check_probe(
+        _parse("check", "probe", "-e", "nps-x", "-c", "client-a", "-y", "--json")
+    )
+
+    out = capsys.readouterr().out
+    payload = json.loads(out)  # a second document would fail here
+    assert code == 0
+    assert payload["plan"].startswith("Will start a temporary echo service")
+
+
+def test_setup_failure_reports_what_cleanup_left_behind(
+    session_env, monkeypatch, capsys
+):
+    from nps_ctl.check.session import SessionError
+
+    class LeakySetup(FakeSession):
+        def __enter__(self):
+            self.cleanup_problems = ["host mapping x is still on nps-x"]
+            raise SessionError("cannot start echo")
+
+    monkeypatch.setattr(cmd_check, "ProbeSession", LeakySetup)
+
+    code = cmd_check.cmd_check_probe(
+        _parse("check", "probe", "-e", "nps-x", "-c", "client-a", "-y", "--json")
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert code == 1
+    assert payload["error"] == "cannot start echo"
+    assert payload["cleanup_problems"] == ["host mapping x is still on nps-x"]
+
+
+def test_interrupt_exits_130_and_says_cleanup_succeeded(
+    session_env, monkeypatch, capsys
+):
+    def interrupted(*a, **k):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(cmd_check, "run_stress", interrupted)
+
+    code = cmd_check.cmd_check_stress(
+        _parse("check", "stress", "-e", "nps-x", "-c", "client-a", "-y", "--json")
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert code == 130
+    assert "were removed" in payload["error"]
+
+
+def test_interrupt_reports_cleanup_problems(session_env, monkeypatch, capsys):
+    class Leaky(FakeSession):
+        def __init__(self, *a, **k):
+            super().__init__(*a, **k)
+            self.cleanup_problems = ["host mapping left"]
+
+    def interrupted(*a, **k):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(cmd_check, "ProbeSession", Leaky)
+    monkeypatch.setattr(cmd_check, "run_stress", interrupted)
+
+    code = cmd_check.cmd_check_probe(
+        _parse("check", "probe", "-e", "nps-x", "-c", "client-a", "-y", "--json")
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert code == 130
+    assert "cleanup left: host mapping left" in payload["error"]
+
+
+def test_links_reports_outages_whose_server_is_not_configured(monkeypatch, capsys):
+    _patch_cluster(monkeypatch)
+    from nps_ctl.check.npc_log import Outage
+
+    orphan = Outage("nps-gone.example:51235", 100.0, 130.0, reconnected=190.0)
+    monkeypatch.setattr(
+        cmd_check,
+        "collect_links",
+        lambda *a, **k: ([_link_report()], {}, {"client-a": [orphan]}),
+    )
+
+    code = cmd_check.cmd_check_links(_parse("check", "links", "--json"))
+
+    payload = json.loads(capsys.readouterr().out)
+    assert code == 1
+    assert payload["unattributed_outages"]["client-a"][0]["server"] == (
+        "nps-gone.example:51235"
+    )
+    assert (
+        any(f["code"] == "outages_unattributed" for f in payload["findings"])
+        or payload["summary"]["warnings"] == 1
+    )
 
 
 def test_stress_passes_the_profile_and_duration_through(session_env, capsys):

@@ -154,14 +154,45 @@ def parse_log(text: str) -> list[NpcEvent]:
     return events
 
 
+def _oldest_open(open_outages: list[Outage], server: str) -> Outage | None:
+    """Return the open outage the next event for *server* belongs to.
+
+    An event that names a server belongs to the oldest outage already carrying
+    that name, so reconnects pair correctly when several bridges are down at
+    once. Otherwise the oldest outage that has no name yet takes it, which is
+    what the ``Start server`` line after a ping timeout relies on.
+
+    Args:
+        open_outages: Outages that have not reconnected yet, oldest first.
+        server: Server named by the event, empty when it names none.
+
+    Returns:
+        The matching outage, or ``None`` when no outage is open.
+    """
+    if server:
+        for outage in open_outages:
+            if outage.server == server:
+                return outage
+    for outage in open_outages:
+        if not outage.server:
+            return outage
+    return open_outages[0] if open_outages else None
+
+
 def find_outages(events: list[NpcEvent]) -> list[Outage]:
     """Group link events into outage windows.
 
-    A ping timeout opens an outage that starts at the last answered ping. The
-    bridge it belongs to is named by the next ``Start server`` line, because a
-    ping-timeout line carries no server. The outage ends at the next
-    ``Successful connection``. A second ping timeout while an outage is open
-    extends that outage instead of opening another.
+    Every ping timeout opens its own outage, starting at the last answered
+    ping. The bridge it belongs to is named by the ``Start server`` line that
+    follows it, because the timeout line carries no server. Events are paired
+    oldest-first: when a client bridges several edges and its own network
+    blips, several muxes time out within seconds of each other, and folding
+    them together would credit one edge with another's downtime.
+
+    An outage ends at the ``Successful connection`` naming the same server, or
+    the oldest unnamed outage when the event carries no name. A ``Start
+    server`` or ``Successful connection`` with no outage open is the client's
+    initial connection and is ignored.
 
     Args:
         events: Events in time order, as returned by :func:`parse_log`.
@@ -171,30 +202,35 @@ def find_outages(events: list[NpcEvent]) -> list[Outage]:
         the log ends before the link came back.
     """
     outages: list[Outage] = []
-    current: Outage | None = None
+    open_outages: list[Outage] = []
     for event in events:
         if event.kind == PING_TIMEOUT:
-            if current is None:
-                current = Outage(
-                    server="",
-                    last_alive=event.last_alive or event.time,
-                    detected=event.time,
-                )
-                outages.append(current)
-        elif current is None:
+            outage = Outage(
+                server="",
+                last_alive=event.last_alive or event.time,
+                detected=event.time,
+            )
+            outages.append(outage)
+            open_outages.append(outage)
             continue
-        elif event.kind == START_SERVER and not current.server:
-            current.server = event.server
+        if not open_outages:
+            continue
+        target = _oldest_open(open_outages, event.server)
+        if target is None:
+            continue
+        if event.kind == START_SERVER:
+            if not target.server:
+                target.server = event.server
         elif event.kind == CONNECT_FAILED:
-            current.failed_attempts += 1
-            if not current.server:
-                current.server = event.server
+            target.failed_attempts += 1
+            if not target.server:
+                target.server = event.server
             reason = classify_error(event.detail)
-            if reason not in current.reasons:
-                current.reasons.append(reason)
+            if reason not in target.reasons:
+                target.reasons.append(reason)
         elif event.kind == CONNECTED:
-            current.reconnected = event.time
-            if not current.server:
-                current.server = event.server
-            current = None
+            target.reconnected = event.time
+            if not target.server:
+                target.server = event.server
+            open_outages.remove(target)
     return outages
